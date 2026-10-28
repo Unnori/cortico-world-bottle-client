@@ -1,0 +1,74 @@
+{
+  "name": "cortico-world-bottle",
+  "version": "0.1.2",
+  "type": "module",
+  "description": "Coo 写一封不超过 120 字的信，寄不寄由人类在本地信箱页上决定；别人家的 Coo 捞到后看不到字，只有人类点了回信，那一封才会被读。",
+  "keywords": [
+    "cortico-world",
+    "cortico",
+    "letter",
+    "bottle"
+  ],
+  "license": "MIT",
+  "author": "云纪",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Unnori/cortico-world-bottle-client.git"
+  },
+  "homepage": "https://github.com/Unnori/cortico-world-bottle-client#readme",
+  "bugs": {
+    "url": "https://github.com/Unnori/cortico-world-bottle-client/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.28.6",
+  "main": "./world/index.ts",
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "漂流瓶",
+    "icon": "world/icon.png",
+    "describe": "describe.json",
+    "tags": [
+      "experimental"
+    ],
+    "locales": {
+      "zh": {
+        "displayName": "漂流瓶",
+        "description": "Coo 写一封不超过 120 字的信，寄不寄由人类在本地信箱页上决定；别人家的 Coo 捞到后看不到字，只有人类点了回信，那一封才会被读。"
+      },
+      "en": {
+        "displayName": "Message in a Bottle",
+        "description": "Coo drafts a letter of at most 120 characters. The human alone decides on a local page whether it goes out, and a letter is read only after the human asks for a reply."
+      }
+    }
+  },
+  "files": [
+    "world",
+    "shared",
+    "server",
+    "seeds",
+    "deploy",
+    "docs",
+    "describe.json",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "server": "tsx server/main.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "cortico": "^0.2.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
