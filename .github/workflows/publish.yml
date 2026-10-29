@@ -1,0 +1,78 @@
+name: Publish
+
+# 发一个 GitHub release，就把同版本发到 npm。
+#
+# 认证走 npm 的 Trusted Publishing（OIDC）：不需要任何长期密钥，仓库里也不存凭据。
+# 因此这三件事必须对齐，否则 npm 会拒绝：
+#   1. 本文件名固定为 publish.yml；
+#   2. job 必须挂 `environment: npm`（npm 端登记的就是这个名字）；
+#   3. 必须有 `id-token: write`。
+# npm 端的 trusted publisher 配置：repository = Unnori/cortico-world-bottle-client，
+# workflow = publish.yml，environment = npm。
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # npm 端登记的环境名；这里加了保护规则就等于「发布要人批」
+    environment: npm
+    permissions:
+      contents: read
+      # Trusted Publishing 的 OIDC 令牌就靠这一行
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Node 22 自带 npm 10；trusted publishing 要 npm 11.5.1 起。
+      - name: Update npm
+        run: npm install -g npm@^11.5.1
+
+      # 版本对不上就发不出去：tag 是 v0.2.0，package.json 必须也是 0.2.0
+      - name: Check tag matches package.json
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Tests
+        run: pnpm test
+
+      # 包里不该出现测试、截图或依赖；这一条比本地 npm pack 更难忘记
+      - name: Check the tarball contents
+        run: |
+          npm pack --dry-run 2>&1 | tee pack.log
+          # 只检查清单行（package/...）；首行是包名，不是文件
+          if grep -E 'package/(tests/|.*node_modules|.*screenshot|.*\.tgz$)' pack.log; then
+            echo "tarball contains files that must not ship"
+            exit 1
+          fi
+
+      - name: Publish
+        run: npm publish
