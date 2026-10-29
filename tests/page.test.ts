@@ -60,6 +60,18 @@ describe('本地信箱页', () => {
     expect(d.rewrite).toHaveBeenLastCalledWith('letter');
   });
 
+  // 回信额度：顶部要有这一格，用完了就是 0，不能只在点了按钮之后被 429 教育。
+  it('页面代码里写了回信额度那一格与回不了的灰态', async () => {
+    const html = (await handlePage(deps(), 'GET', '/')).html ?? '';
+    expect(html).toContain('还能回 ');
+    expect(html).toContain('replies_left');
+    expect(html).toContain('canReply');
+    expect(html).toContain('disabled: true');
+    expect(html).toContain('今天的回信次数用完了');
+    // 回不了的时候旁边必须留着「扔回海里」，否则这封只能干等过期
+    expect(html).toContain("label: '扔回海里', path: '/dismiss', style: 'ghost'");
+  });
+
   it('GET /draft 回当前快照', async () => {
     const res = await handlePage(deps(), 'GET', '/draft');
     expect(res.status).toBe(200);

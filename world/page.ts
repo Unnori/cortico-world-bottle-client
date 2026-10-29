@@ -74,6 +74,13 @@ export interface PageSnapshot {
   received: PageReceivedView[];
   quota: Quota | null;
   online: boolean;
+  /**
+   * 今天还能不能回信。
+   *
+   * 老服务端不给 `replies_left` 时按「能」处理（`true`）——宁可让服务端 429 兜底，
+   * 也不要因为字段缺席把人挡在门外。
+   */
+  canReply?: boolean;
   /** 明文账本的位置，页脚要如实写出来。 */
   localFile?: string;
 }
@@ -348,6 +355,7 @@ export function pageHtml(): string {
     background: rgba(255, 255, 255, .5); border-radius: 999px; padding: 4px 11px;
   }
   .chip b { color: var(--ink); font-weight: 600; }
+  .chip.spent { color: var(--seal); border-color: currentColor; }
   .card {
     background: var(--card); border: 1px solid var(--line); border-radius: 16px;
     box-shadow: var(--shadow); padding: 30px 30px 24px; margin-bottom: 22px;
@@ -371,6 +379,7 @@ export function pageHtml(): string {
     border-radius: 9px; padding: 8px 12px; display: flex; align-items: center; gap: 8px;
   }
   .hint.local { color: #4b6070; background: #eef4f6; border-color: #dbe7ec; }
+  .hint.spent { color: #8a4038; background: #fbeeec; border-color: #efd4ce; }
   .hint .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; flex: none; }
   .actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
   .btn {
@@ -516,9 +525,14 @@ export function pageHtml(): string {
     list.forEach(function (item) {
       var btn = el('button', 'btn ' + (item.style || ''), item.label);
       btn.type = 'button';
-      btn.onclick = function () {
-        run(item.path, btn, item.kind ? { kind: item.kind } : undefined);
-      };
+      if (item.disabled) {
+        btn.disabled = true;
+        btn.setAttribute('aria-disabled', 'true');
+      } else {
+        btn.onclick = function () {
+          run(item.path, btn, item.kind ? { kind: item.kind } : undefined);
+        };
+      }
       box.appendChild(btn);
     });
     return box;
@@ -551,10 +565,22 @@ export function pageHtml(): string {
       card.appendChild(hints);
     }
 
-    card.appendChild(buttons([
-      { label: draft.hints && draft.hints.length ? '仍然寄出' : '寄出去', path: '/send', style: 'seal', kind: draft.kind },
-      { label: '重写', path: '/rewrite', style: 'ghost', kind: draft.kind }
-    ]));
+    // 回信额度用完时：寄出变灰，旁边留一个「扔回海里」——不然这封只能干等过期
+    var canReply = s.canReply !== false;
+    var actions;
+    if (!isLetter && !canReply) {
+      actions = [
+        { label: '今天回不了', path: '/send', style: 'seal', kind: draft.kind, disabled: true },
+        { label: '扔回海里', path: '/dismiss', style: 'ghost' }
+      ];
+      card.appendChild(el('div', 'hint spent', '今天的回信次数用完了。这一封只能扔回海里，或者等明天再捞一封。'));
+    } else {
+      actions = [
+        { label: draft.hints && draft.hints.length ? '仍然寄出' : '寄出去', path: '/send', style: 'seal', kind: draft.kind },
+        { label: '重写', path: '/rewrite', style: 'ghost', kind: draft.kind }
+      ];
+    }
+    card.appendChild(buttons(actions));
     return card;
   }
 
@@ -568,8 +594,12 @@ export function pageHtml(): string {
     card.appendChild(el('h2', 'title', '还没决定要不要回'));
     card.appendChild(el('div', 'letter', s.held.body));
     card.appendChild(el('div', 'meta', s.held.hoursLeft > 0 ? '还有 ' + s.held.hoursLeft + ' 小时回海' : '随时会回海'));
+    // 今天回不了就直说，别让人点了「回信」才发现第 4 封被 429
+    if (s.canReply === false) {
+      card.appendChild(el('div', 'hint spent', '今天的回信次数用完了。这封只能先扔回海里，明天再捞。'));
+    }
     card.appendChild(buttons([
-      { label: '回信', path: '/open', style: 'seal' },
+      { label: s.canReply === false ? '今天回不了' : '回信', path: '/open', style: 'seal', disabled: s.canReply === false },
       { label: '扔回海里', path: '/dismiss', style: 'ghost' }
     ]));
     return card;
@@ -661,6 +691,15 @@ export function pageHtml(): string {
     catches.appendChild(el('b', null, String(q.catches_left)));
     catches.appendChild(document.createTextNode(' 次'));
     tide.appendChild(catches);
+    // 回信额度：老服务端不给这个字段时干脆不显示，别显示成「还能回 0 封」
+    if (typeof q.replies_left === 'number') {
+      var replies = el('span', 'chip' + (q.replies_left > 0 ? '' : ' spent'));
+      replies.appendChild(document.createTextNode('还能回 '));
+      replies.appendChild(el('b', null, String(q.replies_left)));
+      replies.appendChild(document.createTextNode(' 封'));
+      if (q.replies_left <= 0) replies.appendChild(document.createTextNode('（今天到头了）'));
+      tide.appendChild(replies);
+    }
     if (state.online === false) tide.appendChild(el('span', 'chip', '海边没回音'));
   }
 

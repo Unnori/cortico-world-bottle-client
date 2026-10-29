@@ -201,6 +201,23 @@ describe('漂流瓶 World · 收信', () => {
     expect(snapshot.held?.from).toMatch(/#\d{4}$/);
   });
 
+  it('今天回不了信：读信被挡、快照说 canReply=false', async () => {
+    h = makeHarness({ rules: { sendBase: 50, sendCap: 50, catchBase: 50, catchCap: 50, poolDivisor: 5, replyCap: 0 } });
+    host = new FakeHost();
+    h.throwAs('peer', '信里写着：捡到一只很白的贝壳。');
+    const world = await started();
+    await callTool(world, 'bottle_catch');
+
+    const snapshot = world.pageDeps().snapshot();
+    expect(snapshot.quota?.replies_left).toBe(0);
+    expect(snapshot.canReply).toBe(false);
+
+    const opened = await world.pageDeps().open('page');
+    expect(opened.ok).toBe(false);
+    expect(opened.message).toContain('回信次数用完了');
+    expect(host.last('bottle.reading')).toBeUndefined();
+  });
+
   // 回归：曾经 `openHeld` 见到任何草稿就回「先把草稿处理掉」，
   // 于是"手上压着一封信稿"的人永远读不到捞来的信，也就换不回寄信额度。
   it('手上压着信稿，也不挡着读捞到的那一封', async () => {

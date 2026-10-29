@@ -86,6 +86,8 @@ export class BottleWorld implements World {
   private timers: Array<ReturnType<typeof setInterval>> = [];
 
   private quota: Quota | null = null;
+  /** 上一次拿到额度回执的时刻；页面据此决定要不要顺手刷新。 */
+  private quotaAt = 0;
   private online = false;
   private tokenCache = '';
   /** 已经因为 401 重注册过几次；防止服务端一直拒绝时无限重试。 */
@@ -340,6 +342,7 @@ export class BottleWorld implements World {
     try {
       const quota = await this.authed(() => this.client.quota());
       this.quota = quota;
+      this.quotaAt = this.now();
       this.online = true;
       await this.noteTsunami(quota);
     } catch {
@@ -493,7 +496,21 @@ export class BottleWorld implements World {
 
   private quotaLine(quota: Quota): string {
     const last = this.lastLetterLabel();
-    return `今天还能寄 ${quota.bottles_left} 封，还能捞 ${quota.catches_left} 次${last ? `，上次写信 ${last}` : '，还没写过信'}。`;
+    const replies = typeof quota.replies_left === 'number'
+      ? `，还能回 ${quota.replies_left} 封`
+      : '';
+    return `今天还能寄 ${quota.bottles_left} 封，还能捞 ${quota.catches_left} 次${replies}${last ? `，上次写信 ${last}` : '，还没写过信'}。`;
+  }
+
+  /**
+   * 今天还能不能回信。
+   *
+   * `replies_left` 是老服务端可能不给的字段：缺席时按"能"处理，让服务端 429 兜底，
+   * 而不是因为字段缺失把人挡在门外。
+   */
+  private canReply(): boolean {
+    const left = this.quota?.replies_left;
+    return typeof left === 'number' ? left > 0 : true;
   }
 
   // ── 原生卡片 ──
@@ -571,6 +588,7 @@ export class BottleWorld implements World {
     try {
       const res = await this.authed(() => this.client.catchOne());
       this.quota = res.quota;
+      this.quotaAt = this.now();
       this.online = true;
 
       if (res.empty) {
@@ -636,6 +654,9 @@ export class BottleWorld implements World {
     const held = this.store.held;
     if (!held || held.letterId !== letterId) return '这一封已经不在手里了。';
     if (held.seed) return '这一封来自海边邮局，它不会回信。';
+    if (!this.canReply()) {
+      return '今天的回信次数用完了，写了也寄不出去。这封只能先扔回海里，或者等明天。';
+    }
 
     const parsed = checkBody(text);
     if (!parsed.ok) return this.bodyProblem(parsed.reason, parsed.chars);
@@ -690,6 +711,9 @@ export class BottleWorld implements World {
 
   private snapshot(): PageSnapshot {
     this.pruneExpired();
+    // 回信额度是服务器上的事实，最多 5 分钟旧；页面每几秒轮询一次，
+    // 顺手让它走一趟，免得「还能回 0 封」要等到下一次定时刷新才出现。
+    if (this.quota && this.now() - this.quotaAt > QUOTA_MS) void this.refreshQuota();
     const replyDraft = this.store.draft;
     const letterDraft = this.store.letterDraft;
     const held = this.store.held;
@@ -752,6 +776,7 @@ export class BottleWorld implements World {
         })),
       quota: this.quota,
       online: this.online,
+      canReply: this.canReply(),
       localFile: this.store.letterbookFile,
     };
     return snapshot;
@@ -777,6 +802,7 @@ export class BottleWorld implements World {
       if (draft.kind === 'letter') {
         const res = await this.authed(() => this.client.throwLetter(draft.body));
         this.quota = res.quota;
+        this.quotaAt = this.now();
         this.online = true;
         this.store.setLetterDraft(null);
         this.store.addSent({ letterId: res.letterId, body: draft.body, at: this.now() });
@@ -787,6 +813,7 @@ export class BottleWorld implements World {
       const letterId = draft.letterId ?? '';
       const res = await this.authed(() => this.client.reply(letterId, draft.body));
       this.quota = res.quota;
+      this.quotaAt = this.now();
       this.online = true;
       this.store.setDraft(null);
       this.store.setHeld(null);
@@ -796,6 +823,11 @@ export class BottleWorld implements World {
     } catch (error) {
       if (error instanceof BottleError && error.code === 'no_bottle') {
         return { ok: false, message: '今天的瓶子用完了。' };
+      }
+      // 回信额度是服务端说了算；本地那份最多 5 分钟旧，以 429 为准并顺手刷新
+      if (error instanceof BottleError && error.code === 'no_reply') {
+        void this.refreshQuota();
+        return { ok: false, message: '今天的回信次数用完了。这一封只能扔回海里，或者明天再来。' };
       }
       return { ok: false, message: error instanceof BottleError ? error.message : '没寄出去。' };
     }
@@ -850,6 +882,7 @@ export class BottleWorld implements World {
     try {
       const res = await this.authed(() => this.client.dismiss(held.letterId));
       this.quota = res.quota;
+      this.quotaAt = this.now();
       throws = res.throws;
       sank = res.sank;
     } catch (error) {
@@ -897,6 +930,10 @@ export class BottleWorld implements World {
     if (!held) return { ok: false, message: '手里没有信。' };
     // 海边邮局不回信（§13.7）：不能把一封注定石沉大海的信读给模型，也不能让人类以为它在等
     if (held.seed) return { ok: false, message: '这一封来自海边邮局，它不会回信。' };
+    // 今天回不了就别让它开始读：读了也只能写出一份寄不出去的回信
+    if (!this.canReply()) {
+      return { ok: false, message: '今天的回信次数用完了。这封只能扔回海里，或者明天再捞。' };
+    }
     // 只有「这一封已经有一份回信草稿」才需要挡：那是重复起草。
     // 信稿草稿（`letterDraft`）跟读这一封无关——手里压着一封没寄的信，不影响读别人的信。
     const draft = this.store.draft;

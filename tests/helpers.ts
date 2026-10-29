@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import type { WorldContext } from 'cortico/world.ts';
 import { createApi, sha256, type Api } from '../server/app.ts';
 import { Db } from '../server/db.ts';
+import type { QuotaRules } from '../server/quota.ts';
 import type { SeedStore } from '../server/seeds.ts';
 import { BOTTLE_DEFAULTS, type BottleConfigSection } from '../world/config.ts';
 import { BottleWorld } from '../world/world.ts';
@@ -24,7 +25,9 @@ export interface Harness {
   stop(): Promise<void>;
 }
 
-export function makeHarness(opts: { port?: number; server?: string; seeds?: SeedStore } = {}): Harness {
+export function makeHarness(
+  opts: { port?: number; server?: string; seeds?: SeedStore; rules?: QuotaRules } = {},
+): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'bottle-world-'));
   const db = Db.open(null);
   const clock = { t: Date.parse('2026-10-27T10:00:00+08:00') };
@@ -37,7 +40,7 @@ export function makeHarness(opts: { port?: number; server?: string; seeds?: Seed
     newToken: () => `tok_${++tokens}`,
     ipLimit: 50,
     // World 的用例只走流程，别让每日额度在半路卡住；额度公式在 server.test 里单独测
-    rules: { sendBase: 50, sendCap: 50, catchBase: 50, catchCap: 50, poolDivisor: 5 },
+    rules: opts.rules ?? { sendBase: 50, sendCap: 50, catchBase: 50, catchCap: 50, poolDivisor: 5 },
     ...(opts.seeds ? { seeds: opts.seeds } : {}),
   });
 
