@@ -1,0 +1,29 @@
+name: OIDC claims
+
+# 诊断用：把 GitHub 发给 npm 的 OIDC 令牌里的 claims 原样打印出来，
+# 好和 npm 端「Trusted publisher」登记的四个字段逐项对照。
+# 不发包、不碰仓库内容，claims 里也没有任何密钥。
+on:
+  workflow_dispatch:
+
+jobs:
+  claims:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # 必须和 publish.yml 用同一个环境，否则 environment claim 不一样，对照就没意义
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch and decode the OIDC token
+        run: node .github/oidc-claims.mjs
+
+      - name: Upload claims
+        uses: actions/upload-artifact@v4
+        with:
+          name: oidc-claims
+          path: claims.txt
