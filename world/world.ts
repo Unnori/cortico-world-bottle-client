@@ -662,7 +662,8 @@ export class BottleWorld implements World {
       } catch (error) {
         // 410 `gone`：正文已经被海带走了（归档或失传）。它仍然要落在手上，
         // 但之后只能「珍藏」——不是错误提示，是遗憾。
-        if (error instanceof BottleError && error.code === 'gone') dead = true;
+        // 410 `gone` 是常态；`not_found` 是抓取与读取之间被归档的竞态，同样算「字没了」
+        if (error instanceof BottleError && (error.code === 'gone' || error.code === 'not_found')) dead = true;
         this.log(`letter fetch failed: ${error instanceof BottleError ? error.code : 'unknown'}`);
       }
 
