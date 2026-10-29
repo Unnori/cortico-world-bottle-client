@@ -160,8 +160,55 @@ describe('漂流瓶 World · 收信', () => {
     expect(snapshot.held?.from).toMatch(/#\d{4}$/);
   });
 
-  it('人类点回信，那一封才以外部事件递进来', async () => {
+  // 回归：曾经 `openHeld` 见到任何草稿就回「先把草稿处理掉」，
+  // 于是"手上压着一封信稿"的人永远读不到捞来的信，也就换不回寄信额度。
+  it('手上压着信稿，也不挡着读捞到的那一封', async () => {
     h.throwAs('peer', '信里写着：捡到一只很白的贝壳。');
+    const world = await started();
+    await callTool(world, 'bottle_write', { text: '这是我还没寄出去的一封。' });
+    expect(world.pageDeps().snapshot().letterDraft?.body).toContain('还没寄出去');
+
+    await callTool(world, 'bottle_catch');
+    const opened = await world.pageDeps().open('page');
+    expect(opened.ok).toBe(true);
+    expect(opened.message).not.toContain('先把草稿');
+
+    await vi.waitFor(() => expect(host.last('bottle.reading')).toBeTruthy(), { timeout: 1000, interval: 10 });
+    expect(host.last('bottle.reading')!.text).toContain('贝壳');
+    // 信稿没被回信顶掉
+    expect(world.pageDeps().snapshot().letterDraft?.body).toContain('还没寄出去');
+  });
+
+  it('信稿与手里那封在快照里同时可见，谁都不遮谁', async () => {
+    h.throwAs('peer', '信里写着：捡到一只很白的贝壳。');
+    const world = await started();
+    await callTool(world, 'bottle_write', { text: '信稿还在。' });
+    await callTool(world, 'bottle_catch');
+
+    const snapshot = world.pageDeps().snapshot();
+    expect(snapshot.letterDraft?.body).toBe('信稿还在。');
+    expect(snapshot.held?.body).toContain('贝壳');
+    expect(snapshot.replyDraft).toBeNull();
+  });
+
+  it('寄哪一份由按钮决定：寄信稿不动回信稿，寄回信不动信稿', async () => {
+    h.throwAs('peer', '信里写着：捡到一只很白的贝壳。');
+    const world = await started();
+    await callTool(world, 'bottle_write', { text: '先放着的一封。' });
+    await callTool(world, 'bottle_catch');
+    await world.pageDeps().open('page');
+    const held = world.pageDeps().snapshot().held!;
+    await callTool(world, 'bottle_reply', { letterId: held.letterId, text: '回你一句。' });
+    expect(world.pageDeps().snapshot().replyDraft?.body).toBe('回你一句。');
+
+    // 先寄回信：信稿必须原样留着
+    const replied = await world.pageDeps().send('reply');
+    expect(replied.ok).toBe(true);
+    expect(world.pageDeps().snapshot().letterDraft?.body).toBe('先放着的一封。');
+    expect(world.pageDeps().snapshot().replyDraft).toBeNull();
+  });
+
+  it('人类点回信，那一封才以外部事件递进来', async () => {    h.throwAs('peer', '信里写着：捡到一只很白的贝壳。');
     const world = await started();
     await callTool(world, 'bottle_catch');
     expect(host.last('bottle.reading')).toBeUndefined();

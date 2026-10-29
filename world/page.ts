@@ -61,7 +61,12 @@ export interface PageReceivedView {
 }
 
 export interface PageSnapshot {
+  /** 回信稿优先、其次信稿；卡片与旧逻辑只看这一个。 */
   draft: PageDraftView | null;
+  /** 绑在手里那一封上的回信草稿。 */
+  replyDraft?: PageDraftView | null;
+  /** 还没寄出去的信稿。它与手里那封、与回信稿各自独立。 */
+  letterDraft?: PageDraftView | null;
   held: PageHeldView | null;
   /** 我寄出去的信，新的在前；有人回了就把回信挂在下面。 */
   sent: PageSentView[];
@@ -82,8 +87,9 @@ export interface PageResult {
 
 export interface PageDeps {
   snapshot(): PageSnapshot;
-  send(): Promise<PageResult>;
-  rewrite(): Promise<PageResult>;
+  /** 寄哪一份由页面上的按钮决定：信稿或回信稿。 */
+  send(kind?: 'letter' | 'reply'): Promise<PageResult>;
+  rewrite(kind?: 'letter' | 'reply'): Promise<PageResult>;
   dismiss(): Promise<PageResult>;
   open(surface: Surface): Promise<PageResult>;
   /** 不带 letterId 清空历史；带了就只删那一条。 */
@@ -106,6 +112,13 @@ function letterIdOf(body: unknown): string | undefined {
   if (typeof body !== 'object' || body === null) return undefined;
   const value = (body as { letterId?: unknown }).letterId;
   return typeof value === 'string' && value ? value : undefined;
+}
+
+/** 页面上按的是哪一份草稿：`letter` 信稿，`reply` 回信稿，没说就交给 World 自己挑。 */
+function draftKindOf(body: unknown): 'letter' | 'reply' | undefined {
+  if (typeof body !== 'object' || body === null) return undefined;
+  const value = (body as { kind?: unknown }).kind;
+  return value === 'letter' || value === 'reply' ? value : undefined;
 }
 
 /** 路由是纯函数，测试不用开 socket。 */
@@ -133,9 +146,10 @@ export async function handlePage(
 
   if (method === 'POST') {
     const surface = opts.surface ?? 'page';
+    const kind = draftKindOf(opts.body);
     const actions: Record<string, () => Promise<PageResult>> = {
-      '/send': () => deps.send(),
-      '/rewrite': () => deps.rewrite(),
+      '/send': () => deps.send(kind),
+      '/rewrite': () => deps.rewrite(kind),
       '/dismiss': () => deps.dismiss(),
       '/open': () => deps.open(surface),
     };
@@ -502,15 +516,17 @@ export function pageHtml(): string {
     list.forEach(function (item) {
       var btn = el('button', 'btn ' + (item.style || ''), item.label);
       btn.type = 'button';
-      btn.onclick = function () { run(item.path, btn); };
+      btn.onclick = function () {
+        run(item.path, btn, item.kind ? { kind: item.kind } : undefined);
+      };
       box.appendChild(btn);
     });
     return box;
   }
 
-  function renderDraft(s) {
+  function renderDraft(draft, s) {
     var card = el('div', 'card');
-    var isLetter = s.draft.kind === 'letter';
+    var isLetter = draft.kind === 'letter';
     card.appendChild(el('div', 'eyebrow', isLetter ? '写好了 · 等你决定' : '回信写好了 · 等你决定'));
     card.appendChild(el('h2', 'title', isLetter ? '这封信还没寄出去' : '这封回信还没寄出去'));
 
@@ -521,12 +537,12 @@ export function pageHtml(): string {
       card.appendChild(detail);
     }
 
-    card.appendChild(el('div', 'letter', s.draft.body));
-    card.appendChild(el('div', 'meta', s.draft.chars + ' / 120 字'));
+    card.appendChild(el('div', 'letter', draft.body));
+    card.appendChild(el('div', 'meta', draft.chars + ' / 120 字'));
 
-    if (s.draft.hints && s.draft.hints.length) {
+    if (draft.hints && draft.hints.length) {
       var hints = el('div', 'hints');
-      s.draft.hints.forEach(function (hint) {
+      draft.hints.forEach(function (hint) {
         var row = el('div', 'hint ' + hint.kind);
         row.appendChild(el('span', 'dot'));
         row.appendChild(el('span', null, hint.text));
@@ -536,8 +552,8 @@ export function pageHtml(): string {
     }
 
     card.appendChild(buttons([
-      { label: s.draft.hints && s.draft.hints.length ? '仍然寄出' : '寄出去', path: '/send', style: 'seal' },
-      { label: '重写', path: '/rewrite', style: 'ghost' }
+      { label: draft.hints && draft.hints.length ? '仍然寄出' : '寄出去', path: '/send', style: 'seal', kind: draft.kind },
+      { label: '重写', path: '/rewrite', style: 'ghost', kind: draft.kind }
     ]));
     return card;
   }
@@ -586,17 +602,32 @@ export function pageHtml(): string {
       return;
     }
 
-    if (state.draft) {
-      stage.appendChild(renderDraft(state));
+    // 信稿、手里那封（含回信稿）是两个独立的东西，必须同时显示：
+    // 从前这里是「有草稿就只画草稿」，一封信稿就能把刚捞到的信整块藏掉。
+    var replyDraft = state.replyDraft !== undefined ? state.replyDraft : (state.draft && state.draft.kind === 'reply' ? state.draft : null);
+    var letterDraft = state.letterDraft !== undefined ? state.letterDraft : (state.draft && state.draft.kind === 'letter' ? state.draft : null);
+    var shown = 0;
+
+    if (letterDraft) {
+      stage.appendChild(renderDraft(letterDraft, state));
+      shown += 1;
+    }
+    if (replyDraft) {
+      stage.appendChild(renderDraft(replyDraft, state));
+      shown += 1;
       waiting = false;
     } else if (waiting) {
       var card = el('div', 'card');
       card.appendChild(el('div', 'eyebrow', '它正在读那一封'));
       card.appendChild(el('p', 'empty', '读完就会把回信放到这里。'));
       stage.appendChild(card);
-    } else if (state.held) {
+      shown += 1;
+    }
+    if (!replyDraft && state.held) {
       stage.appendChild(renderHeld(state));
-    } else {
+      shown += 1;
+    }
+    if (shown === 0) {
       var empty = el('div', 'card');
       var box = el('div', 'empty');
       box.appendChild(el('div', 'big', '海面很安静'));
@@ -609,7 +640,7 @@ export function pageHtml(): string {
     renderSent();
     renderReceived();
     renderFoot();
-    document.title = state.draft ? '● 有草稿 · 漂流瓶' : '漂流瓶 · 信箱';
+    document.title = (letterDraft || replyDraft) ? '● 有草稿 · 漂流瓶' : '漂流瓶 · 信箱';
   }
 
   function renderTide() {

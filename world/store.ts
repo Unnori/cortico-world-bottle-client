@@ -86,7 +86,15 @@ function writeJson(path: string, value: unknown): void {
 
 export class LocalStore {
   identity: Identity | null = null;
+  /**
+   * 回信草稿：绑在手里那一封上，`kind` 恒为 `reply`。
+   *
+   * 与 `letterDraft` 分开存，是因为两者会同时存在：手里压着一封信稿的人类，
+   * 照样该能去读别人捞给他的那一封，回信稿不能把信稿顶掉。
+   */
   draft: LocalDraft | null = null;
+  /** 信稿：还没寄出去的一封新信，`kind` 恒为 `letter`。 */
+  letterDraft: LocalDraft | null = null;
   held: LocalHeld | null = null;
   replies: LocalReply[] = [];
   sent: SentLetter[] = [];
@@ -123,20 +131,38 @@ export class LocalStore {
     const state = readJson<{ tsunamiSeen?: unknown }>(this.stateFile);
     this.tsunamiSeen = typeof state?.tsunamiSeen === 'number' ? state.tsunamiSeen : null;
 
-    // `setDraft` 落盘的是 `{ draft }` 这个包装（`clear()` 写的也是 `{ draft: null }`），
-    // 读的时候必须拆开；否则 `draft.kind` 恒为 undefined，草稿在每次重启后都被静默丢掉。
-    // 同时容忍没有包装的裸草稿，免得格式换过一次就吃掉别人手里的草稿。
-    const rawDraft = readJson<{ draft?: Partial<LocalDraft> | null } | Partial<LocalDraft>>(this.draftFile);
-    const draft = rawDraft && typeof rawDraft === 'object' && 'draft' in rawDraft
-      ? (rawDraft as { draft?: Partial<LocalDraft> | null }).draft ?? null
-      : (rawDraft as Partial<LocalDraft> | null);
-    if (draft && (draft.kind === 'letter' || draft.kind === 'reply') && typeof draft.body === 'string' && draft.body) {
-      this.draft = {
-        kind: draft.kind,
-        ...(typeof draft.letterId === 'string' ? { letterId: draft.letterId } : {}),
-        body: draft.body,
-        at: Number(draft.at ?? 0),
+    // 落盘格式是 `{ draft, letterDraft }` 两个槽：`draft` 是回信草稿，`letterDraft` 是信稿。
+    // 分开存是因为两者会同时存在——手里有信稿的人照样能去读别人那一封，回信稿不能把信稿顶掉。
+    // 旧格式只有 `{ draft }`（或裸草稿），按 `kind` 归槽，免得升级后吃掉别人手里的字。
+    const raw = readJson<{
+      draft?: Partial<LocalDraft> | null;
+      letterDraft?: Partial<LocalDraft> | null;
+    } | Partial<LocalDraft>>(this.draftFile);
+    const wrapped = !!raw && typeof raw === 'object' && ('draft' in raw || 'letterDraft' in raw);
+    const legacy = wrapped ? null : (raw as Partial<LocalDraft> | null);
+
+    const readDraft = (value: Partial<LocalDraft> | null | undefined, kind: DraftKind): LocalDraft | null => {
+      if (!value || typeof value.body !== 'string' || !value.body) return null;
+      if (value.kind !== undefined && value.kind !== kind) return null;
+      return {
+        kind,
+        ...(kind === 'reply' && typeof value.letterId === 'string' ? { letterId: value.letterId } : {}),
+        body: value.body,
+        at: Number(value.at ?? 0),
       };
+    };
+
+    if (wrapped) {
+      const oldDraft = (raw as { draft?: Partial<LocalDraft> | null }).draft;
+      // 旧格式把信稿也写在 `draft` 里（只是 kind 不同），所以回信槽读不到时要再看一眼 kind。
+      this.draft = readDraft(oldDraft, 'reply');
+      this.letterDraft =
+        readDraft((raw as { letterDraft?: Partial<LocalDraft> | null }).letterDraft, 'letter')
+        ?? readDraft(oldDraft, 'letter');
+    } else if (legacy?.kind === 'letter') {
+      this.letterDraft = readDraft(legacy, 'letter');
+    } else {
+      this.draft = readDraft(legacy, 'reply');
     }
 
     const book = readJson<{
@@ -202,9 +228,20 @@ export class LocalStore {
     writeJson(this.stateFile, { tsunamiSeen: count });
   }
 
+  /** 写回信草稿（`kind` 一律按 reply 归槽）；信稿走 `setLetterDraft`。 */
   setDraft(draft: LocalDraft | null): void {
-    this.draft = draft;
-    writeJson(this.draftFile, { draft });
+    this.draft = draft && draft.kind === 'reply' ? draft : null;
+    this.saveDrafts();
+  }
+
+  /** 写信稿；不动回信草稿。 */
+  setLetterDraft(draft: LocalDraft | null): void {
+    this.letterDraft = draft && draft.kind === 'letter' ? draft : null;
+    this.saveDrafts();
+  }
+
+  private saveDrafts(): void {
+    writeJson(this.draftFile, { draft: this.draft, letterDraft: this.letterDraft });
   }
 
   setHeld(held: LocalHeld | null): void {
@@ -258,8 +295,8 @@ export class LocalStore {
 
   /** WebUI 的存储页要一句实时的规模说明。 */
   describeStorage(): string {
-    const draft = this.draft ? 1 : 0;
-    return `${draft} 份草稿 · ${this.held ? 1 : 0} 封在读 · 寄出 ${this.sent.length} 封 · 捞到 ${this.received.length} 封 · 回信 ${this.replies.length} 封`;
+    const drafts = (this.draft ? 1 : 0) + (this.letterDraft ? 1 : 0);
+    return `${drafts} 份草稿 · ${this.held ? 1 : 0} 封在读 · 寄出 ${this.sent.length} 封 · 捞到 ${this.received.length} 封 · 回信 ${this.replies.length} 封`;
   }
 
   /** 只清历史，不动正在写的那封与手里那封。 */
@@ -285,11 +322,12 @@ export class LocalStore {
 
   clear(): string {
     this.draft = null;
+    this.letterDraft = null;
     this.held = null;
     this.replies = [];
     this.sent = [];
     this.received = [];
-    writeJson(this.draftFile, { draft: null });
+    writeJson(this.draftFile, { draft: null, letterDraft: null });
     this.saveLetterbook();
     this.dropCardFile();
     return '本机草稿、手里那封信和信箱都清空了；身份和服务端上的记录还在。';

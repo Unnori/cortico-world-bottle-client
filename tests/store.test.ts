@@ -33,10 +33,12 @@ describe('草稿往返', () => {
   it('写信的草稿在重启后还在', () => {
     const dir = freshDir();
     const first = reload(dir);
-    first.setDraft({ kind: 'letter', body: '今天的海很平。', at: 1_000 });
+    first.setLetterDraft({ kind: 'letter', body: '今天的海很平。', at: 1_000 });
 
     const again = reload(dir);
-    expect(again.draft).toEqual({ kind: 'letter', body: '今天的海很平。', at: 1_000 });
+    expect(again.letterDraft).toEqual({ kind: 'letter', body: '今天的海很平。', at: 1_000 });
+    // 信稿不占回信草稿那个槽
+    expect(again.draft).toBeNull();
   });
 
   it('回信草稿连 letterId 一起留住', () => {
@@ -46,13 +48,24 @@ describe('草稿往返', () => {
     expect(reload(dir).draft).toEqual({ kind: 'reply', letterId: 'l_abc123', body: '下了，很小。', at: 2 });
   });
 
+  it('信稿与回信稿是两个槽，互不覆盖', () => {
+    const dir = freshDir();
+    const store = reload(dir);
+    store.setLetterDraft({ kind: 'letter', body: '信稿', at: 10 });
+    store.setDraft({ kind: 'reply', letterId: 'l_1', body: '回信稿', at: 11 });
+
+    const again = reload(dir);
+    expect(again.letterDraft?.body).toBe('信稿');
+    expect(again.draft?.body).toBe('回信稿');
+  });
+
   it('落盘的是带包装的形状，读的时候要拆开', () => {
     const dir = freshDir();
-    reload(dir).setDraft({ kind: 'letter', body: '看看磁盘', at: 3 });
+    reload(dir).setLetterDraft({ kind: 'letter', body: '看看磁盘', at: 3 });
 
-    const raw = JSON.parse(readFileSync(join(dir, 'bottle-draft.json'), 'utf8')) as { draft?: unknown };
-    expect(raw).toHaveProperty('draft');
-    expect(reload(dir).draft?.body).toBe('看看磁盘');
+    const raw = JSON.parse(readFileSync(join(dir, 'bottle-draft.json'), 'utf8')) as { letterDraft?: unknown };
+    expect(raw).toHaveProperty('letterDraft');
+    expect(reload(dir).letterDraft?.body).toBe('看看磁盘');
   });
 
   it('没有包装的裸草稿也认，格式换过一次不能吃掉手里的草稿', () => {
@@ -63,19 +76,45 @@ describe('草稿往返', () => {
       'utf8',
     );
 
-    expect(reload(dir).draft?.body).toBe('裸格式');
+    expect(reload(dir).letterDraft?.body).toBe('裸格式');
   });
 
+  it('旧格式里 kind=reply 的草稿仍归回信槽', () => {
+    const dir = freshDir();
+    writeFileSync(
+      join(dir, 'bottle-draft.json'),
+      JSON.stringify({ draft: { kind: 'reply', letterId: 'l_x', body: '旧回信稿', at: 5 } }),
+      'utf8',
+    );
+
+    expect(reload(dir).draft?.body).toBe('旧回信稿');
+    expect(reload(dir).letterDraft).toBeNull();
+  });
+
+  // 0.1.2 及以前落盘的就是这个形状：信稿也在 `draft` 里，只是 kind 不同。
+  // 升级到双槽时若按"槽位"硬读，会把人正在写的信整封丢掉。
+  it('旧格式里 kind=letter 的草稿迁移到信稿槽，不丢字', () => {
+    const dir = freshDir();
+    writeFileSync(
+      join(dir, 'bottle-draft.json'),
+      JSON.stringify({ draft: { kind: 'letter', body: '升级前写了一半的信', at: 6 } }),
+      'utf8',
+    );
+
+    const store = reload(dir);
+    expect(store.letterDraft?.body).toBe('升级前写了一半的信');
+    expect(store.draft).toBeNull();
+  });
   it('清掉之后不能复活，空正文也不算草稿', () => {
     const dir = freshDir();
     const store = reload(dir);
-    store.setDraft({ kind: 'letter', body: '要清掉的', at: 5 });
+    store.setLetterDraft({ kind: 'letter', body: '要清掉的', at: 5 });
     store.clear();
-    expect(reload(dir).draft).toBeNull();
+    expect(reload(dir).letterDraft).toBeNull();
 
     const other = freshDir();
-    reload(other).setDraft({ kind: 'letter', body: '', at: 6 });
-    expect(reload(other).draft).toBeNull();
+    reload(other).setLetterDraft({ kind: 'letter', body: '', at: 6 });
+    expect(reload(other).letterDraft).toBeNull();
   });
 
   it('坏掉的 JSON 不炸，只当没有草稿', () => {
@@ -83,6 +122,7 @@ describe('草稿往返', () => {
     writeFileSync(join(dir, 'bottle-draft.json'), '{ 这不是 json', 'utf8');
     expect(() => reload(dir)).not.toThrow();
     expect(reload(dir).draft).toBeNull();
+    expect(reload(dir).letterDraft).toBeNull();
   });
 });
 

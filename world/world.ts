@@ -31,12 +31,13 @@ import { BOTTLE_CONFIG_GROUP, type BottleConfigSection } from './config.ts';
 import {
   startPageServer,
   type PageDeps,
+  type PageDraftView,
   type PageResult,
   type PageServer,
   type PageSnapshot,
   type Surface,
 } from './page.ts';
-import { LocalStore, type LocalHeld, type LocalReply } from './store.ts';
+import { LocalStore, type DraftKind, type LocalHeld, type LocalReply } from './store.ts';
 import { bottleTools, type BottleToolDeps } from './tools.ts';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url));
@@ -492,7 +493,8 @@ export class BottleWorld implements World {
   }
 
   private showDraftCard(): void {
-    const draft = this.store.draft;
+    // 刚捞到/刚写完的那件事优先：回信稿在前，信稿在后
+    const draft = this.store.draft ?? this.store.letterDraft;
     if (!draft || !this.page) return;
     const chars = countChars(draft.body);
     const hints = scanHints(draft.body, this.localEnv);
@@ -521,7 +523,7 @@ export class BottleWorld implements World {
     const parsed = checkBody(text);
     if (!parsed.ok) return this.bodyProblem(parsed.reason, parsed.chars);
 
-    this.store.setDraft({ kind: 'letter', body: parsed.body, at: this.now() });
+    this.store.setLetterDraft({ kind: 'letter', body: parsed.body, at: this.now() });
     this.showDraftCard();
     return `草稿已放进信箱，等人类看。\n（${this.pageLine()}）`;
   }
@@ -655,8 +657,8 @@ export class BottleWorld implements World {
   pageDeps(): PageDeps {
     return {
       snapshot: () => this.snapshot(),
-      send: () => this.sendDraft(),
-      rewrite: () => this.rewriteDraft(),
+      send: (kind) => this.sendDraft(kind),
+      rewrite: (kind) => this.rewriteDraft(kind),
       dismiss: () => this.dismissHeld(),
       open: (surface) => this.openHeld(surface),
       forget: (letterId) => this.forgetHistory(letterId),
@@ -665,10 +667,11 @@ export class BottleWorld implements World {
 
   private snapshot(): PageSnapshot {
     this.pruneExpired();
-    const draft = this.store.draft;
+    const replyDraft = this.store.draft;
+    const letterDraft = this.store.letterDraft;
     const held = this.store.held;
-    const snapshot: PageSnapshot = {
-      draft: draft
+    const view = (draft: typeof replyDraft): PageDraftView | null =>
+      draft
         ? {
             kind: draft.kind,
             body: draft.body,
@@ -676,7 +679,12 @@ export class BottleWorld implements World {
             chars: countChars(draft.body),
             hints: scanHints(draft.body, this.localEnv),
           }
-        : null,
+        : null;
+    const snapshot: PageSnapshot = {
+      // `draft` 保留给卡片与旧页面用：回信稿优先，其次信稿
+      draft: view(replyDraft) ?? view(letterDraft),
+      replyDraft: view(replyDraft),
+      letterDraft: view(letterDraft),
       held: held
         ? {
             letterId: held.letterId,
@@ -731,8 +739,13 @@ export class BottleWorld implements World {
     return { ok: true, message };
   }
 
-  private async sendDraft(): Promise<PageResult> {
-    const draft = this.store.draft;
+  /** 寄哪一份由页面上按的那个按钮决定：信稿与回信稿是两个槽，互不覆盖。 */
+  private async sendDraft(kind?: DraftKind): Promise<PageResult> {
+    const draft = kind === 'letter'
+      ? this.store.letterDraft
+      : kind === 'reply'
+        ? this.store.draft
+        : this.store.draft ?? this.store.letterDraft;
     if (!draft) return { ok: false, message: '没有要寄的草稿。' };
     if (!this.token()) await this.ensureIdentityOnce();
     if (!this.token()) return { ok: false, message: '还没连上海边。' };
@@ -742,7 +755,7 @@ export class BottleWorld implements World {
         const res = await this.authed(() => this.client.throwLetter(draft.body));
         this.quota = res.quota;
         this.online = true;
-        this.store.setDraft(null);
+        this.store.setLetterDraft(null);
         this.store.addSent({ letterId: res.letterId, body: draft.body, at: this.now() });
         await this.pushInternal('bottle.sent', `人类把信寄出去了。${this.quotaLine(res.quota)}`, {});
         return { ok: true, message: `寄出去了。${this.quotaLine(res.quota)}`, close: true };
@@ -765,15 +778,18 @@ export class BottleWorld implements World {
     }
   }
 
-  private async rewriteDraft(): Promise<PageResult> {
-    const draft = this.store.draft;
-    if (!draft) return { ok: false, message: '还没有草稿。' };
+  private async rewriteDraft(kind?: DraftKind): Promise<PageResult> {
+    const letterDraft = this.store.letterDraft;
+    const replyDraft = this.store.draft;
+    const isLetter = kind === 'letter' ? true : kind === 'reply' ? false : !replyDraft && !!letterDraft;
 
-    if (draft.kind === 'letter') {
+    if (isLetter) {
+      if (!letterDraft) return { ok: false, message: '还没有信稿。' };
       await this.pushInternal('bottle.rewrite', '人类点了重写。重新写一封，不超过 120 字，直接覆盖上一稿。', {});
       return { ok: true, message: '让它重写。', close: true };
     }
 
+    if (!replyDraft) return { ok: false, message: '还没有回信草稿。' };
     const held = this.store.held;
     if (!held) {
       this.store.setDraft(null);
@@ -847,7 +863,8 @@ export class BottleWorld implements World {
     if (this.now() <= held.windowUntil) return;
     this.store.setHeld(null);
     this.store.setReceivedOutcome(held.letterId, 'expired');
-    if (this.store.draft?.kind === 'reply') this.store.setDraft(null);
+    // 只清这一封的回信稿；信稿是另一封信的字，不能跟着消失
+    if (this.store.draft?.letterId === held.letterId) this.store.setDraft(null);
     this.authorized = null;
   }
 
@@ -857,7 +874,12 @@ export class BottleWorld implements World {
     if (!held) return { ok: false, message: '手里没有信。' };
     // 海边邮局不回信（§13.7）：不能把一封注定石沉大海的信读给模型，也不能让人类以为它在等
     if (held.seed) return { ok: false, message: '这一封来自海边邮局，它不会回信。' };
-    if (this.store.draft) return { ok: false, message: '先把草稿处理掉。' };
+    // 只有「这一封已经有一份回信草稿」才需要挡：那是重复起草。
+    // 信稿草稿（`letterDraft`）跟读这一封无关——手里压着一封没寄的信，不影响读别人的信。
+    const draft = this.store.draft;
+    if (draft && draft.letterId === held.letterId) {
+      return { ok: false, message: '这一封的回信已经写好了，在信箱里等你寄。' };
+    }
     this.authorize(held);
 
     if (surface === 'card' && this.page) {

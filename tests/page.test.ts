@@ -40,6 +40,26 @@ describe('本地信箱页', () => {
     expect(res.html).not.toContain('装扮');
   });
 
+  // 回归：页面曾经「有草稿就只画草稿」，一封信稿能把刚捞到的信整块藏掉。
+  it('页面上信稿与手里那封是两块，按钮各自带上 kind', async () => {
+    const html = (await handlePage(deps(), 'GET', '/')).html ?? '';
+    expect(html).toContain('state.letterDraft');
+    expect(html).toContain('state.replyDraft');
+    expect(html).toContain('renderDraft(letterDraft');
+    expect(html).toContain('renderDraft(replyDraft');
+    expect(html).toContain('kind: draft.kind');
+  });
+
+  it('POST /send 与 /rewrite 会把 kind 交给 World', async () => {
+    const d = deps();
+    await handlePage(d, 'POST', '/send', { body: { kind: 'letter' } });
+    expect(d.send).toHaveBeenLastCalledWith('letter');
+    await handlePage(d, 'POST', '/send', { body: { kind: 'reply' } });
+    expect(d.send).toHaveBeenLastCalledWith('reply');
+    await handlePage(d, 'POST', '/rewrite', { body: { kind: 'letter' } });
+    expect(d.rewrite).toHaveBeenLastCalledWith('letter');
+  });
+
   it('GET /draft 回当前快照', async () => {
     const res = await handlePage(deps(), 'GET', '/draft');
     expect(res.status).toBe(200);
