@@ -51,10 +51,7 @@
   "files": [
     "world",
     "shared",
-    "server",
     "seeds",
-    "deploy",
-    "docs",
     "describe.json",
     "README.md",
     "CHANGELOG.md"
