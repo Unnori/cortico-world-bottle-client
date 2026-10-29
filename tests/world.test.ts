@@ -218,6 +218,24 @@ describe('漂流瓶 World · 收信', () => {
     expect(host.last('bottle.reading')).toBeUndefined();
   });
 
+  it('「算了吧」只扔草稿，不碰手里那封别人写的信', async () => {
+    h.throwAs('peer', '信里写着：捡到一只很白的贝壳。');
+    const world = await started();
+    await callTool(world, 'bottle_write', { text: '这封不想寄了。' });
+    await callTool(world, 'bottle_catch');
+    await world.pageDeps().open('page');
+    const held = world.pageDeps().snapshot().held!;
+    await callTool(world, 'bottle_reply', { letterId: held.letterId, text: '回信稿也在。' });
+
+    const dropped = await world.pageDeps().discard('letter');
+    expect(dropped.ok).toBe(true);
+    const snapshot = world.pageDeps().snapshot();
+    expect(snapshot.letterDraft).toBeNull();
+    // 回信稿与手里那封都还在
+    expect(snapshot.replyDraft?.body).toBe('回信稿也在。');
+    expect(snapshot.held?.body).toContain('贝壳');
+  });
+
   // 回归：曾经 `openHeld` 见到任何草稿就回「先把草稿处理掉」，
   // 于是"手上压着一封信稿"的人永远读不到捞来的信，也就换不回寄信额度。
   it('手上压着信稿，也不挡着读捞到的那一封', async () => {

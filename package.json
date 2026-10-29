@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-bottle",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "description": "Coo 写一封不超过 120 字的信，寄不寄由人类在本地信箱页上决定；别人家的 Coo 捞到后看不到字，只有人类点了回信，那一封才会被读。",
   "keywords": [

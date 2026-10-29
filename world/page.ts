@@ -98,6 +98,8 @@ export interface PageDeps {
   send(kind?: 'letter' | 'reply'): Promise<PageResult>;
   rewrite(kind?: 'letter' | 'reply'): Promise<PageResult>;
   dismiss(): Promise<PageResult>;
+  /** 把还没寄出去的草稿扔掉（「算了吧」）；不动手里那封信。 */
+  discard(kind?: 'letter' | 'reply'): Promise<PageResult>;
   open(surface: Surface): Promise<PageResult>;
   /** 不带 letterId 清空历史；带了就只删那一条。 */
   forget(letterId?: string): Promise<PageResult>;
@@ -157,6 +159,7 @@ export async function handlePage(
     const actions: Record<string, () => Promise<PageResult>> = {
       '/send': () => deps.send(kind),
       '/rewrite': () => deps.rewrite(kind),
+      '/discard': () => deps.discard(kind),
       '/dismiss': () => deps.dismiss(),
       '/open': () => deps.open(surface),
     };
@@ -565,20 +568,22 @@ export function pageHtml(): string {
       card.appendChild(hints);
     }
 
-    // 回信额度用完时：寄出变灰，旁边留一个「扔回海里」——不然这封只能干等过期
+    // 回信额度用完时：寄出先灰着，旁边留「扔回海里」——也可以放着等明天额度回来再寄
     var canReply = s.canReply !== false;
     var actions;
     if (!isLetter && !canReply) {
       actions = [
-        { label: '今天回不了', path: '/send', style: 'seal', kind: draft.kind, disabled: true },
+        { label: '多等一天', path: '/send', style: 'seal', kind: draft.kind, disabled: true },
         { label: '扔回海里', path: '/dismiss', style: 'ghost' }
       ];
-      card.appendChild(el('div', 'hint spent', '今天的回信次数用完了。这一封只能扔回海里，或者等明天再捞一封。'));
+      card.appendChild(el('div', 'hint spent', '今天的回信次数用完了。可以先放着，等明天再寄；也可以扔回海里，让别人去回。'));
     } else {
       actions = [
         { label: draft.hints && draft.hints.length ? '仍然寄出' : '寄出去', path: '/send', style: 'seal', kind: draft.kind },
         { label: '重写', path: '/rewrite', style: 'ghost', kind: draft.kind }
       ];
+      // 自己写的那封信：还能反悔。删草稿不影响手里那封别人写的信
+      if (isLetter) actions.push({ label: '算了吧', path: '/discard', style: 'ghost', kind: draft.kind });
     }
     card.appendChild(buttons(actions));
     return card;
@@ -596,10 +601,10 @@ export function pageHtml(): string {
     card.appendChild(el('div', 'meta', s.held.hoursLeft > 0 ? '还有 ' + s.held.hoursLeft + ' 小时回海' : '随时会回海'));
     // 今天回不了就直说，别让人点了「回信」才发现第 4 封被 429
     if (s.canReply === false) {
-      card.appendChild(el('div', 'hint spent', '今天的回信次数用完了。这封只能先扔回海里，明天再捞。'));
+      card.appendChild(el('div', 'hint spent', '今天的回信次数用完了。可以留着，等明天再回；也可以扔回海里，让别人去回。'));
     }
     card.appendChild(buttons([
-      { label: s.canReply === false ? '今天回不了' : '回信', path: '/open', style: 'seal', disabled: s.canReply === false },
+      { label: s.canReply === false ? '多等一天' : '回信', path: '/open', style: 'seal', disabled: s.canReply === false },
       { label: '扔回海里', path: '/dismiss', style: 'ghost' }
     ]));
     return card;
@@ -697,7 +702,6 @@ export function pageHtml(): string {
       replies.appendChild(document.createTextNode('还能回 '));
       replies.appendChild(el('b', null, String(q.replies_left)));
       replies.appendChild(document.createTextNode(' 封'));
-      if (q.replies_left <= 0) replies.appendChild(document.createTextNode('（今天到头了）'));
       tide.appendChild(replies);
     }
     if (state.online === false) tide.appendChild(el('span', 'chip', '海边没回音'));

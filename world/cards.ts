@@ -5,7 +5,7 @@
 import type { SoftHint } from '../shared/hints.ts';
 import type { LocalDraft, LocalHeld, LocalReply } from './store.ts';
 
-export type CardActionId = 'send' | 'rewrite' | 'dismiss' | 'open' | 'close';
+export type CardActionId = 'send' | 'rewrite' | 'discard' | 'dismiss' | 'open' | 'close';
 
 export interface CardAction {
   id: CardActionId;
@@ -41,7 +41,7 @@ function base(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '');
 }
 
-/** 写信：人类只决定寄不寄、要不要重写。 */
+/** 写信：人类只决定寄不寄、要不要重写，或者干脆算了。 */
 export function draftLetterCard(input: {
   base: string;
   draft: LocalDraft;
@@ -59,6 +59,7 @@ export function draftLetterCard(input: {
     actions: [
       { id: 'send', label: input.hints.length ? '仍然寄出' : '寄出去', tone: 'primary' },
       { id: 'rewrite', label: '重写', tone: 'ghost' },
+      { id: 'discard', label: '算了吧', tone: 'ghost' },
     ],
   };
 }

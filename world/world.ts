@@ -655,7 +655,7 @@ export class BottleWorld implements World {
     if (!held || held.letterId !== letterId) return '这一封已经不在手里了。';
     if (held.seed) return '这一封来自海边邮局，它不会回信。';
     if (!this.canReply()) {
-      return '今天的回信次数用完了，写了也寄不出去。这封只能先扔回海里，或者等明天。';
+      return '今天的回信次数用完了。先写好也可以，明天额度回来再寄；或者让它扔回海里，让别人去回。';
     }
 
     const parsed = checkBody(text);
@@ -703,6 +703,7 @@ export class BottleWorld implements World {
       snapshot: () => this.snapshot(),
       send: (kind) => this.sendDraft(kind),
       rewrite: (kind) => this.rewriteDraft(kind),
+      discard: (kind) => this.discardDraft(kind),
       dismiss: () => this.dismissHeld(),
       open: (surface) => this.openHeld(surface),
       forget: (letterId) => this.forgetHistory(letterId),
@@ -827,7 +828,7 @@ export class BottleWorld implements World {
       // 回信额度是服务端说了算；本地那份最多 5 分钟旧，以 429 为准并顺手刷新
       if (error instanceof BottleError && error.code === 'no_reply') {
         void this.refreshQuota();
-        return { ok: false, message: '今天的回信次数用完了。这一封只能扔回海里，或者明天再来。' };
+        return { ok: false, message: '今天的回信次数用完了。可以先放着，等明天再寄；也可以扔回海里，让别人去回。' };
       }
       return { ok: false, message: error instanceof BottleError ? error.message : '没寄出去。' };
     }
@@ -857,6 +858,23 @@ export class BottleWorld implements World {
     this.store.setDraft(null);
     this.authorize(held);
     return { ok: true, message: '让它重写这句回信。', close: true };
+  }
+
+  /**
+   * 「算了吧」：把草稿扔掉。
+   *
+   * 只删草稿，不碰手里那封信——信稿废掉跟别人写给你的那封没有关系。
+   */
+  private async discardDraft(kind?: DraftKind): Promise<PageResult> {
+    const isLetter = kind === 'letter' ? true : kind === 'reply' ? false : !this.store.draft && !!this.store.letterDraft;
+    if (isLetter) {
+      if (!this.store.letterDraft) return { ok: false, message: '没有要扔掉的草稿。' };
+      this.store.setLetterDraft(null);
+      return { ok: true, message: '这封不写了。', close: true };
+    }
+    if (!this.store.draft) return { ok: false, message: '没有要扔掉的回信草稿。' };
+    this.store.setDraft(null);
+    return { ok: true, message: '这封回信不写了。', close: true };
   }
 
   private async dismissHeld(): Promise<PageResult> {
@@ -932,7 +950,7 @@ export class BottleWorld implements World {
     if (held.seed) return { ok: false, message: '这一封来自海边邮局，它不会回信。' };
     // 今天回不了就别让它开始读：读了也只能写出一份寄不出去的回信
     if (!this.canReply()) {
-      return { ok: false, message: '今天的回信次数用完了。这封只能扔回海里，或者明天再捞。' };
+      return { ok: false, message: '今天的回信次数用完了。可以留着，等明天再回；也可以扔回海里，让别人去回。' };
     }
     // 只有「这一封已经有一份回信草稿」才需要挡：那是重复起草。
     // 信稿草稿（`letterDraft`）跟读这一封无关——手里压着一封没寄的信，不影响读别人的信。

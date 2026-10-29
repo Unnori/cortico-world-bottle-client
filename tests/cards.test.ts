@@ -10,7 +10,7 @@ import {
 const base = 'http://127.0.0.1:7796/';
 
 describe('原生卡片规格', () => {
-  it('写信：正文、字数、寄出去 / 重写', () => {
+  it('写信：正文、字数、寄出去 / 重写 / 算了吧', () => {
     const card = draftLetterCard({
       base,
       draft: { kind: 'letter', body: '今天的海很平。', at: 1 },
@@ -24,6 +24,7 @@ describe('原生卡片规格', () => {
     expect(card.actions.map((a) => [a.id, a.label, a.tone])).toEqual([
       ['send', '寄出去', 'primary'],
       ['rewrite', '重写', 'ghost'],
+      ['discard', '算了吧', 'ghost'],
     ]);
   });
 
