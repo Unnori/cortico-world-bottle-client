@@ -136,7 +136,27 @@ export class BottleWorld implements World {
       'bottle.catches': this.quota ? String(this.quota.catches_left) : '',
       'bottle.mailbox': String(this.store.replies.length),
       'bottle.page': this.page?.url ?? '',
+      'bottle.lastLetter': this.lastLetterLabel(),
     };
+  }
+
+  /**
+   * 距上一次写信多久（写过的信稿或寄出的信，取最近的一次）。
+   *
+   * 每轮拼前缀时现算：这是"可确认的事实"，不是催促——写不写仍由它自己判断。
+   * 空串会落到模板的缺省文案（`| 还没有寄过信`）。
+   */
+  private lastLetterLabel(): string {
+    const at = Math.max(
+      this.store.letterDraft?.at ?? 0,
+      ...this.store.sent.map((letter) => letter.at),
+      0,
+    );
+    if (!at) return '';
+    const diff = Math.max(0, this.now() - at);
+    if (diff < HOUR) return '刚刚';
+    if (diff < 24 * HOUR) return `${Math.floor(diff / HOUR)} 小时前`;
+    return `${Math.floor(diff / (24 * HOUR))} 天前`;
   }
 
   tools(): ToolDef[] {
@@ -156,7 +176,7 @@ export class BottleWorld implements World {
           key: 'worlds.bottle.envPrompt',
           title: en ? 'Bottle · environment prompt' : '漂流瓶 · 环境提示词',
           description: en
-            ? 'How a letter gets written, who approves it, and when the pet is allowed to read one.'
+            ? 'How a letter gets written, who approves it, and when Coo is allowed to read one.'
             : '信怎么写、谁决定寄不寄、什么时候才能读到别人的那一封。',
           path: ENV_PROMPT_FILE,
           role: 'envPrompt',
@@ -165,6 +185,7 @@ export class BottleWorld implements World {
             { name: 'bottle.catches', description: '今天还能捞几次。' },
             { name: 'bottle.mailbox', description: '信箱里已有的回信数。' },
             { name: 'bottle.page', description: '本地信箱页的地址。' },
+            { name: 'bottle.lastLetter', description: '距离上一次写信多久（刚刚 / 几小时前 / 几天前）。' },
           ],
         },
       ],
@@ -471,7 +492,8 @@ export class BottleWorld implements World {
   }
 
   private quotaLine(quota: Quota): string {
-    return `今天还能寄 ${quota.bottles_left} 封，还能捞 ${quota.catches_left} 次。`;
+    const last = this.lastLetterLabel();
+    return `今天还能寄 ${quota.bottles_left} 封，还能捞 ${quota.catches_left} 次${last ? `，上次写信 ${last}` : '，还没写过信'}。`;
   }
 
   // ── 原生卡片 ──
@@ -524,6 +546,7 @@ export class BottleWorld implements World {
     if (!parsed.ok) return this.bodyProblem(parsed.reason, parsed.chars);
 
     this.store.setLetterDraft({ kind: 'letter', body: parsed.body, at: this.now() });
+    this.store.bumpDraftsMade();
     this.showDraftCard();
     return `草稿已放进信箱，等人类看。\n（${this.pageLine()}）`;
   }

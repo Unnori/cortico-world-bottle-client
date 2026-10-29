@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { dryMountWorld } from 'cortico/extensions/dry-mount.ts';
 import { renderTemplate, templateVarNames } from 'cortico/core/template.ts';
 import { BOTTLE } from '../world/definition.ts';
+import { BOTTLE_TOOL_DECLS } from '../world/tools.ts';
 import type { CatchRes } from '../shared/contract.ts';
 import { callTool, makeHarness, type Harness } from './helpers.ts';
 import { FakeHost } from './fake-host.ts';
@@ -64,6 +65,46 @@ describe('漂流瓶 World · 装载', () => {
     const rendered = renderTemplate(template, vars);
     expect(rendered).not.toContain('{{');
     expect(rendered).not.toContain('%s');
+  });
+
+  // 环境段每条回复付一次费；靠加字赢注意力不如靠删字，所以钉住上限。
+  it('环境提示词保持精简（不超过 600 个非空白字符）', () => {
+    const template = readFileSync(new URL('../world/ENV_PROMPT.md', import.meta.url), 'utf8');
+    const chars = template.replace(/\s/g, '').length;
+    expect(chars).toBeLessThanOrEqual(600);
+    // 判据是「表达欲」，不是「瞒着谁」——后者是伪命题，信必定经人类审核
+    expect(template).toContain('表达欲');
+    expect(template).toContain('他会看到全文');
+    expect(template).not.toContain('不想让');
+  });
+
+  it('上次写信是每轮现算的事实：写过→时间，没写过→空串走缺省', async () => {
+    const world = await started();
+    expect(world.envPromptVars()['bottle.lastLetter']).toBe('');
+
+    await callTool(world, 'bottle_write', { text: '刚写完的一封。' });
+    expect(world.envPromptVars()['bottle.lastLetter']).toBe('刚刚');
+
+    const rendered = renderTemplate('上次写信：{{bottle.lastLetter | 还没有寄过信}}', world.envPromptVars());
+    expect(rendered).toBe('上次写信：刚刚');
+  });
+
+  it('工具描述里写了「什么时候该写」，也留了「没有就不写」的出口', () => {
+    const decl = BOTTLE_TOOL_DECLS.find((tool) => tool.name === 'bottle_write');
+    const text = String(decl?.description ?? '');
+    expect(text).toContain('Call this when');
+    expect(text).toContain('do not write');
+  });
+
+  it('回执带上「上次写信」，起草次数进本地漏斗', async () => {
+    h.throwAs('peer', '信里写着：捡到一只很白的贝壳。');
+    const world = await started();
+    await callTool(world, 'bottle_write', { text: '第一封。' });
+    const receipt = await callTool(world, 'bottle_catch');
+    expect(receipt).toContain('上次写信');
+
+    const storage = world.webUi('zh').storage ?? [];
+    expect(String(storage[0]?.stat?.())).toContain('起草 1 次');
   });
 
   it('提示词不写「主人」「用户」，也不替 Coo 认定对方叫什么', async () => {

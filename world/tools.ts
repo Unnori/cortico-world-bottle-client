@@ -17,7 +17,7 @@ export const BOTTLE_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
     name: 'bottle_write',
     tags: ['act'],
     description:
-      'Draft a bottle letter and put it in the human\'s mailbox page. Nothing is sent: only the human can send it, from that page. Write to a stranger you will never meet, at most 120 characters. The receipt does not repeat the text; do not read the whole letter aloud again.',
+      'Draft a bottle letter and put it in the human\'s mailbox page. Nothing is sent: only the human can send it, from that page. Write to a stranger you will never meet, at most 120 characters. Call this when you actually have something to put out to sea: a moment worth keeping, gladness you want someone to know about, a worry or a confusion that keeps pressing, a small thing that would sound like rambling if said out loud. If there is nothing like that, do not write. An empty letter is worse than none. The receipt does not repeat the text; do not read the whole letter aloud again.',
     parameters: {
       type: 'object',
       additionalProperties: false,

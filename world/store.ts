@@ -104,6 +104,13 @@ export class LocalStore {
    * 否则新装的世界会为历史上每一次海啸都弹一条，那些跟这个人类没关系。
    */
   tsunamiSeen: number | null = null;
+  /**
+   * 这个 Coo 一共起草过几封信（含被重写覆盖的）。
+   *
+   * 它与 `sent.length` 一起构成一瓶本地漏斗：起草多、寄出少 = 卡在人类审核；
+   * 起草也少 = 它根本没有表达的时机。只记次数，不记内容。
+   */
+  draftsMade = 0;
 
   private readonly identityFile: string;
   private readonly draftFile: string;
@@ -128,8 +135,9 @@ export class LocalStore {
       this.identity = { clientId: id.clientId, pseudonym: typeof id.pseudonym === 'string' ? id.pseudonym : '' };
     }
 
-    const state = readJson<{ tsunamiSeen?: unknown }>(this.stateFile);
+    const state = readJson<{ tsunamiSeen?: unknown; draftsMade?: unknown }>(this.stateFile);
     this.tsunamiSeen = typeof state?.tsunamiSeen === 'number' ? state.tsunamiSeen : null;
+    this.draftsMade = typeof state?.draftsMade === 'number' && state.draftsMade >= 0 ? Math.floor(state.draftsMade) : 0;
 
     // 落盘格式是 `{ draft, letterDraft }` 两个槽：`draft` 是回信草稿，`letterDraft` 是信稿。
     // 分开存是因为两者会同时存在——手里有信稿的人照样能去读别人那一封，回信稿不能把信稿顶掉。
@@ -225,7 +233,17 @@ export class LocalStore {
   /** 记下「已经看过几次海啸」。`null` 基线由 `load()` 决定，这里只写非空值。 */
   setTsunamiSeen(count: number): void {
     this.tsunamiSeen = count;
-    writeJson(this.stateFile, { tsunamiSeen: count });
+    this.saveState();
+  }
+
+  /** 又起草了一封信（被重写覆盖的也算一次）。只记次数，不记内容。 */
+  bumpDraftsMade(): void {
+    this.draftsMade += 1;
+    this.saveState();
+  }
+
+  private saveState(): void {
+    writeJson(this.stateFile, { tsunamiSeen: this.tsunamiSeen, draftsMade: this.draftsMade });
   }
 
   /** 写回信草稿（`kind` 一律按 reply 归槽）；信稿走 `setLetterDraft`。 */
@@ -293,10 +311,10 @@ export class LocalStore {
     });
   }
 
-  /** WebUI 的存储页要一句实时的规模说明。 */
+  /** WebUI 的存储页要一句实时的规模说明；起草/寄出是两个数，一眼看出漏斗卡在哪。 */
   describeStorage(): string {
     const drafts = (this.draft ? 1 : 0) + (this.letterDraft ? 1 : 0);
-    return `${drafts} 份草稿 · ${this.held ? 1 : 0} 封在读 · 寄出 ${this.sent.length} 封 · 捞到 ${this.received.length} 封 · 回信 ${this.replies.length} 封`;
+    return `起草 ${this.draftsMade} 次 · 寄出 ${this.sent.length} 封 · ${drafts} 份草稿待定 · ${this.held ? 1 : 0} 封在读 · 捞到 ${this.received.length} 封 · 回信 ${this.replies.length} 封`;
   }
 
   /** 只清历史，不动正在写的那封与手里那封。 */
