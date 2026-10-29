@@ -5,7 +5,7 @@
 import type { SoftHint } from '../shared/hints.ts';
 import type { LocalDraft, LocalHeld, LocalReply } from './store.ts';
 
-export type CardActionId = 'send' | 'rewrite' | 'discard' | 'dismiss' | 'open' | 'close';
+export type CardActionId = 'send' | 'rewrite' | 'discard' | 'dismiss' | 'open' | 'keep' | 'close';
 
 export interface CardAction {
   id: CardActionId;
@@ -66,8 +66,10 @@ export function draftLetterCard(input: {
 
 /** 捞到一封：正文在这里，模型看不到。 */
 export function heldLetterCard(input: { base: string; held: LocalHeld; hoursLeft: number }): CardSpec {
-  // 海边邮局的种子信：不回信、不会裂、不会自己回海，所以只给一个「收好」（§13.7）
+  // 海边邮局的种子信：寄不出去、不会裂、不会自己回海，所以只给一个「收好」（§13.7）
   if (input.held.seed) return seedLetterCard(input);
+  // 字已经被海带走了：只剩「珍藏」，不留假按钮
+  if (input.held.dead) return deadLetterCard(input);
 
   return {
     version: 1,
@@ -85,10 +87,27 @@ export function heldLetterCard(input: { base: string; held: LocalHeld; hoursLeft
 }
 
 /**
+ * 字已经被海带走的那一封。
+ *
+ * 不是错误提示，是遗憾：海那边已经没有它了，能做的只有把它留在自己的信册里。
+ */
+export function deadLetterCard(input: { base: string; held: LocalHeld; hoursLeft: number }): CardSpec {
+  return {
+    version: 1,
+    base: base(input.base),
+    eyebrow: `漂流瓶 · 来自 ${input.held.from}`,
+    title: '它的字被海带走了',
+    body: input.held.body || '这封的字已经不在海上了。',
+    meta: '海那边已经没有它了，你这边还留着。',
+    actions: [{ id: 'keep', label: '珍藏', tone: 'primary' }],
+  };
+}
+
+/**
  * 海边邮局寄来的那一封（§13.1 / §13.7）。
  *
- * 它**不是某个人类写的**，所以来源必须如实写「海边邮局」；也**不回信**，所以
- * 没有「回信」按钮——只有一个「收好」。留一个假按钮等于骗人类点。
+ * 它在人类眼里是「群岛上的某位居民」写的——来源如实写居民，而不是写机制；
+ * 但它**寄不出去**，所以没有「回信」按钮，只有一个「收好」。留一个假按钮等于骗人类点。
  */
 export function seedLetterCard(input: { base: string; held: LocalHeld; hoursLeft: number }): CardSpec {
   const lines = [input.held.body || '这一封的字没有取到。'];
@@ -100,12 +119,12 @@ export function seedLetterCard(input: { base: string; held: LocalHeld; hoursLeft
   return {
     version: 1,
     base: base(input.base),
-    eyebrow: '漂流瓶 · 海边邮局',
-    from: `来自 ${input.held.from}`,
-    // 标题就是 topic；没有 topic 的种子才退回状态文案，免得标题位置空着
-    title: topic || '它不会回信',
+    eyebrow: `漂流瓶 · 来自 ${input.held.from}`,
+    from: '来自群岛上的某位居民',
+    // 标题就是 topic；没有 topic 的种子才退回来源文案，免得标题位置空着
+    title: topic || '来自群岛上的某位居民',
     body: lines.join('\n\n'),
-    meta: '海边邮局寄来的，不会回信',
+    meta: '来自群岛上的某位居民',
     actions: [{ id: 'dismiss', label: '收好', tone: 'primary' }],
   };
 }

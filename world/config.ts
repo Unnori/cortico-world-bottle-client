@@ -15,6 +15,8 @@ export interface BottleConfigSection {
   surface?: 'auto' | 'card' | 'page';
   /** 开发者模式：额外写日志（只记 id 与数量，不记信件内容）。 */
   debug?: boolean;
+  /** 海啸要不要推给 Coo。关掉也照样记基线，免得一打开就补播一堆旧海啸。 */
+  tsunamiNotice?: boolean;
 }
 
 export const BOTTLE_DEFAULTS: BottleConfigSection = {
@@ -23,6 +25,7 @@ export const BOTTLE_DEFAULTS: BottleConfigSection = {
   port: 7796,
   surface: 'auto',
   debug: false,
+  tsunamiNotice: true,
 };
 
 export const BOTTLE_CONFIG_GROUP: ConfigGroup = {
@@ -52,6 +55,13 @@ export const BOTTLE_CONFIG_GROUP: ConfigGroup = {
         description:
           'auto：Windows 上用原生卡片，其它平台用网页。card：只弹卡片（起不来就退回网页）。page：只在浏览器里打开信箱页。',
         enum: ['auto', 'card', 'page'],
+        'x-hot': true,
+      },
+      'worlds.bottle.tsunamiNotice': {
+        type: 'boolean',
+        title: '海啸提示',
+        description:
+          '服务端重启时，还漂在海上的瓶子会被浪拍碎。开着会告诉 Coo 一声；关掉只是不打扰它，基线照样记，以后打开也不会补播旧海啸。',
         'x-hot': true,
       },
       'worlds.bottle.debug': {

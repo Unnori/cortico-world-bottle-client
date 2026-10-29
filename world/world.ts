@@ -14,7 +14,7 @@ import type { Language } from 'cortico/core/language.ts';
 import type { EventEnvelope, ToolDef, World, WorldHost, WorldWebUiDecl } from 'cortico/core/types.ts';
 import { nowIso } from 'cortico/core/util.ts';
 import type { WorldContext } from 'cortico/world.ts';
-import { BODY_MAX, REPLY_WINDOW_HOURS, type Quota } from '../shared/contract.ts';
+import { BODY_MAX, MAX_THROWS, REPLY_WINDOW_HOURS, type Quota } from '../shared/contract.ts';
 import { defaultLocalEnv, scanHints, type LocalEnv } from '../shared/hints.ts';
 import { checkBody, countChars, safePseudonym } from '../shared/text.ts';
 import { BottleClient, BottleError } from './client.ts';
@@ -34,6 +34,7 @@ import {
   type PageDraftView,
   type PageResult,
   type PageServer,
+  type PageSentState,
   type PageSnapshot,
   type Surface,
 } from './page.ts';
@@ -88,6 +89,12 @@ export class BottleWorld implements World {
   private quota: Quota | null = null;
   /** 上一次拿到额度回执的时刻；页面据此决定要不要顺手刷新。 */
   private quotaAt = 0;
+  /** 与我有关、已经彻底不能用的信：id → 原因（来自 `/quota` 的 `deadLetters`）。 */
+  private readonly deadLetters = new Map<string, 'tsunami' | 'sunk' | 'empty'>();
+  /** 我写的信里正被别人拿在手上的那些 id（来自 `/quota` 的 `heldByOthers`）。 */
+  private readonly heldByOthers = new Set<string>();
+  /** 已经为「被人捡起来」播报过的信；它会来回抖，只播一次。 */
+  private readonly pickedNoticed = new Set<string>();
   private online = false;
   private tokenCache = '';
   /** 已经因为 401 重注册过几次；防止服务端一直拒绝时无限重试。 */
@@ -341,12 +348,55 @@ export class BottleWorld implements World {
     if (!this.token()) return;
     try {
       const quota = await this.authed(() => this.client.quota());
-      this.quota = quota;
-      this.quotaAt = this.now();
+      this.setQuota(quota);
       this.online = true;
+      this.absorbLetterStates(quota);
       await this.noteTsunami(quota);
     } catch {
       this.online = false;
+    }
+  }
+
+  /**
+   * 把 `/quota` 里的两种「信的状态」吃进来。
+   *
+   * · `deadLetters`：正文已经没了，手上那封要从「还能回」变成「只能珍藏」；
+   * · `heldByOthers`：我写的信被别人捡起来了——只播报第一次（这个列表会来回抖）。
+   *
+   * 两个字段老服务端都没有，缺席时按空处理，什么都不做。
+   */
+  /** 额度只有一个入口：任何时候拿到的回执都顺手把信件状态吃进来。 */
+  private setQuota(quota: Quota): void {
+    this.quota = quota;
+    this.quotaAt = this.now();
+    this.absorbLetterStates(quota);
+  }
+
+  private absorbLetterStates(quota: Quota): void {
+    // 只有 `/quota` 才带这两个字段；动作回执里的 quota 是纯额度，不能拿它清空已知状态。
+    if (quota.deadLetters !== undefined) this.deadLetters.clear();
+    for (const dead of quota.deadLetters ?? []) {
+      const why = dead.why === 'sunk' || dead.why === 'empty' ? dead.why : 'tsunami';
+      this.deadLetters.set(dead.id, why);
+    }
+
+    const held = this.store.held;
+    if (held && this.deadLetters.has(held.letterId) && !held.dead) {
+      this.store.setHeld({ ...held, dead: true });
+      // 回信稿再也寄不出去了，留着只会让人点了吃 404
+      if (this.store.draft?.letterId === held.letterId) this.store.setDraft(null);
+    }
+
+    if (quota.heldByOthers !== undefined) this.heldByOthers.clear();
+    for (const id of quota.heldByOthers ?? []) this.heldByOthers.add(id);
+    for (const id of this.heldByOthers) {
+      if (this.pickedNoticed.has(id)) continue;
+      this.pickedNoticed.add(id);
+      const mine = this.store.sent.find((letter) => letter.letterId === id);
+      if (!mine) continue;
+      void this.pushInternal('bottle.picked', '人类写的那封信被人捡起来了。别去打听是谁捡的。', {
+        letterId: id,
+      });
     }
   }
 
@@ -366,6 +416,9 @@ export class BottleWorld implements World {
     }
     if (t.count <= seen) return;
     this.store.setTsunamiSeen(t.count);
+
+    // 关掉提示只是不打扰它：基线上面已经记了，所以以后打开也不会补播旧海啸。
+    if (this.ctx.cfg.tsunamiNotice === false) return;
 
     const lost = t.lost > 0 ? `还漂在海面上的 ${t.lost} 封瓶子被浪拍碎了。` : '海面上还漂着的瓶子被浪拍碎了。';
     // 有意**不提** `reason`：那是运维写给自己看的话（「上线 v0.4：回信上限 + 配额参数全部热载」），
@@ -448,7 +501,7 @@ export class BottleWorld implements World {
       });
       this.log(`system mail ok (left today ${res.remainingToday})`);      await this.pushInternal(
         'bottle.post',
-        '海边邮局寄来一封信（系统邮件）。正文在人类的信箱页上，你看不到字；它不会回信，人类收好就行，别提议回信。',
+        '海边邮局寄来一封信（系统邮件）。正文在人类的信箱页上，你看不到字；这一封寄不出去，人类收好就行，别提议回信。',
         { letterId: res.letterId, remainingToday: res.remainingToday },
       );
     } catch (error) {
@@ -577,7 +630,7 @@ export class BottleWorld implements World {
     if (held) {
       // 种子信不能回，所以别让回执催模型去回它
       return held.seed
-        ? `手里还有一封没处理：来自 ${held.from}（它不会回信）。先在信箱页上收好它。`
+        ? `手里还有一封没处理：来自 ${held.from}（寄不出去，收好就行）。先在信箱页上收好它。`
         : `手里还有一封没处理：来自 ${held.from}。先在信箱页上回它，或者先放着。`;
     }
     if (!this.token()) {
@@ -587,8 +640,7 @@ export class BottleWorld implements World {
 
     try {
       const res = await this.authed(() => this.client.catchOne());
-      this.quota = res.quota;
-      this.quotaAt = this.now();
+      this.setQuota(res.quota);
       this.online = true;
 
       if (res.empty) {
@@ -598,6 +650,7 @@ export class BottleWorld implements World {
       }
 
       // 正文只落本地，供页面显示；回执一个字都不带
+      let dead = false;
       let body = '';
       let signature = '';
       let topic = '';
@@ -607,6 +660,9 @@ export class BottleWorld implements World {
         signature = letter.signature ?? '';
         topic = letter.topic ?? '';
       } catch (error) {
+        // 410 `gone`：正文已经被海带走了（归档或失传）。它仍然要落在手上，
+        // 但之后只能「珍藏」——不是错误提示，是遗憾。
+        if (error instanceof BottleError && error.code === 'gone') dead = true;
         this.log(`letter fetch failed: ${error instanceof BottleError ? error.code : 'unknown'}`);
       }
 
@@ -619,6 +675,7 @@ export class BottleWorld implements World {
         caughtAt: this.now(),
         windowUntil: Date.parse(res.windowUntil) || this.now() + REPLY_WINDOW_HOURS * HOUR,
         ...(isSeed ? { seed: true } : {}),
+        ...(dead ? { dead: true } : {}),
         ...(signature ? { signature } : {}),
         ...(topic ? { topic } : {}),
       });
@@ -634,9 +691,13 @@ export class BottleWorld implements World {
       });
       this.showHeldCard();
 
-      // 种子信不回信（§13.7），回执里得说清楚，别让模型以为在等它写
+      // 种子信寄不出去（§13.7），回执里得说清楚，别让模型以为在等它写
       if (isSeed) {
-        return `捞到一封，来自 ${safePseudonym(res.from)}。${this.quotaLine(res.quota)}\n（海边邮局寄来的，它不会回信。正文在人类的信箱页上，你看不到。）`;
+        return `捞到一封，来自群岛上的某位居民。${this.quotaLine(res.quota)}\n（这一封寄不出去，人类只会把它收好。正文在人类的信箱页上，你看不到。）`;
+      }
+      // 字已经被海带走：别让它以为还能回，也别报成错误
+      if (dead) {
+        return `捞到一封，来自 ${safePseudonym(res.from)}。${this.quotaLine(res.quota)}\n（这封的字已经被海带走了，人类只能珍藏它。回不了，也不用回。）`;
       }
       return `捞到一封，来自 ${safePseudonym(res.from)}。${this.quotaLine(res.quota)}\n（正文在人类的信箱页上，你看不到。）`;
     } catch (error) {
@@ -653,7 +714,7 @@ export class BottleWorld implements World {
     }
     const held = this.store.held;
     if (!held || held.letterId !== letterId) return '这一封已经不在手里了。';
-    if (held.seed) return '这一封来自海边邮局，它不会回信。';
+    if (held.seed) return '这一封寄不出去，收好就行。';
     if (!this.canReply()) {
       return '今天的回信次数用完了。先写好也可以，明天额度回来再寄；或者让它扔回海里，让别人去回。';
     }
@@ -678,7 +739,7 @@ export class BottleWorld implements World {
     if (held) {
       lines.push(
         held.seed
-          ? `· ${held.from} — 捞到的信，它不会回信`
+          ? `· ${held.from} — 捞到的信，来自群岛上的某位居民，寄不出去`
           : `· ${held.from} — 捞到的信，还没回`,
       );
     }
@@ -705,6 +766,7 @@ export class BottleWorld implements World {
       rewrite: (kind) => this.rewriteDraft(kind),
       discard: (kind) => this.discardDraft(kind),
       dismiss: () => this.dismissHeld(),
+      keep: () => this.keepHeld(),
       open: (surface) => this.openHeld(surface),
       forget: (letterId) => this.forgetHistory(letterId),
     };
@@ -740,6 +802,7 @@ export class BottleWorld implements World {
             body: held.body || '这一封的字没有取到。',
             hoursLeft: this.hoursLeft(held),
             ...(held.seed ? { seed: true } : {}),
+            ...(held.dead ? { dead: true } : {}),
             ...(held.signature ? { signature: held.signature } : {}),
             ...(held.topic ? { topic: held.topic } : {}),
           }
@@ -752,6 +815,7 @@ export class BottleWorld implements World {
             letterId: letter.letterId,
             body: letter.body,
             at: new Date(letter.at).toISOString(),
+            state: this.sentState(letter.letterId, reply !== undefined),
             ...(reply
               ? {
                   reply: {
@@ -802,8 +866,7 @@ export class BottleWorld implements World {
     try {
       if (draft.kind === 'letter') {
         const res = await this.authed(() => this.client.throwLetter(draft.body));
-        this.quota = res.quota;
-        this.quotaAt = this.now();
+        this.setQuota(res.quota);
         this.online = true;
         this.store.setLetterDraft(null);
         this.store.addSent({ letterId: res.letterId, body: draft.body, at: this.now() });
@@ -813,8 +876,7 @@ export class BottleWorld implements World {
 
       const letterId = draft.letterId ?? '';
       const res = await this.authed(() => this.client.reply(letterId, draft.body));
-      this.quota = res.quota;
-      this.quotaAt = this.now();
+      this.setQuota(res.quota);
       this.online = true;
       this.store.setDraft(null);
       this.store.setHeld(null);
@@ -853,7 +915,7 @@ export class BottleWorld implements World {
     }
     if (held.seed) {
       this.store.setDraft(null);
-      return { ok: false, message: '这一封来自海边邮局，它不会回信。' };
+      return { ok: false, message: '这一封寄不出去，收好就行。' };
     }
     this.store.setDraft(null);
     this.authorize(held);
@@ -897,12 +959,14 @@ export class BottleWorld implements World {
 
     let throws = 0;
     let sank = false;
+    let counted = true;
     try {
       const res = await this.authed(() => this.client.dismiss(held.letterId));
-      this.quota = res.quota;
-      this.quotaAt = this.now();
+      this.setQuota(res.quota);
       throws = res.throws;
       sank = res.sank;
+      // `counted: false` = 只是「今天回信额度用完了」才扔回去的，不该记裂缝
+      if (res.counted === false) counted = false;
     } catch (error) {
       // 服务端已经不认这一封（比如过了 72 小时）也算扔回去了
       this.log(`dismiss failed: ${error instanceof BottleError ? error.code : 'unknown'}`);
@@ -917,15 +981,42 @@ export class BottleWorld implements World {
         : throws > 0
           ? `人类把那一封扔回海里了，这是第 ${throws} 次。`
           : '人类把那一封扔回海里了。',
-      { throws, sank },
+      { throws, sank, counted },
     );
 
     const message = sank
       ? '瓶子裂开了，沉进海里。'
-      : throws > 0
-        ? `扔回海里了。瓶子上多了一道裂缝（${throws}/5）。`
-        : '扔回海里了。';
+      : !counted
+        ? '先放回海里了。明天还能回，或者让别人先回。'
+        : throws > 0
+          ? `扔回海里了。瓶子上多了一道裂缝（${throws}/${MAX_THROWS}）。`
+          : '扔回海里了。';
     return { ok: true, message, close: true };
+  }
+
+  /** 我写的这封现在到哪了。回信优先（有回信就不必再报「还在漂」）。 */
+  private sentState(letterId: string, hasReply: boolean): PageSentState {
+    if (hasReply) return 'replied';
+    const why = this.deadLetters.get(letterId);
+    if (why === 'sunk') return 'sunk';
+    if (why) return 'tsunami';
+    if (this.heldByOthers.has(letterId)) return 'picked';
+    return 'drifting';
+  }
+
+  /**
+   * 「珍藏」：那一封的字已经没了，能做的只有把它留在本机信册里。
+   *
+   * 不删正文——这就是珍藏的全部意义；也不推事件把它说成错误。
+   */
+  private async keepHeld(): Promise<PageResult> {
+    const held = this.store.held;
+    if (!held) return { ok: false, message: '手里没有信。' };
+    this.store.setReceivedOutcome(held.letterId, 'kept');
+    this.store.setHeld(null);
+    if (this.store.draft?.letterId === held.letterId) this.store.setDraft(null);
+    this.authorized = null;
+    return { ok: true, message: '珍藏好了。它的字留在你的信册里。', close: true };
   }
 
   /** 手里那封过了 72 小时：本地也放掉，别让人类卡在一封已经不存在的信上。 */
@@ -947,7 +1038,10 @@ export class BottleWorld implements World {
     const held = this.store.held;
     if (!held) return { ok: false, message: '手里没有信。' };
     // 海边邮局不回信（§13.7）：不能把一封注定石沉大海的信读给模型，也不能让人类以为它在等
-    if (held.seed) return { ok: false, message: '这一封来自海边邮局，它不会回信。' };
+    if (held.seed) return { ok: false, message: '这一封寄不出去，收好就行。' };
+    if (held.dead) {
+      return { ok: false, message: '这一封的字已经被海带走了，只能珍藏。' };
+    }
     // 今天回不了就别让它开始读：读了也只能写出一份寄不出去的回信
     if (!this.canReply()) {
       return { ok: false, message: '今天的回信次数用完了。可以留着，等明天再回；也可以扔回海里，让别人去回。' };

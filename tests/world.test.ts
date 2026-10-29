@@ -392,27 +392,28 @@ describe('漂流瓶 World · 收信', () => {
 
     const result = await world.pageDeps().dismiss();
     expect(result.ok).toBe(true);
-    expect(result.message).toContain('裂缝（1/5）');
+    expect(result.message).toContain('裂缝（1/8）');
     expect(world.pageDeps().snapshot().held).toBeNull();
     expect(h.db.letters.find((letter) => letter.id === held.letterId)?.state).toBe('floating');
     expect(h.db.letters.find((letter) => letter.id === held.letterId)?.throws).toBe(1);
   });
 
-  it('扔回海里五次：裂开沉底，记录写 sank', async () => {
+  it('扔到第八次：裂开沉底，记录写 sank', async () => {
     h.throwAs('peer', '这封信一直没人要。');
     const world = await started();
 
-    let last: { ok: boolean; message?: string } | null = null;
-    for (let round = 1; round <= 5; round++) {
-      const caught = await callTool(world, 'bottle_catch');
-      expect(caught).toContain('捞到一封');
-      last = await world.pageDeps().dismiss();
-      expect(last.ok).toBe(true);
-    }
+    // 同一个人当天只能扔一次（扔回去的自己也捞不到），所以前面七次只能算别人的。
+    // 这里直接把计数推到临界值，验的是「最后一次扔下去之后」的 World 表现。
+    h.db.letters[0]!.throws = 7;
 
-    expect(last?.message).toContain('沉进海里');
+    expect(await callTool(world, 'bottle_catch')).toContain('捞到一封');
+    const last = await world.pageDeps().dismiss();
+    expect(last.ok).toBe(true);
+    expect(last.message).toContain('沉进海里');
     expect(world.pageDeps().snapshot().received[0]!.outcome).toBe('sank');
     expect(h.db.letters[0]!.state).toBe('archived');
+    expect(h.db.letters[0]!.archivedReason).toBe('sunk');
+    expect(h.db.letters[0]!.throws).toBe(8);
   });
 });
 
@@ -544,3 +545,95 @@ describe('漂流瓶 World · 本地账本', () => {
     expect(snapshot.held).not.toBeNull();
   });
 });
+
+describe('漂流瓶 World · 信件状态（v0.5）', () => {
+  it('扔回海里时 counted=false：不记裂缝，也不吓人', async () => {
+    h = makeHarness({ rules: { sendBase: 50, sendCap: 50, catchBase: 50, catchCap: 50, poolDivisor: 5, replyCap: 0 } });
+    host = new FakeHost();
+    h.throwAs('peer', '信里写着：捡到一只很白的贝壳。');
+    const world = await started();
+    await callTool(world, 'bottle_catch');
+    const dropped = await world.pageDeps().dismiss();
+    expect(dropped.ok).toBe(true);
+    expect(dropped.message).toContain('明天还能回');
+    expect(dropped.message).not.toContain('裂缝');
+  });
+
+  it('手上那封字没了：只能珍藏，正文留在本机', async () => {
+    h.throwAs('peer', '信里写着：捡到一只很白的贝壳。');
+    const world = await started();
+    await callTool(world, 'bottle_catch');
+    const held = h.db.letters.find((letter) => letter.body.includes('贝壳'))!;
+    // 服务端侧的「正文已失」：正文没了，/quota 的 deadLetters 会带 why=empty
+    held.body = '';
+    await callTool(world, 'bottle_write', { text: '顺便写一封。' });
+    // 额度最多 5 分钟旧；拨钟让下一次页面轮询真的去问一次 /quota
+    h.clock.t += 6 * 60 * 1000;
+    world.pageDeps().snapshot();
+    await vi.waitFor(() => expect(world.pageDeps().snapshot().held?.dead).toBe(true), {
+      timeout: 1000,
+      interval: 10,
+    });
+
+    const snapshot = world.pageDeps().snapshot();
+    expect(snapshot.held?.dead).toBe(true);
+    const opened = await world.pageDeps().open('page');
+    expect(opened.ok).toBe(false);
+    expect(opened.message).toContain('只能珍藏');
+
+    const kept = await world.pageDeps().keep();
+    expect(kept.ok).toBe(true);
+    const after = world.pageDeps().snapshot();
+    expect(after.held).toBeNull();
+    const record = after.received.find((item) => item.letterId === held.id)!;
+    expect(record.outcome).toBe('kept');
+    expect(record.body).toContain('贝壳');
+  });
+
+  it('我写的信：被人捡起 / 海啸 / 裂开 三种状态都翻得出来', async () => {
+    const world = await started();
+    await callTool(world, 'bottle_write', { text: '第一封。' });
+    await world.pageDeps().send();
+    const mine = h.db.letters[0]!;
+
+    // 被别人拿在手上：作者只该知道「被捡起来了」，不该知道是谁
+    mine.state = 'caught';
+    mine.catcherHash = 'someone-else';
+    h.clock.t += 6 * 60 * 1000;
+    world.pageDeps().snapshot();
+    await vi.waitFor(() => expect(world.pageDeps().snapshot().sent[0]?.state).toBe('picked'), {
+      timeout: 1000,
+      interval: 10,
+    });
+
+    // 海啸把正文卷走：变成「迷失在海啸中」
+    mine.body = '';
+    h.clock.t += 6 * 60 * 1000;
+    world.pageDeps().snapshot();
+    await vi.waitFor(() => expect(world.pageDeps().snapshot().sent[0]?.state).toBe('tsunami'), {
+      timeout: 1000,
+      interval: 10,
+    });
+  });
+
+  it('被人捡起只播报一次，不跟着每次轮询抖', async () => {
+    const world = await started();
+    await callTool(world, 'bottle_write', { text: '第二封。' });
+    await world.pageDeps().send();
+    const mine = h.db.letters[0]!;
+    mine.state = 'caught';
+    mine.catcherHash = 'someone-else';
+    const count = () => host.events.filter((event) => event.type === 'bottle.picked').length;
+    h.clock.t += 6 * 60 * 1000;
+    world.pageDeps().snapshot();
+    await vi.waitFor(() => expect(count()).toBeGreaterThan(0), { timeout: 1000, interval: 10 });
+    const first = count();
+    h.clock.t += 6 * 60 * 1000;
+    world.pageDeps().snapshot();
+    h.clock.t += 6 * 60 * 1000;
+    world.pageDeps().snapshot();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(count()).toBe(first);
+  });
+});
+

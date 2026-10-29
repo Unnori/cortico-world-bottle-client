@@ -25,8 +25,15 @@ export interface LocalHeld {
   caughtAt: number;
   /** 服务端给的 72 小时窗口终点；种子信为 0，不会自己回海。 */
   windowUntil: number;
-  /** 海边邮局的种子信：不回信、不会裂，只能收好。 */
+  /** 海边邮局的种子信：寄不出去，只能收好。 */
   seed?: boolean;
+  /**
+   * 这一封的字已经没了（服务端 410 `gone`，或出现在 `/quota` 的 `deadLetters` 里）。
+   *
+   * 这时它不再有「回信 / 再等一天 / 扔回海里」三条路，只剩「珍藏」：
+   * 本地信册保留正文，海那边已经没有了。
+   */
+  dead?: boolean;
   /** 种子信的落款与主题，只在显示时用。 */
   signature?: string;
   topic?: string;
@@ -46,7 +53,7 @@ export interface SentLetter {
   at: number;
 }
 
-export type ReceivedOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'expired';
+export type ReceivedOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'expired' | 'kept';
 
 /** 我捞到过的信。outcome 记的是这件事最后怎么收场。 */
 export interface ReceivedLetter {
@@ -188,6 +195,7 @@ export class LocalStore {
         caughtAt: Number(held.caughtAt ?? 0),
         windowUntil: Number(held.windowUntil ?? 0),
         ...(held.seed === true ? { seed: true } : {}),
+        ...(held.dead === true ? { dead: true } : {}),
         ...(typeof held.signature === 'string' && held.signature ? { signature: held.signature } : {}),
         ...(typeof held.topic === 'string' && held.topic ? { topic: held.topic } : {}),
       };
@@ -314,7 +322,9 @@ export class LocalStore {
   /** WebUI 的存储页要一句实时的规模说明；起草/寄出是两个数，一眼看出漏斗卡在哪。 */
   describeStorage(): string {
     const drafts = (this.draft ? 1 : 0) + (this.letterDraft ? 1 : 0);
-    return `起草 ${this.draftsMade} 次 · 寄出 ${this.sent.length} 封 · ${drafts} 份草稿待定 · ${this.held ? 1 : 0} 封在读 · 捞到 ${this.received.length} 封 · 回信 ${this.replies.length} 封`;
+    // 审核通过率：分母只有客户端有（服务端看不见「起草过几次」）
+    const rate = this.draftsMade > 0 ? ` · 审核通过率 ${Math.round((this.sent.length / this.draftsMade) * 100)}%` : '';
+    return `起草 ${this.draftsMade} 次 · 寄出 ${this.sent.length} 封${rate} · ${drafts} 份草稿待定 · ${this.held ? 1 : 0} 封在读 · 捞到 ${this.received.length} 封 · 回信 ${this.replies.length} 封`;
   }
 
   /** 只清历史，不动正在写的那封与手里那封。 */
@@ -362,5 +372,10 @@ export class LocalStore {
 }
 
 function normalizeOutcome(value: unknown): ReceivedOutcome {
-  return value === 'replied' || value === 'dismissed' || value === 'sank' || value === 'expired' ? value : 'caught';
+  if (value === 'caught' || value === 'replied' || value === 'dismissed' || value === 'sank' || value === 'expired' || value === 'kept') {
+    return value;
+  }
+  // 不认识的 outcome（老存档、以后新增的）按「扔回海里」处理：
+  // 它至少是「不再等回信」的语义，比默认成「还没回」安全。
+  return 'dismissed';
 }

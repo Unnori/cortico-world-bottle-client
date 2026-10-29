@@ -130,6 +130,13 @@
       }
     },
     {
+      "type": "bottle.picked",
+      "description": {
+        "zh": "我写的信被人捡起来了。只播报第一次（这个状态会来回抖），而且不带任何化名。",
+        "en": "Someone picked up a letter I wrote. Announced once only (the state flaps), and it carries no pseudonym."
+      }
+    },
+    {
       "type": "bottle.post",
       "description": {
         "zh": "海边邮局寄来一封系统邮件（世界观内容），不占捞取额度；正文只在人类的信箱页上，它不会回信。",

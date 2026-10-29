@@ -127,6 +127,35 @@ describe('草稿往返', () => {
 });
 
 describe('身份与账本往返', () => {
+  it('kept 与 dead 都留得住；不认识的 outcome 按「扔回海里」兜底', () => {
+    const dir = freshDir();
+    const first = reload(dir);
+    first.setHeld({
+      letterId: 'l_dead',
+      from: '南汀铜铃#1379',
+      body: '',
+      caughtAt: 10,
+      windowUntil: 20,
+      dead: true,
+    });
+    first.addReceived({ letterId: 'l_dead', from: '南汀铜铃#1379', body: '', at: 10, outcome: 'kept' });
+
+    const again = reload(dir);
+    expect(again.held?.dead).toBe(true);
+    expect(again.received[0]?.outcome).toBe('kept');
+
+    // 老存档里出现没见过的 outcome：不能当成「还没回」，按扔回海里处理
+    const other = freshDir();
+    writeFileSync(
+      join(other, 'bottle-letterbook.json'),
+      JSON.stringify({
+        received: [{ letterId: 'l_x', from: '某人', body: '旧记录', at: 1, outcome: 'weird_new_state' }],
+      }),
+      'utf8',
+    );
+    expect(reload(other).received[0]?.outcome).toBe('dismissed');
+  });
+
   it('化名与信件账本都留得住', () => {
     const dir = freshDir();
     const first = reload(dir);

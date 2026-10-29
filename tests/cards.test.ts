@@ -87,7 +87,7 @@ describe('原生卡片规格', () => {
 
   it('种子信的 topic 走 title，不混进底部 meta', () => {
     // 钉住一个真 bug：topic 曾经被拼进 meta（底部灰色小字），标题位置上放的却是
-    // 状态文案「它不会回信」。结果人类一眼看过去找不到「这封信叫什么」。
+    // 状态文案「来自群岛上的某位居民」。结果人类一眼看过去找不到「这封信叫什么」。
     const card = heldLetterCard({
       base,
       held: {
@@ -104,7 +104,7 @@ describe('原生卡片规格', () => {
     });
 
     expect(card.title).toBe('不会问');
-    expect(card.meta).toBe('海边邮局寄来的，不会回信');
+    expect(card.meta).toBe('来自群岛上的某位居民');
     // 状态不该出现在 title 里，topic 也不该出现在 meta 里
     expect(card.title).not.toContain('不会回信');
     expect(card.meta).not.toContain('不会问');
@@ -116,6 +116,6 @@ describe('原生卡片规格', () => {
       held: { letterId: 'seed_y', from: '海边邮局', body: '正文。', caughtAt: 0, windowUntil: 0, seed: true },
       hoursLeft: 72,
     });
-    expect(card.title).toBe('它不会回信');
+    expect(card.title).toBe('来自群岛上的某位居民');
   });
 });

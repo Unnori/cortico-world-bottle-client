@@ -25,6 +25,7 @@ function deps(overrides: Partial<PageDeps> = {}): PageDeps {
     rewrite: vi.fn(async () => ({ ok: true, message: '让它重写。' })),
     dismiss: vi.fn(async () => ({ ok: true, message: '放回海里了。' })),
     discard: vi.fn(async (_kind?: 'letter' | 'reply') => ({ ok: true, message: '这封不写了。', close: true })),
+    keep: vi.fn(async () => ({ ok: true, message: '珍藏好了。', close: true })),
     open: vi.fn(async (_surface: Surface) => ({ ok: true, message: '它开始读了。' })),
     forget: vi.fn(async (_letterId?: string) => ({ ok: true, message: '本机保存的信件记录清空了。' })),
     ...overrides,
@@ -147,14 +148,14 @@ describe('本地信箱页', () => {
 
   it('标题渲染在正确位置：种子的 topic 进 title，状态进 meta', () => {
     // 钉住两个真 bug：
-    //   1. 手里那封：title 位置上放的是状态「它不会回信」，topic 被塞进底部 meta
+    //   1. 手里那封：title 位置上放的是状态「来自群岛上的某位居民」，topic 被塞进底部 meta
     //   2. 捞到过的信：topic 从来没被渲染，标题直接丢
     const html = pageHtml();
 
     // 手里那封：h2 用 topic
-    expect(html).toContain("el('h2', 'title', s.held.topic || '它不会回信')");
-    // 状态是单独一行小字，不再和 topic 拼在一起
-    expect(html).toContain("el('div', 'meta', '海边邮局寄来的，不会回信')");
+    expect(html).toContain("el('h2', 'title', s.held.topic || '来自群岛上的某位居民')");
+    // 来源是单独一行小字，不再和 topic 拼在一起
+    expect(html).toContain("el('div', 'meta', '来自群岛上的某位居民')");
     // 历史区：topic 必须有位置
     expect(html).toContain('mail-topic');
     expect(html).toContain('item.topic');
@@ -162,6 +163,19 @@ describe('本地信箱页', () => {
     // 样式也得在，否则元素是空的
     const style = html.slice(0, html.indexOf('</style>'));
     expect(style).toContain('.mail .mail-topic');
+  });
+
+  it('字没了的信只剩「珍藏」，寄出状态也翻得出来', async () => {
+    const html = (await handlePage(deps(), 'GET', '/')).html ?? '';
+    // 珍藏：整张卡只有一个按钮，不出现回信／再等一天／扔回海里
+    expect(html).toContain('renderDeadHeld(s, card)');
+    expect(html).toContain("label: '珍藏', path: '/keep'");
+    expect(html).toContain('它的字被海带走了');
+    // 寄出去的信的四种漂流状态
+    expect(html).toContain('被人捡起来了');
+    expect(html).toContain('迷失在海啸中');
+    expect(html).toContain('瓶子裂开了，没人来得及回');
+    expect(html).toContain('sentStateText(item)');
   });
 
   it('真 HTTP：卡片带 surface 头，World 知道是谁点的；没带头的 POST 被挡', async () => {

@@ -62,14 +62,14 @@ async function started(): Promise<Harness['world']> {
 }
 
 describe('World · 种子瓶', () => {
-  it('回执说「来自海边邮局」，不化成「一位陌生人」', async () => {
+  it('回执说「来自群岛上的某位居民」，不化成「一位陌生人」', async () => {
     const world = await started();
     const receipt = await callTool(world, 'bottle_catch');
 
-    expect(receipt).toContain('来自 海边邮局');
+    expect(receipt).toContain('来自群岛上的某位居民');
     expect(receipt).not.toContain('一位陌生人');
     // §13.7：得说清它不回信，别让模型以为在等它写
-    expect(receipt).toContain('不会回信');
+    expect(receipt).toContain('寄不出去');
     // 正文照旧不进回执
     expect(receipt).not.toContain('第一封信');
   });
@@ -106,10 +106,10 @@ describe('World · 种子瓶', () => {
       hoursLeft: 72,
     });
 
-    expect(card.eyebrow).toContain('海边邮局');
-    expect(card.from).toBe('来自 海边邮局');
+    expect(card.eyebrow).toContain('漂流瓶');
+    expect(card.from).toBe('来自群岛上的某位居民');
     expect(card.body).toContain('邮差');
-    expect(card.meta).toContain('不会回信');
+    expect(card.meta).toContain('来自群岛上的某位居民');
     // 只有「收好」：留一个点了石沉大海的「回信」等于骗人类
     expect(card.actions.map((action) => action.id)).toEqual(['dismiss']);
     expect(card.actions[0]!.label).toBe('收好');
@@ -121,7 +121,7 @@ describe('World · 种子瓶', () => {
 
     const opened = await world.pageDeps().open('page');
     expect(opened.ok).toBe(false);
-    expect(opened.message).toContain('不会回信');
+    expect(opened.message).toContain('寄不出去');
 
     // 没授权就没有外部事件：正文一个字都没进模型
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -153,13 +153,13 @@ describe('World · 种子瓶', () => {
     expect(snapshot.received[0]!.outcome).toBe('dismissed');
   });
 
-  it('信箱回执里也说明它不会回信', async () => {
+  it('信箱回执里也说明它寄不出去', async () => {
     const world = await started();
     await callTool(world, 'bottle_catch');
 
     const receipt = await callTool(world, 'bottle_mailbox');
     expect(receipt).toContain('海边邮局');
-    expect(receipt).toContain('不会回信');
+    expect(receipt).toContain('寄不出去');
     expect(receipt).not.toContain('第一封信');
   });
 
@@ -175,13 +175,13 @@ describe('World · 种子瓶', () => {
     expect(later?.seed).toBe(true);
   });
 
-  it('再捞一次会说手里那封不会回信，而不是催模型去回它', async () => {
+  it('再捞一次会说手里那封寄不出去，而不是催模型去回它', async () => {
     const world = await started();
     await callTool(world, 'bottle_catch');
 
     const receipt = await callTool(world, 'bottle_catch');
     expect(receipt).toContain('海边邮局');
-    expect(receipt).toContain('不会回信');
+    expect(receipt).toContain('寄不出去');
     expect(receipt).not.toContain('回它');
   });
 });

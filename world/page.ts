@@ -27,8 +27,10 @@ export interface PageHeldView {
   from: string;
   body: string;
   hoursLeft: number;
-  /** 海边邮局的种子信：不回信，只能收好（§13.7）。 */
+  /** 海边邮局的种子信：寄不出去，只能收好（§13.7）。 */
   seed?: boolean;
+  /** 这一封的字已经没了，只剩「珍藏」。 */
+  dead?: boolean;
   signature?: string;
   topic?: string;
 }
@@ -39,14 +41,18 @@ export interface PageReplyView {
   at: string;
 }
 
+/** 我写出去的这封信现在在哪：还在漂 / 被人捡起 / 海啸丢了 / 裂了 / 已经收到回信。 */
+export type PageSentState = 'drifting' | 'picked' | 'tsunami' | 'sunk' | 'replied';
+
 export interface PageSentView {
   letterId: string;
   body: string;
   at: string;
+  state?: PageSentState;
   reply?: PageReplyView;
 }
 
-export type PageOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'expired';
+export type PageOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'expired' | 'kept';
 
 export interface PageReceivedView {
   letterId: string;
@@ -98,6 +104,8 @@ export interface PageDeps {
   send(kind?: 'letter' | 'reply'): Promise<PageResult>;
   rewrite(kind?: 'letter' | 'reply'): Promise<PageResult>;
   dismiss(): Promise<PageResult>;
+  /** 字已经没了的信：只能珍藏，不再有回信/再等/扔回。 */
+  keep(): Promise<PageResult>;
   /** 把还没寄出去的草稿扔掉（「算了吧」）；不动手里那封信。 */
   discard(kind?: 'letter' | 'reply'): Promise<PageResult>;
   open(surface: Surface): Promise<PageResult>;
@@ -161,6 +169,7 @@ export async function handlePage(
       '/rewrite': () => deps.rewrite(kind),
       '/discard': () => deps.discard(kind),
       '/dismiss': () => deps.dismiss(),
+      '/keep': () => deps.keep(),
       '/open': () => deps.open(surface),
     };
     const action = actions[route];
@@ -591,6 +600,7 @@ export function pageHtml(): string {
 
   function renderHeld(s) {
     var card = el('div', 'card');
+    if (s.held.dead) return renderDeadHeld(s, card);
     if (s.held.seed) return renderSeedHeld(s, card);
 
     var head = el('div', 'eyebrow', '捞到一封 · 来自 ');
@@ -614,15 +624,27 @@ export function pageHtml(): string {
   // 没有「回信」按钮——留一个点了也没用的按钮，等于骗人类。
   //
   // 标题的位置放 topic（那才是这封信的名字）；「它不会回信」是状态，属于下面那行小字。
+  // 它的字被海带走了：只剩一条路——把这封信留在自己的信册里。
+  function renderDeadHeld(s, card) {
+    var head = el('div', 'eyebrow', '捞到一封 · 来自 ');
+    head.appendChild(el('span', 'who', s.held.from));
+    card.appendChild(head);
+    card.appendChild(el('h2', 'title', '它的字被海带走了'));
+    card.appendChild(el('div', 'letter', s.held.body || '这封的字已经不在海上了。'));
+    card.appendChild(el('div', 'meta', '海那边已经没有它了，你这边还留着。'));
+    card.appendChild(buttons([{ label: '珍藏', path: '/keep', style: 'seal' }]));
+    return card;
+  }
+
   function renderSeedHeld(s, card) {
     var head = el('div', 'eyebrow', '海边邮局 · 来自 ');
     head.appendChild(el('span', 'who', s.held.from));
     card.appendChild(head);
-    // 没有 topic 时才用状态顶替标题，免得标题位置空着
-    card.appendChild(el('h2', 'title', s.held.topic || '它不会回信'));
+    // 没有 topic 时才用来源顶替标题，免得标题位置空着
+    card.appendChild(el('h2', 'title', s.held.topic || '来自群岛上的某位居民'));
     card.appendChild(el('div', 'letter', s.held.body));
     if (s.held.signature) card.appendChild(el('div', 'meta', '—— ' + s.held.signature));
-    card.appendChild(el('div', 'meta', '海边邮局寄来的，不会回信'));
+    card.appendChild(el('div', 'meta', '来自群岛上的某位居民'));
     card.appendChild(buttons([{ label: '收好', path: '/dismiss', style: 'seal' }]));
     return card;
   }
@@ -717,6 +739,18 @@ export function pageHtml(): string {
     return btn;
   }
 
+  // 我写的信现在到哪了。「被人捡起来了」只给状态、不说是谁——作者不该知道是谁捡的。
+  function sentStateText(item) {
+    if (item.reply) return '收到回信';
+    var table = {
+      picked: '被人捡起来了',
+      tsunami: '迷失在海啸中',
+      sunk: '瓶子裂开了，没人来得及回',
+      drifting: '还在漂'
+    };
+    return table[item.state] || '还在漂';
+  }
+
   function renderSent() {
     var box = document.getElementById('sent');
     var count = document.getElementById('sent-count');
@@ -735,7 +769,7 @@ export function pageHtml(): string {
       var mail = el('div', 'mail');
       var head = el('div', 'head');
       head.appendChild(el('span', 'from', fmt(item.at)));
-      head.appendChild(el('span', 'tag', item.reply ? '收到回信' : '还在漂'));
+      head.appendChild(el('span', 'tag', sentStateText(item)));
       mail.appendChild(head);
       mail.appendChild(el('div', 'letter small', item.body));
 
@@ -774,13 +808,13 @@ export function pageHtml(): string {
       return;
     }
 
-    var labels = { caught: '还没回', replied: '回过信', dismissed: '扔回海里', sank: '裂开沉底', expired: '自己回海了' };
+    var labels = { caught: '还没回', replied: '回过信', dismissed: '扔回海里', sank: '裂开沉底', expired: '自己回海了', kept: '珍藏' };
     items.forEach(function (item) {
       var mail = el('div', 'mail');
       var head = el('div', 'head');
       head.appendChild(el('span', 'from', item.seed ? '海边邮局' : item.from));
       var holding = state.held && state.held.letterId === item.letterId;
-      var tag = item.seed ? '不会回信' : (labels[item.outcome] || '看过');
+      var tag = item.seed ? '来自群岛上的某位居民' : (labels[item.outcome] || '看过');
       head.appendChild(el('span', 'tag', holding ? '手里这封' : tag));
       mail.appendChild(head);
       // 标题不能丢：它是这封信的名字，翻旧信时全靠它认人
