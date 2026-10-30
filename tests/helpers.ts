@@ -35,6 +35,8 @@ export function makeHarness(
     rules?: QuotaRules;
     /** 覆盖「打开本机页面」；默认只记录不真开。 */
     openUrl?: (url: string) => Promise<boolean>;
+    /** 覆盖 HTTP：用来造「注册就失败」这类网络错误。 */
+    fetchImpl?: typeof fetch;
   } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'bottle-world-'));
@@ -98,7 +100,7 @@ export function makeHarness(
   };
 
   const world = new BottleWorld(ctx, {
-    fetchImpl,
+    fetchImpl: opts.fetchImpl ?? fetchImpl,
     now: () => clock.t,
     localEnv: { hostname: 'DESKTOP-TEST-PC', username: 'alice', home: 'C:\\Users\\alice' },
     // 测试里绝不真的拉起浏览器；记下被要求打开的地址

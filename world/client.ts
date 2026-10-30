@@ -152,10 +152,59 @@ function toBottleError(error: unknown): BottleError {
   return new BottleError('network', 0, describeNetworkError(error));
 }
 
-function describeNetworkError(error: unknown): string {
-  if (error instanceof Error) {
-    if (error.name === 'TimeoutError' || error.name === 'AbortError') return '海边太久没回音。';
-    return '连不上海边。';
+/**
+ * 网络失败时说什么。
+ *
+ * 每一条都与错误码一一对应，所以**这句文案本身就是诊断码**：
+ * 用户把这句话念出来，就能反推出卡在哪一步，不必让他翻日志。
+ */
+const NET_ERROR_TEXT: Readonly<Record<string, string>> = {
+  // 域名解析
+  ENOTFOUND: '咦，海在哪里呢？（这个名字没能找到）',
+  EAI_AGAIN: '问路的人还没回来，海的名字一时没问到。',
+  // 连不上 / 被截断
+  ECONNREFUSED: '海边的某个地方似乎不给进……',
+  ECONNRESET: '刚靠岸就被推开了。',
+  EHOSTUNREACH: '那条路根本走不到海边。',
+  ENETUNREACH: '这里似乎没有通往海的路。',
+  // 等待超时
+  ETIMEDOUT: '海迟迟没有回应你……',
+  UND_ERR_CONNECT_TIMEOUT: '海迟迟没有回应你……',
+  UND_ERR_HEADERS_TIMEOUT: '海边收下了，却一直没回话。',
+  UND_ERR_BODY_TIMEOUT: '海边的话说到一半就断了。',
+  // 证书
+  CERT_HAS_EXPIRED: '海边的凭证过期了——不是你的问题。',
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: '一个认不出的印章挡住了路。',
+  UNABLE_TO_GET_ISSUER_CERT_LOCALLY: '一个认不出的印章挡住了路。',
+  SELF_SIGNED_CERT_IN_CHAIN: '一个认不出的印章挡住了路。',
+  DEPTH_ZERO_SELF_SIGNED_CERT: '一个认不出的印章挡住了路。',
+  ERR_TLS_CERT_ALTNAME_INVALID: '名字对不上：那边写的不是这片海。',
+  EPROTO: '刚要说上话，两边就说岔了。',
+};
+
+/** 从 fetch 的错误里挖出最内层的错误码（undici 会把它塞在 cause 里，可能是聚合错误）。 */
+function networkCode(error: unknown): string {
+  const dig = (node: unknown): string => {
+    if (!node || typeof node !== 'object') return '';
+    const value = node as { code?: unknown; errors?: unknown };
+    if (typeof value.code === 'string' && value.code) return value.code;
+    if (Array.isArray(value.errors)) {
+      for (const sub of value.errors) {
+        const found = dig(sub);
+        if (found) return found;
+      }
+    }
+    return '';
+  };
+  return dig((error as { cause?: unknown } | null)?.cause) || dig(error);
+}
+
+export function describeNetworkError(error: unknown): string {
+  const code = networkCode(error);
+  const mapped = NET_ERROR_TEXT[code];
+  if (mapped) return mapped;
+  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return '海迟迟没有回应你……';
   }
-  return '连不上海边。';
+  return '没能到海边，也不知道卡在哪了。';
 }

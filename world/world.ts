@@ -94,6 +94,8 @@ export class BottleWorld implements World {
   private quotaAt = 0;
   /** 与我有关、已经彻底不能用的信：id → 原因（来自 `/quota` 的 `deadLetters`）。 */
   private readonly deadLetters = new Map<string, 'tsunami' | 'sunk' | 'empty'>();
+  /** 最近一次网络失败的原因（人话）；没连上时念给人类听，不然只知道「连不上」。 */
+  private lastNetError: string | null = null;
   /** 我写的信里正被别人拿在手上的那些 id（来自 `/quota` 的 `heldByOthers`）。 */
   private readonly heldByOthers = new Set<string>();
   /** 已经为「被人捡起来」播报过的信；它会来回抖，只播一次。 */
@@ -305,6 +307,7 @@ export class BottleWorld implements World {
       this.store.setIdentity({ clientId, pseudonym: res.pseudonym });
       this.log('identity ok');
     } catch (error) {
+      this.noteNetError(error);
       this.log(`identity failed: ${error instanceof BottleError ? error.code : 'unknown'}`);
     }
   }
@@ -334,6 +337,18 @@ export class BottleWorld implements World {
    * 拿到 401 就重新要一张船票，然后**只重试一次**——这一次是安全的：
    * 401 意味着服务端没有改变任何状态。重试还失败就往上抛，让调用方按原样处理。
    */
+  /** 记下网络失败的原因（只有网络类错误才有意义）。 */
+  private noteNetError(error: unknown): void {
+    if (error instanceof BottleError && error.code === 'network') this.lastNetError = error.message;
+  }
+
+  /** 「还没连上海边」+（如果知道）具体卡在哪；尾部那句可以换成「等一会儿再捞。」这类。 */
+  private notConnectedLine(tail: string): string {
+    const reason = this.lastNetError;
+    const head = reason ? `还没连上海边：${reason}` : '还没连上海边。';
+    return tail ? `${head}${tail}` : head;
+  }
+
   private async authed<T>(call: () => Promise<T>): Promise<T> {
     try {
       return await call();
@@ -355,7 +370,8 @@ export class BottleWorld implements World {
       this.online = true;
       this.absorbLetterStates(quota);
       await this.noteTsunami(quota);
-    } catch {
+    } catch (error) {
+      this.noteNetError(error);
       this.online = false;
     }
   }
@@ -459,7 +475,8 @@ export class BottleWorld implements World {
         const newest = this.store.replies[0];
         if (newest) this.showReplyArrived(newest, added - 1);
       }
-    } catch {
+    } catch (error) {
+      this.noteNetError(error);
       this.online = false;
     }
   }
@@ -639,7 +656,7 @@ export class BottleWorld implements World {
     }
     if (!this.token()) {
       await this.ensureIdentityOnce();
-      if (!this.token()) return '还没连上海边，等一会儿再捞。';
+      if (!this.token()) return this.notConnectedLine('等一会儿再捞。');
     }
 
     try {
@@ -708,6 +725,7 @@ export class BottleWorld implements World {
     } catch (error) {
       this.online = false;
       this.log(`catch failed: ${error instanceof BottleError ? error.code : 'unknown'}`);
+      this.noteNetError(error);
       return error instanceof BottleError ? error.message : '没捞到，等一会儿再试。';
     }
   }
@@ -884,7 +902,7 @@ export class BottleWorld implements World {
         : this.store.draft ?? this.store.letterDraft;
     if (!draft) return { ok: false, message: '没有要寄的草稿。' };
     if (!this.token()) await this.ensureIdentityOnce();
-    if (!this.token()) return { ok: false, message: '还没连上海边。' };
+    if (!this.token()) return { ok: false, message: this.notConnectedLine('') };
 
     try {
       if (draft.kind === 'letter') {
@@ -915,6 +933,7 @@ export class BottleWorld implements World {
         void this.refreshQuota();
         return { ok: false, message: '今天的回信次数用完了。可以先放着，等明天再寄；也可以扔回海里，让别人去回。' };
       }
+      this.noteNetError(error);
       return { ok: false, message: error instanceof BottleError ? error.message : '没寄出去。' };
     }
   }

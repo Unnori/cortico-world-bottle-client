@@ -662,3 +662,23 @@ describe('漂流瓶 World · 打开信箱页', () => {
     expect(receipt).toMatch(/http:\/\/127\.0\.0\.1:\d+\/?/);
   });
 });
+
+describe('漂流瓶 World · 连不上海边时说清原因', () => {
+  it('注册就因为域名解析失败：回执带「咦，海在哪里呢？」而不是干巴一句连不上', async () => {
+    // 换一个只对网络请求失败的 fetch：注册那一步就挂，token 拿不到
+    const failing = (async () => {
+      throw Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('getaddrinfo ENOTFOUND'), { code: 'ENOTFOUND' }),
+      });
+    }) as unknown as typeof fetch;
+    h = makeHarness({ fetchImpl: failing });
+    host = new FakeHost();
+    // 不能用 started()：它要等额度出现，而这里注定等不到
+    const world = h.world;
+    await world.start(host);
+    const receipt = await callTool(world, 'bottle_catch');
+    expect(receipt).toContain('还没连上海边');
+    expect(receipt).toContain('咦，海在哪里呢？');
+    await world.stop();
+  });
+});
