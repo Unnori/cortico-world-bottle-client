@@ -62,6 +62,8 @@ export interface ReceivedLetter {
   body: string;
   at: number;
   outcome: ReceivedOutcome;
+  /** 我回过这封时写下的正文；「一起读信」要用它当上文。 */
+  myReply?: string;
   /** 种子信在历史里也要认得出：它不是某个人类写的。 */
   seed?: boolean;
   signature?: string;
@@ -228,6 +230,7 @@ export class LocalStore {
         at: Number(item.at ?? 0),
         outcome: normalizeOutcome(item.outcome),
         ...(item.seed === true ? { seed: true } : {}),
+        ...(typeof item.myReply === 'string' && item.myReply ? { myReply: item.myReply } : {}),
         ...(typeof item.signature === 'string' && item.signature ? { signature: item.signature } : {}),
         ...(typeof item.topic === 'string' && item.topic ? { topic: item.topic } : {}),
       }));
@@ -300,6 +303,14 @@ export class LocalStore {
     } else {
       this.received.unshift(letter);
     }
+    this.saveLetterbook();
+  }
+
+  /** 记下我回过的那段正文（只用于「一起读信」的上文）。 */
+  setReceivedMyReply(letterId: string, body: string): void {
+    const hit = this.received.find((item) => item.letterId === letterId);
+    if (!hit || hit.myReply === body) return;
+    hit.myReply = body;
     this.saveLetterbook();
   }
 

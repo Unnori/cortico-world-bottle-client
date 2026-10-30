@@ -106,6 +106,8 @@ export interface PageDeps {
   dismiss(): Promise<PageResult>;
   /** 字已经没了的信：只能珍藏，不再有回信/再等/扔回。 */
   keep(): Promise<PageResult>;
+  /** 「一起读信」：把信册里某一封（别人写的）递进上下文，读完说点自己的想法。 */
+  peruse(letterId: string): Promise<PageResult>;
   /** 把还没寄出去的草稿扔掉（「算了吧」）；不动手里那封信。 */
   discard(kind?: 'letter' | 'reply'): Promise<PageResult>;
   open(surface: Surface): Promise<PageResult>;
@@ -170,6 +172,7 @@ export async function handlePage(
       '/discard': () => deps.discard(kind),
       '/dismiss': () => deps.dismiss(),
       '/keep': () => deps.keep(),
+      '/peruse': () => deps.peruse(letterIdOf(opts.body) ?? ''),
       '/open': () => deps.open(surface),
     };
     const action = actions[route];
@@ -414,6 +417,16 @@ export function pageHtml(): string {
   .mail .head { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
   .mail .head .from { color: var(--ink); }
   .mail .head .tag { white-space: nowrap; }
+  .mail .reply-quote {
+    border-left: 2px solid var(--line);
+    padding-left: 10px;
+    margin: 10px 0 8px;
+  }
+  .mail .reply-quote-label {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
   .mail .mail-topic { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 6px; letter-spacing: .02em; }
   .mail-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 8px; font-size: 11.5px; color: var(--muted); }
   .mail-foot .when { opacity: .85; }
@@ -457,6 +470,11 @@ export function pageHtml(): string {
     <span class="count" id="sent-count"></span>
   </div>
   <section id="sent"></section>
+  <div class="sect-head">
+    <h2>收到的回信</h2>
+    <span class="count" id="reply-count"></span>
+  </div>
+  <section id="replies"></section>
   <div class="sect-head">
     <h2>捞到过的信</h2>
     <span class="count" id="got-count"></span>
@@ -695,6 +713,7 @@ export function pageHtml(): string {
 
     renderTide();
     renderSent();
+    renderReplies();
     renderReceived();
     renderFoot();
     document.title = (letterDraft || replyDraft) ? '● 有草稿 · 漂流瓶' : '漂流瓶 · 信箱';
@@ -764,7 +783,6 @@ export function pageHtml(): string {
       return;
     }
 
-    var seenAt = Number(localStorage.getItem('bottle-seen-at') || 0);
     items.forEach(function (item) {
       var mail = el('div', 'mail');
       var head = el('div', 'head');
@@ -773,22 +791,52 @@ export function pageHtml(): string {
       mail.appendChild(head);
       mail.appendChild(el('div', 'letter small', item.body));
 
-      if (item.reply) {
-        var reply = el('div', 'reply');
-        var rh = el('div', 'reply-head');
-        var left = el('span', null, item.reply.from);
-        var right = el('span', null, fmt(item.reply.at));
-        if (new Date(item.reply.at).getTime() > seenAt) right.appendChild(el('span', 'new', ' · 新'));
-        rh.appendChild(left);
-        rh.appendChild(right);
-        reply.appendChild(rh);
-        reply.appendChild(el('div', 'letter small', item.reply.body));
-        mail.appendChild(reply);
-      }
-
       var foot = el('div', 'mail-foot');
       foot.appendChild(el('span', 'when', ''));
       foot.appendChild(deleteLink(item.letterId));
+      mail.appendChild(foot);
+      box.appendChild(mail);
+    });
+  }
+
+  /** 收到的回信：别人回给我的那些，单独一区，不再挂在原信下面。 */
+  function renderReplies() {
+    var box = document.getElementById('replies');
+    var count = document.getElementById('reply-count');
+    box.innerHTML = '';
+    var items = (state.sent || []).filter(function (item) { return item.reply; });
+    count.textContent = items.length ? items.length + ' 封' : '';
+    if (!items.length) {
+      var empty = el('div', 'mail');
+      empty.appendChild(el('div', 'head', '还没有人回你的信。'));
+      box.appendChild(empty);
+      return;
+    }
+
+    var seenAt = Number(localStorage.getItem('bottle-seen-at') || 0);
+    items.forEach(function (item) {
+      var mail = el('div', 'mail');
+      var head = el('div', 'head');
+      head.appendChild(el('span', 'from', item.reply.from));
+      head.appendChild(el('span', 'tag', '回给你的'));
+      mail.appendChild(head);
+
+      var mine = el('div', 'reply-quote');
+      mine.appendChild(el('div', 'reply-quote-label', '你写的'));
+      mine.appendChild(el('div', 'letter small', item.body));
+      mail.appendChild(mine);
+
+      var theirs = el('div', 'letter small', item.reply.body);
+      mail.appendChild(theirs);
+
+      var foot = el('div', 'mail-foot');
+      var right = el('span', 'when', fmt(item.reply.at));
+      if (new Date(item.reply.at).getTime() > seenAt) right.appendChild(el('span', 'new', ' · 新'))
+      foot.appendChild(right);
+      var actions = el('span', 'mail-actions');
+      actions.appendChild(peruseLink(item));
+      actions.appendChild(deleteLink(item.letterId));
+      foot.appendChild(actions);
       mail.appendChild(foot);
       box.appendChild(mail);
     });
@@ -824,10 +872,35 @@ export function pageHtml(): string {
 
       var foot = el('div', 'mail-foot');
       foot.appendChild(el('span', 'when', fmt(item.at)));
-      foot.appendChild(deleteLink(item.letterId));
+      var actions = el('span', 'mail-actions');
+      actions.appendChild(peruseLink(item));
+      actions.appendChild(deleteLink(item.letterId));
+      foot.appendChild(actions);
       mail.appendChild(foot);
       box.appendChild(mail);
     });
+  }
+
+  /** 「一起读信」：把这一封递进去，让它读完说点自己的想法（不写回信）。 */
+  function peruseLink(item) {
+    var btn = el('button', 'link mini', '一起读信');
+    btn.type = 'button';
+    btn.onclick = function () {
+      if (btn.disabled) return;
+      btn.textContent = '…';
+      api('/peruse', { letterId: item.letterId }).then(function (res) {
+        btn.textContent = '一起读信';
+        if (!res || res.ok !== true) {
+          toast((res && res.message) || '没成，再试一次。', true);
+          return;
+        }
+        toast('它可以看了，等一下它的想法。');
+      }).catch(function () {
+        btn.textContent = '一起读信';
+        toast('信箱页连不上自己的后端。', true);
+      });
+    };
+    return btn;
   }
 
   function renderFoot() {

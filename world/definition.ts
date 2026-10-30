@@ -78,6 +78,13 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
         },
       },
       {
+        type: 'bottle.peruse',
+        description: {
+          zh: '人类在信册里点「一起读信」，那一封（别人写的）连同我当时的回信一起递进上下文；只聊，不写回信、不占额度。',
+          en: 'The human opened an old letter from the book to read together; it enters context with the answer I wrote back then. No answer is drafted and no quota is spent.',
+        },
+      },
+      {
         type: 'bottle.post',
         description: {
           zh: '海边邮局寄来一封系统邮件（世界观内容），不占捞取额度；正文只在人类的信箱页上，它不会回信。',

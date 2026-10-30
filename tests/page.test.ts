@@ -26,6 +26,7 @@ function deps(overrides: Partial<PageDeps> = {}): PageDeps {
     dismiss: vi.fn(async () => ({ ok: true, message: '放回海里了。' })),
     discard: vi.fn(async (_kind?: 'letter' | 'reply') => ({ ok: true, message: '这封不写了。', close: true })),
     keep: vi.fn(async () => ({ ok: true, message: '珍藏好了。', close: true })),
+    peruse: vi.fn(async (_letterId: string) => ({ ok: true, message: '它可以看了。', close: true })),
     open: vi.fn(async (_surface: Surface) => ({ ok: true, message: '它开始读了。' })),
     forget: vi.fn(async (_letterId?: string) => ({ ok: true, message: '本机保存的信件记录清空了。' })),
     ...overrides,
