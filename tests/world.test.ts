@@ -42,11 +42,12 @@ describe('漂流瓶 World · 装载', () => {
     }
   });
 
-  it('四个工具，没有 bottle_send', async () => {
+  it('五个工具，没有 bottle_send', async () => {
     const world = await started();
     expect(world.tools().map((tool) => tool.name).sort()).toEqual([
       'bottle_catch',
       'bottle_mailbox',
+      'bottle_open_page',
       'bottle_reply',
       'bottle_write',
     ]);
@@ -308,6 +309,9 @@ describe('漂流瓶 World · 收信', () => {
     expect(await callTool(world, 'bottle_write', { text: '别的东西' })).toContain('这一轮只写回信');
     expect(await callTool(world, 'bottle_catch')).toContain('这一轮只写回信');
     expect(await callTool(world, 'bottle_mailbox')).toContain('这一轮只写回信');
+    expect(await callTool(world, 'bottle_open_page')).toContain('这一轮只写回信');
+    // 也没真的去开浏览器
+    expect(h.openedUrls).toHaveLength(0);
   });
 
   it('没点回信就调 bottle_reply：回绝，什么也不发生', async () => {
@@ -637,3 +641,24 @@ describe('漂流瓶 World · 信件状态（v0.5）', () => {
   });
 });
 
+describe('漂流瓶 World · 打开信箱页', () => {
+  it('人类在对话里要页面：用系统浏览器打开本机地址，回执带上地址', async () => {
+    const world = await started();
+    const receipt = await callTool(world, 'bottle_open_page');
+    expect(receipt).toContain('打开了信箱页');
+    expect(receipt).toMatch(/http:\/\/127\.0\.0\.1:\d+\/?/);
+    // 真的把「那个」地址交给了打开器，而且只有一个
+    expect(h.openedUrls).toHaveLength(1);
+    expect(h.openedUrls[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/?$/);
+  });
+
+  it('打开失败时不装作成功，而是把地址直接给人', async () => {
+    // 打开器失败：真实环境里可能没有浏览器命令，这时不能装作成功
+    h = makeHarness({ openUrl: async () => false });
+    host = new FakeHost();
+    const world = await started();
+    const receipt = await callTool(world, 'bottle_open_page');
+    expect(receipt).toContain('没能自己打开');
+    expect(receipt).toMatch(/http:\/\/127\.0\.0\.1:\d+\/?/);
+  });
+});

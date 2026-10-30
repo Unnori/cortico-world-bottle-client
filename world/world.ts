@@ -18,6 +18,7 @@ import { BODY_MAX, MAX_THROWS, REPLY_WINDOW_HOURS, type Quota } from '../shared/
 import { defaultLocalEnv, scanHints, type LocalEnv } from '../shared/hints.ts';
 import { checkBody, countChars, safePseudonym } from '../shared/text.ts';
 import { BottleClient, BottleError } from './client.ts';
+import { openUrl } from './host-open.ts';
 import { CardHost } from './card.ts';
 import {
   draftLetterCard,
@@ -72,6 +73,8 @@ export interface BottleWorldOverrides {
   now?: () => number;
   /** 软提示要比对的本机标识；测试里给一份固定的。 */
   localEnv?: LocalEnv;
+  /** 测试注入：打开本机页面；缺省用系统默认浏览器。 */
+  openUrl?: (url: string) => Promise<boolean>;
 }
 
 export class BottleWorld implements World {
@@ -518,6 +521,7 @@ export class BottleWorld implements World {
       catchOne: () => this.doCatch(),
       reply: (letterId, text) => this.doReply(letterId, text),
       mailbox: () => this.doMailbox(),
+      openPage: () => this.doOpenPage(),
     };
   }
 
@@ -727,6 +731,24 @@ export class BottleWorld implements World {
     this.authorized = null;
     this.showDraftCard();
     return `回信草稿已放进信箱，等人类看。\n（${this.pageLine()}）`;
+  }
+
+  /**
+   * 「打开信箱页」：人类在对话里要页面时，用系统浏览器把它打开。
+   *
+   * 页面的地址是固定的本机回环地址，不是参数——这个工具永远不会变成「打开任意链接」。
+   */
+  private async doOpenPage(): Promise<string> {
+    const gate = this.readingGate();
+    if (gate) return gate;
+    if (!this.page) {
+      return '信箱页还没起来，等一会儿再试。';
+    }
+    const url = this.page.url;
+    const opened = await (this.overrides.openUrl ?? openUrl)(url);
+    return opened
+      ? `已经在你机器上打开了信箱页：${url}`
+      : `没能自己打开。地址是 ${url}，点一下就能进。`;
   }
 
   private async doMailbox(): Promise<string> {

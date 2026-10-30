@@ -70,6 +70,18 @@
       }
     },
     {
+      "name": "bottle_open_page",
+      "description": "Open the human's mailbox page (a local page on their own machine, 127.0.0.1 only) in their default browser. Use it whenever the human asks to see the mailbox, the letters, or the page, and whenever they cannot find where to read or send. The page is the only place letters can be read or sent; you cannot do either yourself. The URL is fixed and not a parameter, so this tool can never open anything else.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "tags": [
+        "act"
+      ]
+    },
+    {
       "name": "bottle_mailbox",
       "description": "What is in the mailbox right now: the letter you are holding that still needs an answer, and letters of yours that someone answered. Returns pseudonyms and states only, never letter text.",
       "parameters": {

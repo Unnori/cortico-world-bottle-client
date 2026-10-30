@@ -1,11 +1,13 @@
 /**
- * 四个工具。**没有 bottle_send**：发送只在本地信箱页上发生，模型没有这个能力。
+ * 五个工具。**没有 bottle_send**：发送只在本地信箱页上发生，模型没有这个能力。
  *
  * 回执的规矩：写/捞/回都只说「放在了哪」，不念正文。正文的显示通道是页面，不是气泡。
  */
 import type { ToolDef } from 'cortico/core/types.ts';
 
 export interface BottleToolDeps {
+  /** 人类在对话里说「打开信箱页」时，替他把本机页面打开。 */
+  openPage(): Promise<string>;
   write(text: string): Promise<string>;
   catchOne(): Promise<string>;
   reply(letterId: string, text: string): Promise<string>;
@@ -50,6 +52,13 @@ export const BOTTLE_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
     },
   },
   {
+    name: 'bottle_open_page',
+    tags: ['act'],
+    description:
+      "Open the human's mailbox page (a local page on their own machine, 127.0.0.1 only) in their default browser. Use it whenever the human asks to see the mailbox, the letters, or the page, and whenever they cannot find where to read or send. The page is the only place letters can be read or sent; you cannot do either yourself. The URL is fixed and not a parameter, so this tool can never open anything else.",
+    parameters: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
     name: 'bottle_mailbox',
     tags: ['read'],
     description:
@@ -67,6 +76,7 @@ export function bottleTools(deps: BottleToolDeps): ToolDef[] {
         typeof args.letterId === 'string' ? args.letterId : '',
         typeof args.text === 'string' ? args.text : '',
       ),
+    bottle_open_page: () => deps.openPage(),
     bottle_mailbox: () => deps.mailbox(),
   };
 

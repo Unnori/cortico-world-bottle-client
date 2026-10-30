@@ -15,6 +15,8 @@ import { BottleWorld } from '../world/world.ts';
 
 export interface Harness {
   api: Api;
+  /** 被要求用浏览器打开的地址（测试里不会真的打开）。 */
+  openedUrls: string[];
   db: Db;
   world: BottleWorld;
   dir: string;
@@ -26,12 +28,20 @@ export interface Harness {
 }
 
 export function makeHarness(
-  opts: { port?: number; server?: string; seeds?: SeedStore; rules?: QuotaRules } = {},
+  opts: {
+    port?: number;
+    server?: string;
+    seeds?: SeedStore;
+    rules?: QuotaRules;
+    /** 覆盖「打开本机页面」；默认只记录不真开。 */
+    openUrl?: (url: string) => Promise<boolean>;
+  } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'bottle-world-'));
   const db = Db.open(null);
   const clock = { t: Date.parse('2026-10-27T10:00:00+08:00') };
   let tokens = 0;
+  const openedUrls: string[] = [];
 
   const api = createApi(db, {
     now: () => clock.t,
@@ -91,6 +101,11 @@ export function makeHarness(
     fetchImpl,
     now: () => clock.t,
     localEnv: { hostname: 'DESKTOP-TEST-PC', username: 'alice', home: 'C:\\Users\\alice' },
+    // 测试里绝不真的拉起浏览器；记下被要求打开的地址
+    openUrl: (url) => {
+      openedUrls.push(url);
+      return (opts.openUrl ?? (async () => true))(url);
+    },
   });
 
   /** 另一个人的 token：直接问服务端要，不走 World。 */
@@ -115,6 +130,7 @@ export function makeHarness(
     db,
     world,
     dir,
+    openedUrls,
     clock,
     tokenOf,
     throwAs,
