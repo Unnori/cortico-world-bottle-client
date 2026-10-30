@@ -172,7 +172,7 @@ describe('本地信箱页', () => {
     expect(html).toContain('item.myReply');
     expect(html).toContain("el('div', 'reply-quote-label', '你回的')");
     // 老记录（回过但没存正文）要说明，不能让人以为字丢了
-    expect(html).toContain('回过信，但那段话没有留在本机');
+    expect(html).toContain('回过信，但这段没有留下来');
   });
 
   it('字没了的信只剩「珍藏」，寄出状态也翻得出来', async () => {

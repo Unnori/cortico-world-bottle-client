@@ -880,7 +880,7 @@ export function pageHtml(): string {
       }
 
       if (!item.myReply && !item.seed && item.outcome === 'replied') {
-        mail.appendChild(el('div', 'meta', '回过信，但那段话没有留在本机（0.3.0 之前的记录只存了标记）。'));
+        mail.appendChild(el('div', 'meta', '回过信，但这段没有留下来。'));
       }
 
       var foot = el('div', 'mail-foot');
