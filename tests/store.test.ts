@@ -156,6 +156,14 @@ describe('身份与账本往返', () => {
     expect(reload(other).received[0]?.outcome).toBe('dismissed');
   });
 
+  it('我回的那段要落盘：setReceivedMyReply → 重载还在', () => {
+    const dir = freshDir();
+    const store = reload(dir);
+    store.addReceived({ letterId: 'l_1', from: '某人', body: '原文', at: 1, outcome: 'replied' });
+    store.setReceivedMyReply('l_1', '我回的那段。');
+    expect(reload(dir).received[0]?.myReply).toBe('我回的那段。');
+  });
+
   it('化名与信件账本都留得住', () => {
     const dir = freshDir();
     const first = reload(dir);

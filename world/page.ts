@@ -870,6 +870,19 @@ export function pageHtml(): string {
       mail.appendChild(el('div', 'letter small', item.body));
       if (item.seed && item.signature) mail.appendChild(el('div', 'meta', '—— ' + item.signature));
 
+      // 我当时回的那段：从 0.3.0 起才真正存进本机。更早的记录只有「回过信」这个标记，
+      // 正文从未落过盘——不是被删了，是当时没有存。这种要说明白，别让人以为字丢了。
+      if (item.myReply) {
+        var mine = el('div', 'reply-quote');
+        mine.appendChild(el('div', 'reply-quote-label', '你回的'));
+        mine.appendChild(el('div', 'letter small', item.myReply));
+        mail.appendChild(mine);
+      }
+
+      if (!item.myReply && !item.seed && item.outcome === 'replied') {
+        mail.appendChild(el('div', 'meta', '回过信，但那段话没有留在本机（0.3.0 之前的记录只存了标记）。'));
+      }
+
       var foot = el('div', 'mail-foot');
       foot.appendChild(el('span', 'when', fmt(item.at)));
       var actions = el('span', 'mail-actions');

@@ -166,6 +166,15 @@ describe('本地信箱页', () => {
     expect(style).toContain('.mail .mail-topic');
   });
 
+  it('捞到过的信里，我回的那段必须画出来（0.3.0 曾白存了）', async () => {
+    const html = (await handlePage(deps(), 'GET', '/')).html ?? '';
+    // 结构化断言：渲染里确实读了 item.myReply，并且用了引用样式
+    expect(html).toContain('item.myReply');
+    expect(html).toContain("el('div', 'reply-quote-label', '你回的')");
+    // 老记录（回过但没存正文）要说明，不能让人以为字丢了
+    expect(html).toContain('回过信，但那段话没有留在本机');
+  });
+
   it('字没了的信只剩「珍藏」，寄出状态也翻得出来', async () => {
     const html = (await handlePage(deps(), 'GET', '/')).html ?? '';
     // 珍藏：整张卡只有一个按钮，不出现回信／再等一天／扔回海里
