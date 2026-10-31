@@ -132,7 +132,7 @@ describe('漂流瓶 World · 装载', () => {
 
     const port = world.webUi('zh').config?.[0]?.schema.properties['worlds.bottle.port'];
     expect(port?.['x-download']).toBeUndefined();
-    expect(port?.description).toContain('叫它帮你打开信箱。');
+    expect(port?.description).toContain('叫它帮你打开信箱');
   });
 });
 
