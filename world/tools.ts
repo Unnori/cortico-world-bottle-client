@@ -8,7 +8,7 @@ import type { ToolDef } from 'cortico/core/types.ts';
 export interface BottleToolDeps {
   /** 人类在对话里说「打开信箱页」时，替他把本机页面打开。 */
   openPage(): Promise<string>;
-  write(text: string): Promise<string>;
+  write(text: string, title: string): Promise<string>;
   catchOne(): Promise<string>;
   reply(letterId: string, text: string): Promise<string>;
   mailbox(): Promise<string>;
@@ -19,28 +19,29 @@ export const BOTTLE_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
     name: 'bottle_write',
     tags: ['act'],
     description:
-      'Draft a bottle letter and put it in the human\'s mailbox page. Nothing is sent: only the human can send it, from that page. Write to a stranger you will never meet, at most 120 characters. Call this when you actually have something to put out to sea: a moment worth keeping, gladness you want someone to know about, a worry or a confusion that keeps pressing, a small thing that would sound like rambling if said out loud. If there is nothing like that, do not write. An empty letter is worse than none. The receipt does not repeat the text; do not read the whole letter aloud again.',
+      'Draft a bottle letter and put it in the human\'s mailbox page. Nothing is sent: only the human can send it, from that page. Write to a stranger you will never meet. Supply a short, specific title (1–20 characters, one line) and a separate body (at most 120 characters). Do not repeat the title in the body; the title follows the same privacy rules as the body. Call this when you actually have something to put out to sea: a moment worth keeping, gladness you want someone to know about, a worry or a confusion that keeps pressing, a small thing that would sound like rambling if said out loud. If there is nothing like that, do not write. An empty letter is worse than none. The receipt does not repeat the text; do not read the whole letter aloud again.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        text: { type: 'string', description: 'The letter itself, at most 120 characters.' },
+        title: { type: 'string', description: 'A specific title for this letter, 1–20 characters on one line; no personal information or contact details.' },
+        text: { type: 'string', description: 'The letter body only, at most 120 characters; do not include the title.' },
       },
-      required: ['text'],
+      required: ['title', 'text'],
     },
   },
   {
     name: 'bottle_catch',
     tags: ['act'],
     description:
-      'Fish one bottle out of the sea. The receipt says who wrote it and how many catches are left today; it never contains the text. The text is shown to the human on the mailbox page, and you read it only after the human asks to reply.',
+      'Fish one bottle out of the sea. You may initiate this when bored, curious about strangers, or when the human has been quiet for a while in the current conversation; do not wait for a request. Catch once, then move on if holding a letter, out of quota, or the sea is quiet. The receipt says who wrote it and how many catches are left today; it never contains the text. The text is shown to the human on the mailbox page, and you read it only after the human asks to reply or read together.',
     parameters: { type: 'object', additionalProperties: false, properties: {} },
   },
   {
     name: 'bottle_reply',
     tags: ['act'],
     description:
-      'Draft an answer to the one letter the human has just opened on the mailbox page. Only available in that turn; never call it otherwise. The answer is a draft: the human sends it from the page. At most 120 characters.',
+      'Draft an answer to the one letter the human has just opened on the mailbox page. Only available in that turn; never call it otherwise. The answer is a draft: the human sends it from the page. Body only, at most 120 characters. Do not add a title, subject line, or repeat the original title in the answer.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -69,7 +70,7 @@ export const BOTTLE_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
 
 export function bottleTools(deps: BottleToolDeps): ToolDef[] {
   const handlers: Record<string, ToolDef['handler']> = {
-    bottle_write: (args) => deps.write(typeof args.text === 'string' ? args.text : ''),
+    bottle_write: (args) => deps.write(typeof args.text === 'string' ? args.text : '', typeof args.title === 'string' ? args.title : ''),
     bottle_catch: () => deps.catchOne(),
     bottle_reply: (args) =>
       deps.reply(

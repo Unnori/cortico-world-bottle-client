@@ -45,6 +45,8 @@ export interface BotRow {
 }
 
 export interface LetterRow {
+  /** 与正文一样只活在内存里，不写进账本。 */
+  topic?: string;
   id: string;
   authorHash: string;
   /** 只活在内存里；`save()` 时写成空串。 */
@@ -122,7 +124,7 @@ const DISMISSED_KEEP = 50;
 interface DbFile {
   version: 2;
   bots: BotRow[];
-  letters: Array<Omit<LetterRow, 'body'> & { body: '' }>;
+  letters: Array<Omit<LetterRow, 'body' | 'topic'> & { body: '' }>;
   replies: Array<Omit<ReplyRow, 'body'> & { body: '' }>;
   seedsUsed: SeedUseRow[];
   tsunami?: TsunamiState;
@@ -261,7 +263,7 @@ export class Db {
     const payload: DbFile = {
       version: 2,
       bots: this.bots,
-      letters: this.letters.map((letter) => ({ ...letter, body: '' })),
+      letters: this.letters.map(({ topic: _topic, ...letter }) => ({ ...letter, body: '' })),
       replies: this.replies.map((reply) => ({ ...reply, body: '' })),
       seedsUsed: this.seedUses,
       tsunami: this.tsunami,
@@ -327,7 +329,19 @@ export class Db {
 
 function isBot(value: unknown): value is BotRow {
   const row = value as Partial<BotRow>;
-  return typeof row?.tokenHash === 'string' && typeof row.pseudonym === 'string';
+  // `createdAt` 必须是个能用的时间戳。
+  //
+  // 不校验会怎样：数据库里已经出现过一条 `createdAt` 坏掉的记录，于是
+  // 「上线前 11 个 + 上线后 14 个 = 24」，但总数是 25——那个 bot 既不算前也不算后。
+  // 按人数分组的统计会静默偏小，而且没人知道为什么。
+  //
+  // 坏数据直接丢弃：少一个来路不明的账号，好过让所有分组统计都不可信。
+  return (
+    typeof row?.tokenHash === 'string' &&
+    typeof row.pseudonym === 'string' &&
+    typeof row.clientHash === 'string' &&
+    Number.isFinite(Number(row.createdAt))
+  );
 }
 
 function isLetter(value: unknown): value is DbFile['letters'][number] {

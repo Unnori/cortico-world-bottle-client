@@ -48,6 +48,78 @@ export interface Tuning {
    * 这样以后想调它不用再重启（重启就是海啸，代价太大）。
    */
   maxThrows: number;
+  /**
+   * 同一个 IP 在 `ipWindowMin` 分钟内最多能开几个号。
+   *
+   * 注意：这里的「IP」是**真实客户端 IP**（服务端会从 `X-Forwarded-For` 取）。
+   * 早先版本读的是 `socket.remoteAddress`，在反代后面那永远是 127.0.0.1，
+   * 于是这个限流变成了全服共用——群里一次发几十个人，第 4 个起全部被挡，
+   * 而且客户端把它显示成「连不上海边」，看起来像网络故障。
+   */
+  ipLimit: number;
+  /** 限流窗口，分钟。 */
+  ipWindowMin: number;
+
+  // ── 种子信的「当天随机时刻」（见 shared/seedSlots.ts）──
+
+  /**
+   * 每天摇几个时刻，以及摇出来的范围。
+   *
+   * 原来的实现是「额度归零后每 10 分钟试一次」，于是所有人的额度在午夜同时清零、
+   * 半小时内集中领完（实测 00:00–00:37 堆了 161 次）。改成每天给每人摇几个
+   * **不同的**时刻，全天摊开，也不会被摸清"我几点必来信"。
+   *
+   * `slotMax` 不会超过 `seedsPerDay`——上限仍然由它兜着。
+   */
+  seedSlotsMin: number;
+  seedSlotsMax: number;
+  /**
+   * 当天发不发。1.0 = 每天发；0.5 = 隔天发。
+   *
+   * 这是留给自己的一颗**应急刹车**：如果种子库消耗得比预期快，把它调到 0.5
+   * 就能立刻减半，改的是 tuning.json、5 秒生效、**不用重启**。
+   */
+  seedDailyChance: number;
+
+  // ── 退潮：给重启用的运维开关 ──
+
+  /**
+   * 退潮期间禁止投递。
+   *
+   * 用途只有一个：**在准备重启服务器之前，把海面清空**。
+   * 重启会把所有还漂着的信拍碎（一次海啸），所以先用这条闸停止注入，
+   * 再等现有的信被捞走/回掉，然后重启——损失从"海面上有多少"降到"接近 0"。
+   *
+   * 三件事必须一起成立，否则它就是一颗地雷：
+   *   1. **必须带 `until`**：到点自动失效。热载开关没有失效时间，等于给自己埋坑。
+   *   2. 拒绝时返回的是「退潮」而不是错误码——它是世界里发生的事，不是 429。
+   *   3. 只挡投递，**不挡捞取和回信**：回信才是让信永久离开海面的那个动作。
+   */
+  tideOut: TideOutSettings;
+
+  /** 一句话公告。复用海啸那条通道（比对 id 只播一次）。 */
+  announcement: Announcement | null;
+}
+
+export interface TideOutSettings {
+  /** 到点自动失效。ISO 时间字符串；空或写坏 = 立即视为未开启。 */
+  until: string;
+  /** 挡投递。 */
+  blockThrow: boolean;
+  /** 挡回信（一般不要开：回信是排空海面的主要手段）。 */
+  blockReply: boolean;
+  /** 说给玩家听的那句话。 */
+  text: string;
+}
+
+export interface Announcement {
+  /** 去重用的稳定 id。客户端只播一次。 */
+  id: string;
+  text: string;
+  /** 只在这个时刻之前显示。 */
+  showUntil: string;
+  /** `notice` = 普通公告；`alarm` = 出事了的公告。 */
+  level: 'notice' | 'alarm';
 }
 
 export const DEFAULT_TUNING: Tuning = {
@@ -61,6 +133,13 @@ export const DEFAULT_TUNING: Tuning = {
   poolDivisor: 5,
   replyCap: 3,
   maxThrows: 8,
+  ipLimit: 5,
+  ipWindowMin: 60,
+  seedSlotsMin: 3,
+  seedSlotsMax: 4,
+  seedDailyChance: 1,
+  tideOut: { until: '', blockThrow: false, blockReply: false, text: '' },
+  announcement: null,
 };
 
 export interface TuningReader {
@@ -112,13 +191,68 @@ function readOnce(file: string | null, env: NodeJS.ProcessEnv): Tuning {
     seedsPerDay: Number.isFinite(perDay) ? Math.max(0, Math.floor(perDay)) : DEFAULT_TUNING.seedsPerDay,
     seedsGlobalOnce: pickBool(raw.seedsGlobalOnce ?? env.BOTTLE_SEEDS_GLOBAL_ONCE, DEFAULT_TUNING.seedsGlobalOnce),
     seedsEnabled: pickBool(raw.seedsEnabled ?? env.BOTTLE_SEEDS_ENABLED, DEFAULT_TUNING.seedsEnabled),
-    sendBase: pickInt(raw.sendBase ?? env.BOTTLE_SEND_BASE, DEFAULT_TUNING.sendBase, 1),
-    sendCap: pickInt(raw.sendCap ?? env.BOTTLE_SEND_CAP, DEFAULT_TUNING.sendCap, 1),
+    sendBase: pickInt(raw.sendBase ?? env.BOTTLE_SEND_BASE, DEFAULT_TUNING.sendBase, 0),
+    sendCap: pickInt(raw.sendCap ?? env.BOTTLE_SEND_CAP, DEFAULT_TUNING.sendCap, 0),
     catchBase: pickInt(raw.catchBase ?? env.BOTTLE_CATCH_BASE, DEFAULT_TUNING.catchBase, 0),
     catchCap: pickInt(raw.catchCap ?? env.BOTTLE_CATCH_CAP, DEFAULT_TUNING.catchCap, 0),
     poolDivisor: pickInt(raw.poolDivisor ?? env.BOTTLE_POOL_DIVISOR, DEFAULT_TUNING.poolDivisor, 1),
     replyCap: pickInt(raw.replyCap ?? env.BOTTLE_REPLY_CAP, DEFAULT_TUNING.replyCap, 0),
     maxThrows: pickInt(raw.maxThrows ?? env.BOTTLE_MAX_THROWS, DEFAULT_TUNING.maxThrows, 1),
+    ipLimit: pickInt(raw.ipLimit ?? env.BOTTLE_IP_LIMIT, DEFAULT_TUNING.ipLimit, 1),
+    ipWindowMin: pickInt(
+      raw.ipWindowMin ?? env.BOTTLE_IP_WINDOW_MIN,
+      DEFAULT_TUNING.ipWindowMin,
+      1,
+    ),
+    seedSlotsMin: pickInt(raw.seedSlotsMin, DEFAULT_TUNING.seedSlotsMin, 0),
+    seedSlotsMax: pickInt(raw.seedSlotsMax, DEFAULT_TUNING.seedSlotsMax, 0),
+    seedDailyChance: pickChance(raw.seedDailyChance, DEFAULT_TUNING.seedDailyChance),
+    tideOut: readTideOut(raw.tideOut),
+    announcement: readAnnouncement(raw.announcement),
+  };
+}
+
+/** 0~1 之间的小数；写坏了退回默认。 */
+function pickChance(value: unknown, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(1, n));
+}
+
+/**
+ * 退潮开关。
+ *
+ * **`until` 写坏或已经过期，一律当成「没开」。**
+ * 这一条是刻意做保守的：热载开关如果默认是"开"，一次笔误就能让全服寄不出信，
+ * 而且没人知道为什么。宁可"该开的时候没开"，也不要"该关的时候关不掉"。
+ */
+function readTideOut(value: unknown): TideOutSettings {
+  const raw = (value ?? {}) as Partial<TideOutSettings>;
+  const until = typeof raw.until === 'string' ? raw.until.trim() : '';
+  const expires = until ? Date.parse(until) : Number.NaN;
+  const live = Number.isFinite(expires) && expires > Date.now();
+  return {
+    until,
+    blockThrow: live && raw.blockThrow === true,
+    blockReply: live && raw.blockReply === true,
+    text: typeof raw.text === 'string' ? raw.text : '',
+  };
+}
+
+/** 公告：`showUntil` 过期就当没有。同样保守。 */
+function readAnnouncement(value: unknown): Announcement | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Partial<Announcement>;
+  if (typeof raw.id !== 'string' || !raw.id.trim()) return null;
+  if (typeof raw.text !== 'string' || !raw.text.trim()) return null;
+  const showUntil = typeof raw.showUntil === 'string' ? raw.showUntil.trim() : '';
+  const expires = showUntil ? Date.parse(showUntil) : Number.NaN;
+  if (!Number.isFinite(expires) || expires <= Date.now()) return null;
+  return {
+    id: raw.id.trim(),
+    text: raw.text.trim(),
+    showUntil,
+    level: raw.level === 'alarm' ? 'alarm' : 'notice',
   };
 }
 

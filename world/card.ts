@@ -23,6 +23,8 @@ export interface CardHostOptions {
   /** 数据目录；JSON 写在这里。 */
   dir: string;
   log?: (line: string) => void;
+  /** 每次显示时读取，以便配置热更新。 */
+  autoCloseSec?: () => number;
   /** 测试注入。 */
   spawnImpl?: typeof spawn;
   platform?: NodeJS.Platform;
@@ -71,6 +73,8 @@ export class CardHost {
           data,
           '-Base',
           spec.base,
+          '-AutoCloseMs',
+          String(Math.max(0, Math.min(86400, this.opts.autoCloseSec?.() ?? 10)) * 1000),
         ],
         { windowsHide: true, stdio: 'ignore' },
       );

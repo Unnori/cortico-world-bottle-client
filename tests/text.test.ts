@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countChars, checkBody, isPseudonym, isSeedSender, safePseudonym, SEED_FROM } from '../shared/text.ts';
+import { countChars, checkBody, checkTitle, isPseudonym, isSeedSender, safePseudonym, SEED_FROM } from '../shared/text.ts';
 
 describe('字数与正文判定', () => {
   it('按码点数，emoji 和生僻字都算一个字', () => {
@@ -53,5 +53,17 @@ describe('化名清洗', () => {
     expect(isSeedSender('海边邮局')).toBe(true);
     expect(isSeedSender('海盐大福#4821')).toBe(false);
     expect(isSeedSender(null)).toBe(false);
+  });
+});
+
+describe('标题校验', () => {
+  it('按码点计数，去掉首尾空白，不占正文额度', () => {
+    expect(checkTitle('  风里的信  ')).toEqual({ ok: true, title: '风里的信' });
+    expect(checkTitle('🌊'.repeat(20)).ok).toBe(true);
+    expect(checkTitle('🌊'.repeat(21)).ok).toBe(false);
+    expect(checkBody('海'.repeat(120)).ok).toBe(true);
+  });
+  it.each([null, undefined, 12, '', '   ', '标题\n第二行', '标题\r第二行', '标题\u2028第二行'])('拒绝非法标题 %j', (value) => {
+    expect(checkTitle(value).ok).toBe(false);
   });
 });

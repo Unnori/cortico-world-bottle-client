@@ -6,7 +6,7 @@ param(
   [Parameter(Mandatory = $true)][string]$Data,
   [Parameter(Mandatory = $true)][string]$Base,
   # 没人理它时多久自己收起；调试时可以传小一点。
-  [int]$AutoCloseMs = 300000,
+  [int]$AutoCloseMs = 10000,
   # 开发用：把窗口真实的样子截一张 PNG，然后照常运行。
   [string]$Shot = '',
   # 开发用：起来后自动触发一个动作，用来验证回传链路。
@@ -332,8 +332,8 @@ $win.Add_ContentRendered({
   $slide.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, $rise)
 })
 
-# 人类一直不理它也别永远压在最上面：默认五分钟自己收起。
-Close-Soon $AutoCloseMs
+# 人类一直不理它也别永远压在最上面：默认十秒自己收起，0 为保持显示。
+if ($AutoCloseMs -gt 0) { Close-Soon $AutoCloseMs }
 
 if ($Shot) {
   Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue

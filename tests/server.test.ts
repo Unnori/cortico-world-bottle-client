@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApi, sha256, type Api, type ApiResponse } from '../server/app.ts';
@@ -376,5 +376,42 @@ describe('服务端 · 海啸', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+
+describe('普通信件标题', () => {
+  it('标题传给收信页面，捞信回执不泄漏，账本不保存', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bottle-title-'));
+    try {
+      const file = join(dir, 'bottle.json');
+      const h = setup({ file });
+      const a = h.register('title-author');
+      const b = h.register('title-reader');
+      const sent = h.call('POST', '/throw', a.token, { topic: '  风里的信  ', body: '海'.repeat(120) });
+      expect(sent.status).toBe(200);
+      const id = (sent.body as { letterId: string }).letterId;
+      expect(h.db.letterById(id)?.topic).toBe('风里的信');
+      const caught = h.call('POST', '/catch', b.token, {});
+      expect(caught.status).toBe(200);
+      expect(JSON.stringify(caught.body)).not.toContain('风里的信');
+      expect(h.call('GET', '/letter/' + id, b.token).body).toMatchObject({ topic: '风里的信', body: '海'.repeat(120) });
+      expect(h.call('GET', '/letter/' + id, a.token).status).toBe(404);
+      const disk = readFileSync(file, 'utf8');
+      expect(disk).not.toContain('风里的信');
+      expect(disk).not.toContain('海'.repeat(120));
+      expect(JSON.parse(disk).letters[0]).not.toHaveProperty('topic');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['', '  ', '海'.repeat(21), '两行\n标题', 123, null])('服务端拒绝非法标题 %j，不扣额度', (topic) => {
+    const h = setup();
+    const a = h.register('invalid-title');
+    const before = h.call('GET', '/quota', a.token).body;
+    expect(h.call('POST', '/throw', a.token, { topic, body: '晴天。' }).status).toBe(400);
+    expect(h.db.letters).toHaveLength(0);
+    expect(h.call('GET', '/quota', a.token).body).toEqual(before);
   });
 });

@@ -1,4 +1,4 @@
-import { BODY_MAX } from './contract.ts';
+import { BODY_MAX, TITLE_MAX } from './contract.ts';
 
 /**
  * 按码点数字数。`'𠮷'.length` 是 2，但人类看到的是一个字。
@@ -6,6 +6,13 @@ import { BODY_MAX } from './contract.ts';
  */
 export function countChars(text: string): number {
   return [...text].length;
+}
+
+/** 标题必须是非空单行文本；正文仍由 checkBody 独立检查。 */
+export function checkTitle(raw: unknown): { ok: boolean; title: string } {
+  if (typeof raw !== 'string') return { ok: false, title: '' };
+  const title = raw.trim();
+  return { ok: title.length > 0 && countChars(title) <= TITLE_MAX && !/[\r\n\u2028\u2029]/u.test(title), title };
 }
 
 export interface BodyCheck {

@@ -1,3 +1,4 @@
+import { Script } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import {
   handlePage,
@@ -21,6 +22,7 @@ const snapshot: PageSnapshot = {
 function deps(overrides: Partial<PageDeps> = {}): PageDeps {
   return {
     snapshot: () => snapshot,
+    request: vi.fn(async () => ({ ok: true, message: '已告诉 Coo。' })),
     send: vi.fn(async () => ({ ok: true, message: '寄出去了。', close: true })),
     rewrite: vi.fn(async () => ({ ok: true, message: '让它重写。' })),
     dismiss: vi.fn(async () => ({ ok: true, message: '放回海里了。' })),
@@ -34,7 +36,7 @@ function deps(overrides: Partial<PageDeps> = {}): PageDeps {
 }
 
 describe('本地信箱页', () => {
-  it('GET / 是一张纸，没有海边也没有页签', async () => {
+  it('GET / 提供本机信箱，资源内嵌', async () => {
     const res = await handlePage(deps(), 'GET', '/');
     expect(res.status).toBe(200);
     expect(res.html).toContain('漂流瓶');
@@ -137,11 +139,11 @@ describe('本地信箱页', () => {
   it('页面里没有可执行的外链，也不读别的东西', () => {
     const html = pageHtml();
     expect(html).not.toContain('<script src');
-    expect(html).not.toContain('http://');
-    expect(html).not.toContain('https://');
+    expect(html).not.toMatch(/(?:src|href)=["']https?:\/\//);
     expect(html).toContain('仍然寄出');
     expect(html).toContain('写出的信');
-    expect(html).toContain('捞到过的信');
+    expect(html).toContain('来客来信');
+    expect(html).toContain('海边邮局');
     expect(html).toContain('扔回海里');
     expect(html).toContain('删除');
     expect(html).toContain('清空这些记录');
@@ -225,4 +227,40 @@ describe('本地信箱页', () => {
       await server.close();
     }
   });
+});
+
+
+it('普通信的标题用于草稿、待回信和归档列表，页面脚本可解析', () => {
+  const html = pageHtml();
+  expect(html).toContain("var topic = isLetter ? draft.topic : null");
+  expect(html).toContain("isLetter ? topic || '无题信' : '回信'");
+  expect(html).toContain('信稿 · 尚未寄出');
+  expect(html).not.toContain('这封信还没寄出去');
+  expect(html).not.toContain('这封回信还没寄出去');
+  expect(html).toContain("s.held.topic || '还没决定要不要回'");
+  expect(html).toContain("var title = isReply ? item.reply.from + '的回信'");
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  expect(script).toBeTruthy();
+  expect(() => new Script(script!)).not.toThrow();
+});
+
+
+it('界面以海上来客称呼往来者，邮局来信保留独立来源', () => {
+  const html = pageHtml();
+  expect(html).toContain('海上来客');
+  expect(html).toContain('来客来信');
+  expect(html).toContain('来客回信');
+  expect(html).toContain("'海边邮局 · ' + (item.signature || '群岛来信')");
+  expect(html).toContain('这些信不收回信');
+  for (const term of ['真实用户', '用户来信', '用户回信', '种子瓶']) expect(html).not.toContain(term);
+});
+
+
+it('折叠摘要显示复用文本的彩色寄信状态，邮局来源显示署名', () => {
+  const html = pageHtml();
+  expect(html).toContain("if (kind === 'sent') summary.appendChild(sentStateBadge(item))");
+  expect(html).toContain('sentStateText(item)');
+  for (const status of ['replied', 'drifting', 'picked', 'tsunami', 'sunk']) expect(html).toContain('.status-' + status);
+  expect(html).toContain('已投进海里');
+  expect(html).not.toContain('寄给海上来客');
 });

@@ -7,7 +7,7 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
   id: 'bottle',
   label: '漂流瓶',
   defaults: () => ({ ...BOTTLE_DEFAULTS }),
-  create: (ctx) => new BottleWorld(ctx),
+  create: (ctx) => new BottleWorld(ctx, { botName: ctx.botName || '它' }),
   describe: {
     tools: describeTools(BOTTLE_TOOL_DECLS, {
       bottle_write: {
@@ -28,6 +28,20 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
       },
     }),
     events: [
+      {
+        type: 'bottle.request',
+        description: {
+          zh: '人类在信箱页请求 Coo 写信或打捞，不自动寄出。',
+          en: 'The human requested a draft or a catch from the mailbox page. Never sends a letter.',
+        },
+      },
+      {
+        type: 'bottle.announcement',
+        description: {
+          zh: '海边公告，按 id 持久化去重；正文作为外部消息投递，带 notice/alarm 级别。',
+          en: 'A seaside announcement delivered as external text, deduplicated persistently by id, with a notice/alarm level.',
+        },
+      },
       {
         type: 'bottle.reading',
         description: {

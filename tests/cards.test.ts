@@ -119,3 +119,19 @@ describe('原生卡片规格', () => {
     expect(card.title).toBe('来自群岛上的某位居民');
   });
 });
+
+
+it('普通信的草稿与收信卡片都显示独立标题', () => {
+  const draft = draftLetterCard({ base: 'http://127.0.0.1:17321', draft: { kind: 'letter', topic: '风里的信', body: '海很平。', at: 0 }, chars: 4, hints: [] });
+  expect(draft.title).toBe('风里的信');
+  expect(draft.body).toBe('海很平。');
+  const held = heldLetterCard({ base: 'http://127.0.0.1:17321', held: { letterId: 'l_title', from: '海盐大福#4821', topic: '风里的信', body: '海很平。', caughtAt: 0, windowUntil: 0 }, hoursLeft: 1 });
+  expect(held.title).toBe('风里的信');
+});
+
+
+it('回信卡片不显示旧草稿残留的标题', () => {
+  const card = replyDraftCard({ base: 'http://127.0.0.1:17321', draft: { kind: 'reply', letterId: 'l_1', topic: '旧标题', body: '收到。', at: 0 }, held: null, chars: 3, hints: [] });
+  expect(card).not.toHaveProperty('title');
+  expect(card.body).toBe('收到。');
+});

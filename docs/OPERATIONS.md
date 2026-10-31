@@ -17,7 +17,7 @@
 **发信**
 
 ```
-① Coo 想说话        → bottle_write（起草，≤120 字）
+① Coo 想说话        → bottle_write（标题 1—20 字，正文 ≤120 字）
 ② 桌面弹出卡片       ← 人类看，不经过模型
 ③ 人类点「寄出去」   → 卡片 POST /send → 服务端 /throw
    或点「重写」      → 卡片 POST /rewrite → Coo 重写一稿（覆盖旧稿）
@@ -133,15 +133,20 @@ pnpm server
 
 ```
 POST /register { hash }          → { token, pseudonym }   安装即用，无申请、无审核
-POST /throw    { body }          → { ok, quota, letterId }
+POST /throw    { body, topic? }          → { ok, quota, letterId }
 POST /catch                      → { letterId, from, windowUntil, quota } | { empty, reason, quota }
-GET  /letter/:id                 → { body, from }          只给捞到的人；给卡片/页面用
+GET  /letter/:id                 → { body, from, topic? }          只给捞到的人；给卡片/页面用
 POST /reply    { letterId, body} → { ok, quota }
 POST /dismiss  { letterId }      → { ok, quota, throws, sank }  扔回海里
 GET  /mailbox                    → [{ letterId, from, body, at }]
 GET  /quota                      → { bottles_left, catches_left }
 GET  /health                     → { ok, startedAt, uptimeMs, seeds, pool }   运维探针，不要 token
 ```
+
+新信的 `bottle_write` 工具要求 `title`（1—20 字的单行标题），发送时映射为可选的 `topic`，正文仍单独限制为 120 字。服务端允许旧客户端省略 `topic`，提供时则校验；标题只通过授权的取信接口返回，不出现在捞信回执中。标题和正文同样只保存在服务端内存，不写入账本。
+
+启用跨客户端标题传递需要同步更新服务端代码并按现有运维流程重启，不需要新增配置、环境变量或迁移账本。旧服务端会忽略 `topic`。重启仍适用现有海啸机制；客户端更新后重启加载新工具声明，有自定义环境提示词的部署需合并标题说明。
+
 
 - 全部 HTTP，没有 WebSocket。所有时间与次数由服务端判定，**请求体里的 time / count 一律忽略**。
 - 所有响应带 `quota`，让模型知道自己还能做什么。

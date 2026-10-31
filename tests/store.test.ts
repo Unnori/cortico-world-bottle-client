@@ -198,3 +198,16 @@ describe('身份与账本往返', () => {
     expect(store.received[0]?.at).toBe(1);
   });
 });
+
+
+describe('信件标题往返', () => {
+  it('草稿和寄出记录重启后保留独立标题', () => {
+    const dir = freshDir();
+    const first = reload(dir);
+    first.setLetterDraft({ kind: 'letter', topic: '风里的信', body: '今天的海很平。', at: 1 });
+    first.addSent({ letterId: 'l_title', topic: '昨日的云', body: '云很低。', at: 2 });
+    const again = reload(dir);
+    expect(again.letterDraft).toMatchObject({ topic: '风里的信', body: '今天的海很平。' });
+    expect(again.sent[0]).toMatchObject({ topic: '昨日的云', body: '云很低。' });
+  });
+});

@@ -14,9 +14,11 @@ import {
   type ErrorCode,
   type MailboxItem,
   type Quota,
+  type TideOutRes,
 } from '../shared/contract.ts';
-import { checkBody } from '../shared/text.ts';
+import { checkBody, checkTitle } from '../shared/text.ts';
 import { seaStateAt } from '../shared/tide.ts';
+import { dayStartMs, seedDayPlan, slotsArrived } from '../shared/seedSlots.ts';
 import { type Db, type BotRow, type LetterRow } from './db.ts';
 import { computeQuota, resetDaily, rulesFromEnv, DEFAULT_RULES, type QuotaRules } from './quota.ts';
 import { SEED_FROM, type SeedLetter, type SeedStore } from './seeds.ts';
@@ -184,8 +186,9 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
   const newToken = options.newToken ?? (() => randomBytes(24).toString('base64url'));
   const newId = options.newId ?? ((prefix: string) => `${prefix}_${randomBytes(8).toString('hex')}`);
   const newPseudonym = options.newPseudonym ?? (() => makePseudonym(random));
-  const ipLimit = options.ipLimit ?? 3;
-  const ipWindowMs = options.ipWindowMs ?? HOUR;
+  // 限流参数（每 IP 几个号 / 窗口多长）现在是热载的，见 noteRegistration()。
+  // 不再写成常量：这个数以前写死 3，配合「反代后所有请求都来自 127.0.0.1」，
+  // 等于把全服新用户挡在每小时 3 个——调它不该再付一次重启。
   const seeds = options.seeds;
   const seedsPerUserMax = options.seedsPerUserMax ?? envInt('BOTTLE_SEEDS_PER_USER_MAX', 2);
   const seedChannel = options.seedChannel ?? 'catch';
@@ -217,9 +220,21 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
   /** 只活在内存里：重启即清，和正文同一条叙事。 */
   const registrations = new Map<string, number[]>();
 
+  /** 当前生效的注册限流（热载）。 */
+  function ipLimitNow(): { limit: number; windowMin: number } {
+    const t = currentTuning();
+    return {
+      limit: options.ipLimit ?? t.ipLimit,
+      windowMin: options.ipWindowMs ? Math.round(options.ipWindowMs / 60_000) : t.ipWindowMin,
+    };
+  }
+
   function noteRegistration(ip: string, at: number): boolean {
-    const recent = (registrations.get(ip) ?? []).filter((ts) => at - ts < ipWindowMs);
-    if (recent.length >= ipLimit) {
+    // 每次读热载参数：改 tuning.json 5 秒后生效，不用重启
+    const { limit, windowMin } = ipLimitNow();
+    const windowMs = windowMin * 60_000;
+    const recent = (registrations.get(ip) ?? []).filter((ts) => at - ts < windowMs);
+    if (recent.length >= limit) {
       registrations.set(ip, recent);
       return false;
     }
@@ -312,7 +327,12 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
     }
 
     if (!noteRegistration(req.ip, now())) {
-      return fail(429, 'rate_limited', `同一个地址每小时最多新开 ${ipLimit} 个号。`);
+      const cap = ipLimitNow();
+      return fail(
+        429,
+        'rate_limited',
+        `同一个地址 ${cap.windowMin} 分钟内最多新开 ${cap.limit} 个号。`,
+      );
     }
 
     const token = newToken();
@@ -338,17 +358,34 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
     resetDaily(bot, dayIn(timeZone, at));
     if (sweep(at)) db.save();
 
+    // 退潮：只在准备重启前开，把海面清空用。它不是错误，是世界里的事。
+    // 注意顺序——**在扣额度之前**拦下来：没寄出去就不该扣瓶子。
+    const tide = currentTuning().tideOut;
+    if (tide.blockThrow) {
+      return ok({
+        ok: false,
+        reason: 'tide_out',
+        text: tide.text || '海面正在退潮，先别投递。',
+        quota: quotaFor(bot),
+        until: tide.until || null,
+      } satisfies TideOutRes);
+    }
+
     if (quotaFor(bot).bottles_left <= 0) {
       return fail(429, 'no_bottle', '今天的瓶子用完了。');
     }
 
-    const parsed = checkBody(asObject(req.body)?.body);
+    const payload = asObject(req.body);
+    const heading = payload?.topic === undefined ? null : checkTitle(payload.topic);
+    if (heading && !heading.ok) return fail(400, 'bad_request', '标题应为 1—20 字的单行文本。');
+    const parsed = checkBody(payload?.body);
     if (!parsed.ok) return fail(400, 'bad_request', bodyProblem(parsed.reason, parsed.chars));
 
     const letter: LetterRow = {
       id: newId('l'),
       authorHash: bot.clientHash,
       body: parsed.body,
+      ...(heading ? { topic: heading.title } : {}),
       createdAt: at,
       state: 'floating',
       catcherHash: null,
@@ -481,8 +518,23 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
     if (!t.seedsEnabled || perDay === 0) {
       return ok({ empty: true, reason: 'disabled', remainingToday: 0 });
     }
-    if (taken >= perDay) {
-      return ok({ empty: true, reason: 'quota', remainingToday: 0 });
+
+    // 今天的时刻表：每人每天摇 3~4 个互不相同的点，全天摊开。
+    // 原来这里是「额度归零后每 10 分钟试一次」——所有人半夜同时清零，
+    // 半小时内集中领完（实测 00:00–00:37 堆了 161 次），那不是"信在漂"。
+    const plan = seedDayPlan(
+      bot.clientHash,
+      dayIn(timeZone, at),
+      dayStartMs(timeZone, at),
+      Math.min(t.seedSlotsMin, perDay),
+      Math.min(Math.max(t.seedSlotsMax, t.seedSlotsMin), perDay),
+      t.seedDailyChance,
+    );
+    const arrived = slotsArrived(plan, at);
+
+    if (taken >= arrived) {
+      // 还没到下一个时刻（或者今天压根不发）。这不是"领完了"，是"信还在路上"。
+      return ok({ empty: true, reason: 'quota', remainingToday: Math.max(0, arrived - taken) });
     }
 
     const seed = pickSystemMail(bot);
@@ -521,7 +573,7 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
     if (letter.state !== 'caught' && letter.state !== 'replied') {
       return fail(404, 'not_found', '这一封已经不在你手上了。');
     }
-    return ok({ body: letter.body, from: pseudonymOf(letter.authorHash) });
+    return ok({ body: letter.body, from: pseudonymOf(letter.authorHash), ...(letter.topic ? { topic: letter.topic } : {}) });
   }
 
   /** 种子的正文在文件里，海啸淹不掉；但只有捞到过它的人能取。 */
@@ -688,10 +740,22 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
 
     // 顺路带上海啸记录：客户端每 5 分钟取一次额度，正好在这里发现「该告诉人类了」
     const t = db.tsunamiSummary();
+    // 公告同理：同一趟轮询里带回去，客户端按 id 去重、只播一次
+    const notice = currentTuning().announcement;
     return ok({
       ...quotaFor(bot),
       deadLetters: deadLetters.slice(-50),
       heldByOthers: heldByOthers.slice(-50),
+      ...(notice
+        ? {
+            announcement: {
+              id: notice.id,
+              text: notice.text,
+              level: notice.level,
+              showUntil: notice.showUntil,
+            },
+          }
+        : {}),
       tsunami: {
         count: t.count,
         lastAt: t.lastAt === null ? null : new Date(t.lastAt).toISOString(),

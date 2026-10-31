@@ -13,6 +13,7 @@ import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { agoText } from '../shared/ago.ts';
 import { seaStateAt } from '../shared/tide.ts';
 import { createApi, type Api } from './app.ts';
 import { Db } from './db.ts';
@@ -135,10 +136,7 @@ function renderSeaBlock(db: Db, at: number): string {
   const waves =
     t.count === 0
       ? '这片海还没有起过浪。'
-      : `这片海经历过 ${t.count} 次浪，最近一次在 ${Math.max(
-          0,
-          Math.floor((at - (t.lastAt ?? at)) / 86_400_000),
-        )} 天前，一共拍碎了 ${t.totalLost} 个瓶子。`;
+      : `这片海经历过 ${t.count} 次浪，最近一次是${agoText(at - (t.lastAt ?? at))}，一共拍碎了 ${t.totalLost} 个瓶子。`;
   return (
     '<div class="surprise"><b>栖潮海 · 第 ' +
     `${sea.day} 天</b><br>` +
@@ -219,7 +217,25 @@ export function createBottleServer(opts: BottleServerOptions): BottleServer {
       const path = (req.url ?? '/').split('?')[0] ?? '/';
       const auth = req.headers.authorization ?? '';
       const token = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : undefined;
-      const ip = req.socket.remoteAddress ?? 'unknown';
+      // 真实来源 IP，按可靠性排序：
+      //   1. `X-Real-IP` —— 反代用 `header_up X-Real-IP {remote_host}` 设的。
+      //      `header_up` 是**覆盖**写，客户端自己伪造的那个会被丢掉（已在本机 Caddy v2.11.7 实测）。
+      //   2. `X-Forwarded-For` 的**最后一跳** —— Caddy 默认也会带；取最后一个而不是第一个，
+      //      因为前面的是客户端自己写的、可以伪造。实测客户端伪造的 XFF 会被 Caddy 丢掉。
+      //   3. 直连地址 —— 没有反代时的兜底。
+      //
+      // 为什么必须这么干：服务端在反代后面，`socket.remoteAddress` 永远是 127.0.0.1，
+      // 于是「按 IP 限流」会退化成「全服共用一个桶」——所有新用户加起来每小时只能开 N 个号。
+      const realIpHeader = req.headers['x-real-ip'];
+      const realIp = Array.isArray(realIpHeader) ? realIpHeader[0] : realIpHeader;
+      const forwarded = req.headers['x-forwarded-for'];
+      const chain = Array.isArray(forwarded) ? forwarded.join(',') : forwarded ?? '';
+      const hops = chain
+        .split(',')
+        .map((hop) => hop.trim())
+        .filter((hop) => hop !== '');
+      const ip =
+        (realIp ?? '').trim() || hops[hops.length - 1] || req.socket.remoteAddress || 'unknown';
 
       let body: unknown;
       if (method === 'POST') {

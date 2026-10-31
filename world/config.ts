@@ -15,6 +15,8 @@ export interface BottleConfigSection {
   surface?: 'auto' | 'card' | 'page';
   /** 开发者模式：额外写日志（只记 id 与数量，不记信件内容）。 */
   debug?: boolean;
+  /** 卡片展示时长；0 为不自动收起。 */
+  cardAutoCloseSec?: number;
   /** 海啸要不要推给 Coo。关掉也照样记基线，免得一打开就补播一堆旧海啸。 */
   tsunamiNotice?: boolean;
 }
@@ -24,6 +26,7 @@ export const BOTTLE_DEFAULTS: BottleConfigSection = {
   server: 'https://bottle.sqnori.com',
   port: 7796,
   surface: 'auto',
+  cardAutoCloseSec: 10,
   debug: false,
   tsunamiNotice: true,
 };
@@ -46,8 +49,17 @@ export const BOTTLE_CONFIG_GROUP: ConfigGroup = {
         type: 'number',
         title: '信箱页端口',
         description:
-          '只绑 127.0.0.1。被占用时从这个端口往后顺延，跳过 7797（Coo 的页面在用）。打开本机信箱页用 World 卡片上的「打开WebUI」，那里的地址总与真正起来的端口一致。',
+          '只绑 127.0.0.1。被占用时从这个端口往后顺延，跳过 7797（Coo 的页面在用）。不知道怎么开？可以叫它帮你打开信箱哦。',
         'x-hot': false,
+      },
+      'worlds.bottle.cardAutoCloseSec': {
+        type: 'integer',
+        title: '卡片自动收起时间',
+        description: '默认显示 10 秒后收起，0 为不自动收起。收起只关闭卡片，信件与草稿仍留在信箱。修改后从下一张卡片生效。',
+        minimum: 0,
+        maximum: 86400,
+        'x-suffix': '秒',
+        'x-hot': true,
       },
       'worlds.bottle.surface': {
         type: 'string',

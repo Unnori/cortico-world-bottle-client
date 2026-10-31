@@ -33,8 +33,7 @@ interface Rig {
   stop(): void;
 }
 
-function rig(opts: { seedChannel?: 'mail' | 'catch'; tuning?: Partial<Tuning>; seedCount?: number } = {}): Rig {
-  const root = mkdtempSync(join(tmpdir(), 'bottle-mail-'));
+function rig(opts: { seedChannel?: 'mail' | 'catch'; tuning?: Partial<Tuning>; seedCount?: number } = {}): Rig {  const root = mkdtempSync(join(tmpdir(), 'bottle-mail-'));
   const dir = join(root, 'seeds');
   mkdirSync(dir, { recursive: true });
 
@@ -62,12 +61,28 @@ function rig(opts: { seedChannel?: 'mail' | 'catch'; tuning?: Partial<Tuning>; s
     poolDivisor: 5,
     replyCap: 3,
     maxThrows: 8,
+    ipLimit: 5,
+    ipWindowMin: 60,
+    // 这批测试的量纲是「同一天连领 N 封」，关心每日上限和去重，不关心"几点到"。
+    // 槽数给到 24（配合下面"时钟在当天最后一秒"），于是当天所有槽都到点了，
+    // "一天最多能领 seedsPerDay 封" 才测得出来。
+    // 真正的时刻分散行为在 tests/seedSlots.test.ts 里单独测。
+    seedSlotsMin: 24,
+    seedSlotsMax: 24,
+    seedDailyChance: 1,
+    tideOut: { until: '', blockThrow: false, blockReply: false, text: '' },
+    announcement: null,
     ...opts.tuning,
   };
   const reader: TuningReader = { current: () => tuning };
 
   const db = Db.open(null);
-  const clock = { t: Date.parse('2026-10-27T10:00:00+08:00') };
+  // 时钟放在当天最后一秒。
+  //
+  // 为什么要这么偏：种子信现在是「当天随机几个时刻才到点」，这批测试关心的是
+  // **每日上限和两层去重**，不是"几点到"。放在 23:59:59，当天所有时刻必然都已经
+  // 到点，"当天最多能领 N 封"才测得出来。要看"还没到点"的行为，用 seedSlots.test.ts。
+  const clock = { t: Date.parse('2026-10-27T23:59:59+08:00') };
   let tokens = 0;
   const api = createApi(db, {
     seeds,

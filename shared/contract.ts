@@ -7,6 +7,8 @@
 
 /** 一封信、一封回信的长度上限；按码点算，不是 UTF-16 长度。 */
 export const BODY_MAX = 120;
+/** 新信标题独立于正文计数，按码点算。 */
+export const TITLE_MAX = 20;
 
 /**
  * 海啸记录。客户端拿它判断「该让人类知道一场海啸了」。
@@ -60,6 +62,21 @@ export interface Quota {
    */
   heldByOthers?: string[];
   tsunami?: TsunamiSummary;
+  /**
+   * 一句话公告（热载）。
+   *
+   * 复用海啸那条通道的做法：客户端按 `id` 去重，只播一次。
+   * 没有公告时这个字段不出现，老客户端忽略即可。
+   */
+  announcement?: AnnouncementSummary;
+}
+
+export interface AnnouncementSummary {
+  id: string;
+  text: string;
+  level: 'notice' | 'alarm';
+  /** 到点自然消失（ISO），客户端拿它做"过期就不显示"。 */
+  showUntil: string;
 }
 
 export type ErrorCode =
@@ -94,6 +111,8 @@ export interface RegisterRes {
 }
 
 export interface ThrowReq {
+  /** 可选以兼容旧客户端。 */
+  topic?: string;
   body: string;
 }
 
@@ -102,6 +121,26 @@ export interface ThrowRes {
   quota: Quota;
   letterId: string;
 }
+
+/**
+ * 退潮时的投递回执。
+ *
+ * **它不是错误。** 这是世界里发生的事（海上退潮、风暴将至），不是一个 `429`。
+ * 客户端该把它当成一句公告播给人类，而不是弹错误提示。
+ * 它同样**不消耗瓶子**——没寄出去就不该扣额度。
+ */
+export interface TideOutRes {
+  ok: false;
+  /** 固定是它，客户端据此识别「这是退潮，不是失败」。 */
+  reason: 'tide_out';
+  /** 服务端给的那句话，客户端可以直接念给人类听。 */
+  text: string;
+  quota: Quota;
+  /** 预计什么时候回潮（ISO）。服务端没给就是 `null`。 */
+  until: string | null;
+}
+
+export type ThrowResult = ThrowRes | TideOutRes;
 
 export type CatchEmptyReason = 'holding' | 'quota' | 'quiet';
 
@@ -141,8 +180,9 @@ export interface LetterRes {
   body: string;
   from: string;
   seed?: boolean;
-  /** 种子信的落款与主题（可选），只用于显示。 */
+  /** 种子信的落款。 */
   signature?: string;
+  /** 信件标题；旧信可能没有。 */
   topic?: string;
 }
 

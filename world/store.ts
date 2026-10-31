@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path';
 export type DraftKind = 'letter' | 'reply';
 
 export interface LocalDraft {
+  topic?: string;
   kind: DraftKind;
   /** kind 为 reply 时，这是被回的那一封。 */
   letterId?: string;
@@ -34,7 +35,7 @@ export interface LocalHeld {
    * 本地信册保留正文，海那边已经没有了。
    */
   dead?: boolean;
-  /** 种子信的落款与主题，只在显示时用。 */
+  /** 种子信的落款，以及所有信件可选的标题。 */
   signature?: string;
   topic?: string;
 }
@@ -48,6 +49,7 @@ export interface LocalReply {
 
 /** 我寄出去的信。留一份在本地，网页上才看得到自己写过什么。 */
 export interface SentLetter {
+  topic?: string;
   letterId: string;
   body: string;
   at: number;
@@ -113,6 +115,7 @@ export class LocalStore {
    * 否则新装的世界会为历史上每一次海啸都弹一条，那些跟这个人类没关系。
    */
   tsunamiSeen: number | null = null;
+  seenAnnouncementIds: string[] = [];
   /**
    * 这个 Coo 一共起草过几封信（含被重写覆盖的）。
    *
@@ -144,7 +147,10 @@ export class LocalStore {
       this.identity = { clientId: id.clientId, pseudonym: typeof id.pseudonym === 'string' ? id.pseudonym : '' };
     }
 
-    const state = readJson<{ tsunamiSeen?: unknown; draftsMade?: unknown }>(this.stateFile);
+    const state = readJson<{ tsunamiSeen?: unknown; draftsMade?: unknown; seenAnnouncementIds?: unknown }>(this.stateFile);
+    this.seenAnnouncementIds = Array.isArray(state?.seenAnnouncementIds)
+      ? state.seenAnnouncementIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : [];
     this.tsunamiSeen = typeof state?.tsunamiSeen === 'number' ? state.tsunamiSeen : null;
     this.draftsMade = typeof state?.draftsMade === 'number' && state.draftsMade >= 0 ? Math.floor(state.draftsMade) : 0;
 
@@ -165,6 +171,7 @@ export class LocalStore {
         kind,
         ...(kind === 'reply' && typeof value.letterId === 'string' ? { letterId: value.letterId } : {}),
         body: value.body,
+        ...(kind === 'letter' && typeof value.topic === 'string' && value.topic ? { topic: value.topic } : {}),
         at: Number(value.at ?? 0),
       };
     };
@@ -217,7 +224,7 @@ export class LocalStore {
     this.sent = sent
       .filter((item): item is Partial<SentLetter> & { letterId: string; body: string } =>
         typeof item?.letterId === 'string' && typeof item.body === 'string')
-      .map((item) => ({ letterId: item.letterId, body: item.body, at: Number(item.at ?? 0) }));
+      .map((item) => ({ letterId: item.letterId, body: item.body, ...(typeof item.topic === 'string' && item.topic ? { topic: item.topic } : {}), at: Number(item.at ?? 0) }));
 
     const received = Array.isArray(book?.received) ? book.received : [];
     this.received = received
@@ -254,7 +261,16 @@ export class LocalStore {
   }
 
   private saveState(): void {
-    writeJson(this.stateFile, { tsunamiSeen: this.tsunamiSeen, draftsMade: this.draftsMade });
+    writeJson(this.stateFile, {
+      tsunamiSeen: this.tsunamiSeen, draftsMade: this.draftsMade,
+      seenAnnouncementIds: this.seenAnnouncementIds,
+    });
+  }
+
+  markAnnouncementSeen(id: string): void {
+    if (this.seenAnnouncementIds.includes(id)) return;
+    this.seenAnnouncementIds.push(id);
+    this.saveState();
   }
 
   /** 写回信草稿（`kind` 一律按 reply 归槽）；信稿走 `setLetterDraft`。 */

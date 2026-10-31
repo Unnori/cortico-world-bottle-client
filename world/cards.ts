@@ -21,7 +21,7 @@ export interface CardSpec {
   /** 抬头下面那一行小字：来自谁 / 等你决定。 */
   from?: string;
   /**
-   * 这封信的名字（种子信的 topic）。
+   * 这封信的名字（topic）。
    *
    * 单独一个字段，不要拼进 meta：meta 是底部那行灰色小字，标题混在里面就丢了层级，
    * 人类一眼看过去找不到「这封信叫什么」。
@@ -53,6 +53,7 @@ export function draftLetterCard(input: {
     base: base(input.base),
     eyebrow: '漂流瓶 · 写好了',
     from: '等你决定',
+    ...(input.draft.topic ? { title: input.draft.topic } : {}),
     body: input.draft.body,
     meta: `${input.chars} / ${MAX_CHARS} 字`,
     hints: input.hints.map((hint) => hint.text),
@@ -76,6 +77,7 @@ export function heldLetterCard(input: { base: string; held: LocalHeld; hoursLeft
     base: base(input.base),
     eyebrow: '漂流瓶 · 捞到一封',
     from: `来自 ${input.held.from}`,
+    ...(input.held.topic ? { title: input.held.topic } : {}),
     body: input.held.body || '这一封的字没有取到。',
     meta: input.hoursLeft > 0 ? `还有 ${input.hoursLeft} 小时回海` : '随时会回海',
     actions: [

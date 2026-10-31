@@ -13,7 +13,7 @@ import type {
   OkRes,
   Quota,
   RegisterRes,
-  ThrowRes,
+  ThrowResult,
 } from '../shared/contract.ts';
 
 export class BottleError extends Error {
@@ -109,8 +109,8 @@ export class BottleClient {
     return this.call<RegisterRes>('POST', '/register', { hash });
   }
 
-  throwLetter(body: string): Promise<ThrowRes> {
-    return this.call<ThrowRes>('POST', '/throw', { body });
+  throwLetter(body: string, topic?: string): Promise<ThrowResult> {
+    return this.call<ThrowResult>('POST', '/throw', { body, ...(topic ? { topic } : {}) });
   }
 
   catchOne(): Promise<CatchRes> {

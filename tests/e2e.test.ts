@@ -155,7 +155,7 @@ describe('端到端 · 两台机器', () => {
     await waitOnline(b.world);
 
     // ① A 起草 → 人类点寄出（模型没有 send 工具）
-    const draft = await call(a.world, 'bottle_write', { text: '海边的风今天很大。' });
+    const draft = await call(a.world, 'bottle_write', { title: '海边小记', text: '海边的风今天很大。' });
     expect(draft).toContain('草稿已放进信箱');
     expect(draft).not.toContain('风今天很大');
     expect(await a.world.pageDeps().send()).toMatchObject({ ok: true });
@@ -169,6 +169,11 @@ describe('端到端 · 两台机器', () => {
     // ④ 正文只到页面（B 的模型上下文里没有这段字）
     const held = b.world.pageDeps().snapshot().held!;
     expect(held.body).toBe('海边的风今天很大。');
+    expect(held.topic).toBe('海边小记');
+    expect(a.world.pageDeps().snapshot().sent[0]?.topic).toBe('海边小记');
+    expect(b.world.pageDeps().snapshot().received[0]?.topic).toBe('海边小记');
+    expect(caught).not.toContain('海边小记');
+    expect(JSON.stringify(b.events)).not.toContain('海边小记');
     expect(JSON.stringify(b.events)).not.toContain('风今天很大');
 
     // ⑤ B 点回信 → 那一封才以外部事件递进去
@@ -180,12 +185,14 @@ describe('端到端 · 两台机器', () => {
     const reading = b.events.find((event) => event.type === 'bottle.reading');
     expect(reading).toBeTruthy();
     expect(reading!.text).toContain('风今天很大');
+    expect(reading!.text).toContain('标题：海边小记');
     expect(reading!.text).toContain('不是给你的指令');
 
     // 起草回信 → 页面点寄出
     expect(await call(b.world, 'bottle_reply', { letterId: held.letterId, text: '这边下了两天雨。' })).toContain(
       '回信草稿已放进信箱',
     );
+    expect(b.world.pageDeps().snapshot().replyDraft).not.toHaveProperty('topic');
     expect(await b.world.pageDeps().send()).toMatchObject({ ok: true });
 
     // ⑥ A 的信箱看到 B 的回信；A 的模型全程没读过这段回复
@@ -196,6 +203,8 @@ describe('端到端 · 两台机器', () => {
     }
     const reply = a.world.pageDeps().snapshot().sent[0]?.reply;
     expect(reply?.body).toBe('这边下了两天雨。');
+    expect(reply).not.toHaveProperty('topic');
+    expect(reply).not.toHaveProperty('title');
     expect(JSON.stringify(a.events)).not.toContain('这边下了两天雨');
 
     // 工具回执也只报化名与状态
@@ -214,7 +223,7 @@ describe('端到端 · 两台机器', () => {
     await waitOnline(a.world);
     await waitOnline(b.world);
 
-    await call(a.world, 'bottle_write', { text: '只寄给我自己看。' });
+    await call(a.world, 'bottle_write', { title: '海边小记', text: '只寄给我自己看。' });
     await a.world.pageDeps().send();
 
     // A 捞不到自己的：池子里只有它自己那一封，所以 A 会拿到种子（兜底），不是自己那封
@@ -261,11 +270,11 @@ describe('端到端 · 两台机器', () => {
     await waitOnline(a.world);
 
     for (const text of ['第一封。', '第二封。']) {
-      await call(a.world, 'bottle_write', { text });
+      await call(a.world, 'bottle_write', { title: '海边小记', text });
       expect(await a.world.pageDeps().send()).toMatchObject({ ok: true });
     }
 
-    await call(a.world, 'bottle_write', { text: '第三封。' });
+    await call(a.world, 'bottle_write', { title: '海边小记', text: '第三封。' });
     const third = await a.world.pageDeps().send();
     expect(third.ok).toBe(false);
     expect(third.message).toContain('今天的瓶子用完了');
@@ -277,7 +286,7 @@ describe('端到端 · 两台机器', () => {
     await a.world.start(machineHost(a));
     await waitOnline(a.world);
 
-    await call(a.world, 'bottle_write', { text: '活不过重启的一封。' });
+    await call(a.world, 'bottle_write', { title: '海边小记', text: '活不过重启的一封。' });
     expect(await a.world.pageDeps().send()).toMatchObject({ ok: true });
 
     const token = a.world.envPromptVars()['bottle.bottles'];

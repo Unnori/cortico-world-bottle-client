@@ -10,6 +10,7 @@ import { createApi, sha256, type Api } from '../server/app.ts';
 import { Db } from '../server/db.ts';
 import type { QuotaRules } from '../server/quota.ts';
 import type { SeedStore } from '../server/seeds.ts';
+import type { TuningReader } from '../server/tuning.ts';
 import { BOTTLE_DEFAULTS, type BottleConfigSection } from '../world/config.ts';
 import { BottleWorld } from '../world/world.ts';
 
@@ -33,6 +34,8 @@ export function makeHarness(
     server?: string;
     seeds?: SeedStore;
     rules?: QuotaRules;
+    tuning?: TuningReader;
+    botName?: string;
     /** 覆盖「打开本机页面」；默认只记录不真开。 */
     openUrl?: (url: string) => Promise<boolean>;
     /** 覆盖 HTTP：用来造「注册就失败」这类网络错误。 */
@@ -53,6 +56,7 @@ export function makeHarness(
     ipLimit: 50,
     // World 的用例只走流程，别让每日额度在半路卡住；额度公式在 server.test 里单独测
     rules: opts.rules ?? { sendBase: 50, sendCap: 50, catchBase: 50, catchCap: 50, poolDivisor: 5 },
+    ...(opts.tuning ? { tuning: opts.tuning } : {}),
     ...(opts.seeds ? { seeds: opts.seeds } : {}),
   });
 
@@ -86,7 +90,7 @@ export function makeHarness(
     id: 'bottle',
     cfg,
     timezone: 'Asia/Shanghai',
-    botName: 'Coo',
+    botName: opts.botName ?? 'Coo',
     botDir: dir,
     packageDir: dir,
     dataDir: dir,

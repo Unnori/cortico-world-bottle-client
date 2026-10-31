@@ -75,3 +75,24 @@ describe('卡片宿主', () => {
     expect(host.show(waitingCard('http://127.0.0.1:1/'))).toBe(false);
   });
 });
+
+
+it('卡片时长默认十秒，下张卡片读取热更新，零秒禁用自动关闭', () => {
+  dir = mkdtempSync(join(tmpdir(), 'bottle-card-timer-'));
+  const durations: string[] = [];
+  let seconds = 10;
+  const host = new CardHost({ dir, platform: 'win32', autoCloseSec: () => seconds,
+    spawnImpl: ((_command: string, args: readonly string[]) => {
+      durations.push(args[args.indexOf('-AutoCloseMs') + 1]!);
+      return fakeChild();
+    }) as unknown as typeof import('node:child_process').spawn,
+  });
+  host.show(waitingCard('http://127.0.0.1:7796/'));
+  seconds = 30;
+  host.show(waitingCard('http://127.0.0.1:7796/'));
+  seconds = 0;
+  host.show(waitingCard('http://127.0.0.1:7796/'));
+  expect(durations).toEqual(['10000', '30000', '0']);
+  const data = JSON.parse(readFileSync(join(dir, 'bottle-card.json'), 'utf8'));
+  expect(data.body).toContain('读完就会');
+});
