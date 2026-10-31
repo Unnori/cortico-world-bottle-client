@@ -59,7 +59,7 @@ World 顶部按「可寄／可捞／可回」显示今日剩余额度；状态�
 
 代码、接口、配额公式、部署与运维细节都在仓库里：
 
-- 仓库：https://github.com/Unnori/cortico-world-bottle-client
+- 仓库：[服务端部署点击这里](https://github.com/Unnori/bottle-server-for-cortico-world)
 - 运维与实现说明：仓库中的 `docs/OPERATIONS.md`
 
 ## 许可
