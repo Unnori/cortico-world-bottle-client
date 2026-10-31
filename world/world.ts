@@ -200,7 +200,6 @@ export class BottleWorld implements World {
     const en = language !== 'zh' && language !== 'zh-Hant';
     return {
       label: en ? 'Message in a Bottle' : '漂流瓶',
-      links: this.page ? [{ label: en ? 'Open WebUI' : '打开WebUI', href: this.page.url }] : [],
       lamps: this.quotaIndicators(en).map(({ label, left }) => ({
         label,
         state: !this.online ? (this.lastNetError ? 'error' as const : 'loading' as const)
@@ -212,6 +211,11 @@ export class BottleWorld implements World {
           : (en ? `${left} left today` : `今天剩余 ${left} 次`),
       })),
       badges: this.quotaIndicators(en).map(({ label, left }) => ({ label, value: left ?? '—', tone: left === undefined || left === 0 ? 'off' as const : 'on' as const })),
+      panels: [{ id: 'mailbox', title: en ? 'Mailbox' : '信箱' }],
+      invoke: async (panel, method) => {
+        if (panel !== 'mailbox' || method !== 'status') throw new Error('Unknown mailbox action');
+        return { url: this.page?.url ?? null };
+      },
       config: [BOTTLE_CONFIG_GROUP],
       promptDocs: [
         {
@@ -450,9 +454,7 @@ export class BottleWorld implements World {
       this.pickedNoticed.add(id);
       const mine = this.store.sent.find((letter) => letter.letterId === id);
       if (!mine) continue;
-      void this.pushInternal('bottle.picked', '人类写的那封信被人捡起来了。别去打听是谁捡的。', {
-        letterId: id,
-      });
+      void this.pushInternal('bottle.picked', '人类写的那封信被人捡起来了。别去打听是谁捡的。', {});
     }
   }
 
@@ -592,7 +594,7 @@ export class BottleWorld implements World {
     return {
       write: (text, title) => this.doWrite(text, title),
       catchOne: () => this.doCatch(),
-      reply: (letterId, text) => this.doReply(letterId, text),
+      reply: (text) => this.doReply(text),
       mailbox: () => this.doMailbox(),
       openPage: () => this.doOpenPage(),
     };
@@ -792,13 +794,14 @@ export class BottleWorld implements World {
     }
   }
 
-  private async doReply(letterId: string, text: string): Promise<string> {
+  /** 回信目标只由当前授权决定；模型只提交正文，编号留在 World 内部。 */
+  private async doReply(text: string): Promise<string> {
     const auth = this.authorizedNow();
-    if (!auth || auth.letterId !== letterId) {
+    if (!auth) {
       return '这一封还没给人类看过，不能回。等人类点了「回信」再说。';
     }
     const held = this.store.held;
-    if (!held || held.letterId !== letterId) return '这一封已经不在手里了。';
+    if (!held || held.letterId !== auth.letterId) return '这一封已经不在手里了。';
     if (held.seed) return '这一封寄不出去，收好就行。';
     if (!this.canReply()) {
       return '今天的回信次数用完了。先写好也可以，明天额度回来再寄；或者让它扔回海里，让别人去回。';
@@ -807,7 +810,7 @@ export class BottleWorld implements World {
     const parsed = checkBody(text);
     if (!parsed.ok) return this.bodyProblem(parsed.reason, parsed.chars);
 
-    this.store.setDraft({ kind: 'reply', letterId, body: parsed.body, at: this.now() });
+    this.store.setDraft({ kind: 'reply', letterId: auth.letterId, body: parsed.body, at: this.now() });
     this.authorized = null;
     this.showDraftCard();
     return `回信草稿已放进信箱，等人类看。\n（${this.pageLine()}）`;
@@ -1180,7 +1183,6 @@ export class BottleWorld implements World {
       const withMyReply = record.outcome === 'replied' && typeof record.myReply === 'string' && !!record.myReply;
       return this.pushPeruse({
         kind: 'theirs',
-        letterId: record.letterId,
         from: record.seed ? '群岛上的某位居民' : record.from,
         body: record.body,
         topic: record.topic,
@@ -1194,7 +1196,6 @@ export class BottleWorld implements World {
     if (sent && reply) {
       return this.pushPeruse({
         kind: 'reply-to-mine',
-        letterId: sent.letterId,
         from: reply.from,
         body: reply.body,
         topic: sent.topic,
@@ -1214,7 +1215,6 @@ export class BottleWorld implements World {
    */
   private async pushPeruse(input: {
     kind: 'theirs' | 'reply-to-mine';
-    letterId: string;
     from: string;
     body: string;
     mine?: string;
@@ -1262,7 +1262,7 @@ export class BottleWorld implements World {
           source: this.id,
           senderKey: this.id,
           text: lines.join('\n'),
-          meta: { letterId: input.letterId, kind: input.kind },
+          meta: { kind: input.kind },
         },
         { trigger: 'flush' },
       );
@@ -1338,7 +1338,7 @@ export class BottleWorld implements World {
     const host = this.host;
     if (!host) return;
     const text = [
-      `【漂流瓶】人类点了「回信」。这是那一封的原文，来自「${held.from}」。回信时 letterId 用 ${held.letterId}。`,
+      `【漂流瓶】人类点了「回信」。这是那一封的原文，来自「${held.from}」。`,
       '',
       ...(held.topic ? ['标题：' + held.topic] : []),
       held.body || '（这一封的字没有取到。）',
@@ -1354,7 +1354,6 @@ export class BottleWorld implements World {
           source: this.id,
           senderKey: this.id,
           text,
-          meta: { letterId: held.letterId },
         },
         { trigger: 'flush' },
       );

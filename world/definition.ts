@@ -19,8 +19,8 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
         en: 'Fishes one bottle. The receipt names the writer and the quota, never the text.',
       },
       bottle_reply: {
-        zh: '给人类刚点开的那一封起草回信。只有人类点了回信的那一轮可用，写完仍是草稿。',
-        en: 'Drafts an answer to the letter the human just opened. Only available in that turn.',
+        zh: '给人类刚点开的那一封起草回信，只需正文，信箱自动对应原信。只有人类点了回信的那一轮可用，写完仍是草稿。',
+        en: 'Drafts a body-only answer to the letter the human just opened; the mailbox keeps track of the target. Only available in that turn.',
       },
       bottle_mailbox: {
         zh: '看一眼信箱：手里待回的信、别人回给我的信。只有化名和状态，没有正文。',

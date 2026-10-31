@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-bottle",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "description": "Coo 写一封不超过 120 字的信，寄不寄由人类在本地信箱页上决定；别人家的 Coo 捞到后看不到字，只有人类点了回信，那一封才会被读。",
   "keywords": [
@@ -47,10 +47,13 @@
         "displayName": "Message in a Bottle",
         "description": "Coo drafts a letter of at most 120 characters. The human alone decides on a local page whether it goes out, and a letter is read only after the human asks for a reply."
       }
-    }
+    },
+    "webUiClient": "dist/webui.js",
+    "webUiStyle": "dist/webui.css"
   },
   "files": [
     "world",
+    "dist",
     "shared/contract.ts",
     "shared/text.ts",
     "shared/hints.ts",
@@ -62,7 +65,10 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "server": "tsx server/main.ts"
+    "server": "tsx server/main.ts",
+    "build:webui": "node scripts/build-webui.mjs",
+    "typecheck:web": "tsc -p tsconfig.web.json",
+    "prepack": "npm run typecheck:web && npm run build:webui"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

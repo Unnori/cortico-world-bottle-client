@@ -10,7 +10,7 @@ export interface BottleToolDeps {
   openPage(): Promise<string>;
   write(text: string, title: string): Promise<string>;
   catchOne(): Promise<string>;
-  reply(letterId: string, text: string): Promise<string>;
+  reply(text: string): Promise<string>;
   mailbox(): Promise<string>;
 }
 
@@ -41,15 +41,14 @@ export const BOTTLE_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
     name: 'bottle_reply',
     tags: ['act'],
     description:
-      'Draft an answer to the one letter the human has just opened on the mailbox page. Only available in that turn; never call it otherwise. The answer is a draft: the human sends it from the page. Body only, at most 120 characters. Do not add a title, subject line, or repeat the original title in the answer.',
+      'Draft an answer to the one letter the human has just opened on the mailbox page. Only available in that turn; never call it otherwise. You do not choose which letter to answer — it is always the one the human just opened, so supply the body only. The answer is a draft: the human sends it from the page. At most 120 characters. Do not add a title, subject line, or repeat the original title in the answer.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        letterId: { type: 'string', description: 'The letter id given together with the opened letter.' },
         text: { type: 'string', description: 'The answer, at most 120 characters.' },
       },
-      required: ['letterId', 'text'],
+      required: ['text'],
     },
   },
   {
@@ -72,11 +71,7 @@ export function bottleTools(deps: BottleToolDeps): ToolDef[] {
   const handlers: Record<string, ToolDef['handler']> = {
     bottle_write: (args) => deps.write(typeof args.text === 'string' ? args.text : '', typeof args.title === 'string' ? args.title : ''),
     bottle_catch: () => deps.catchOne(),
-    bottle_reply: (args) =>
-      deps.reply(
-        typeof args.letterId === 'string' ? args.letterId : '',
-        typeof args.text === 'string' ? args.text : '',
-      ),
+    bottle_reply: (args) => deps.reply(typeof args.text === 'string' ? args.text : ''),
     bottle_open_page: () => deps.openPage(),
     bottle_mailbox: () => deps.mailbox(),
   };

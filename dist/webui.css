@@ -1,0 +1,35 @@
+.bottle-mailbox-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px 28px;
+  padding: 28px;
+  border: 1px solid var(--line-2, #54483d);
+  border-radius: 14px;
+  background: var(--sheet-2, #25211f);
+  color: var(--ink, #f4ede5);
+}
+.bottle-mailbox-entry h2 { margin: 0 0 8px; font-size: 21px; font-weight: 600; }
+.bottle-mailbox-entry p { margin: 0; line-height: 1.65; }
+.bottle-mailbox-entry .bottle-mailbox-copy p,
+.bottle-mailbox-entry .bottle-mailbox-note { color: var(--ink-soft, #d2c5b5); }
+.bottle-mailbox-entry .bottle-open-mailbox {
+  min-height: 48px;
+  padding: 12px 28px;
+  border-radius: 10px;
+  background: var(--accent, #a35435);
+  color: #fff;
+  border: 1px solid var(--accent, #a35435);
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bottle-mailbox-entry .bottle-open-mailbox:hover:not(:disabled) { filter: brightness(1.08); }
+.bottle-mailbox-entry .bottle-open-mailbox:disabled { opacity: .5; cursor: default; }
+.bottle-mailbox-entry .bottle-open-mailbox:focus-visible { outline: 2px solid var(--accent, #a35435); outline-offset: 4px; }
+.bottle-mailbox-entry .bottle-mailbox-note { grid-column: 1 / -1; font-size: 13px; }
+@media (max-width: 600px) {
+  .bottle-mailbox-entry { grid-template-columns: minmax(0, 1fr); padding: 22px; gap: 20px; }
+  .bottle-mailbox-entry .bottle-open-mailbox { width: 100%; }
+}

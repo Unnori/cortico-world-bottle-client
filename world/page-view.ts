@@ -428,6 +428,14 @@ export function pageHtml(): string {
     return table[item.state] || '还在漂';
   }
 
+  function sentSourceText(item) {
+    if (item.reply || item.state === 'replied') return '已收进信箱';
+    if (item.state === 'picked') return '正在别人手中';
+    if (item.state === 'tsunami') return '随浪去了远方';
+    if (item.state === 'sunk') return '海替你珍藏了这封信';
+    return '已投进海里';
+  }
+
   function sentStateBadge(item) {
     var key = item.reply || item.state === 'replied' ? 'replied' : item.state;
     if (['replied', 'picked', 'tsunami', 'sunk', 'drifting'].indexOf(key) < 0) key = 'drifting';
@@ -494,7 +502,7 @@ export function pageHtml(): string {
     var key = kind + ':' + item.letterId;
     var mail = rememberDetails(el('details', 'mail ' + kind), key);
     var isReply = kind === 'reply';
-    var source = kind === 'seed' ? '海边邮局 · ' + (item.signature || '群岛来信') : kind === 'sent' ? '已投进海里' : isReply ? '来客回信 · ' + item.reply.from : '海上来客 · ' + item.from;
+    var source = kind === 'seed' ? '海边邮局 · ' + (item.signature || '群岛来信') : kind === 'sent' ? sentSourceText(item) : isReply ? '来客回信 · ' + item.reply.from : '海上来客 · ' + item.from;
     var title = isReply ? item.reply.from + '的回信' : item.topic || (kind === 'seed' ? '群岛上的一封信' : kind === 'sent' ? '留在海上的一封信' : item.from + '的来信');
     var summary = el('summary');
     var symbol = el('span', 'mail-symbol');
