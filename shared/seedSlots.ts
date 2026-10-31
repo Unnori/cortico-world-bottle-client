@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 种子信的「当天随机时刻」。
  *
  * 为什么需要它：原来的实现是「额度一归零，每 10 分钟试一次」，于是每到午夜
@@ -64,10 +64,23 @@ export interface SeedDayPlan {
   slots: number[];
 }
 
-/** 从 sha256 摘要里取第 n 个 32 位字（循环取，不重复）。 */
-function wordOf(digest: string, n: number): number {
-  const hex = digest.slice((n % 16) * 4, ((n % 16) * 4) + 4);
-  return Number.parseInt(hex, 16) || 0;
+/**
+ * 从 sha256 摘要里取第 n 个 **32 位**随机数。
+ *
+ * ⚠ 这里是踩过的坑：一开始只用 4 个十六进制字符（16 位，上限 65535），
+ * 然后拿它 `% 一天内的桶宽`（约 21600000 毫秒）。
+ * 因为 65535 < 21600000，**取模根本不会生效**，偏移永远是 0–65 秒——
+ * 结果所有人的种子都挤在整点上（08:00 / 16:00），分散完全没做到。
+ *
+ * 现在把相邻两个 16 位字拼成 32 位（0–4294967295），取模才真正有效，
+ * 偏移能覆盖整个桶。摘要有 32 个字，`word32Of` 用 n 和 n+8 两个，
+ * 所以 i 最多用到 7 时仍在安全范围内（8 与 0 会撞，但那已经在循环里了）。
+ */
+function word32Of(digest: string, n: number): number {
+  const a = Number.parseInt(digest.slice((n % 16) * 4, ((n % 16) * 4) + 4), 16) || 0;
+  const b = Number.parseInt(digest.slice(((n + 8) % 16) * 4, (((n + 8) % 16) * 4) + 4), 16) || 0;
+  // 拼成无符号 32 位：高 16 位来自 a，低 16 位来自 b
+  return ((a << 16) | b) >>> 0;
 }
 
 /**
@@ -92,18 +105,19 @@ export function seedDayPlan(
   const lo = Math.max(0, Math.min(slotMin, slotMax));
   const hi = Math.max(lo, slotMax);
   const span = hi - lo + 1;
-  const count = lo + (wordOf(digest, 0) % span);
+  const count = lo + (word32Of(digest, 0) % span);
 
   const chance = Math.max(0, Math.min(1, dailyChance));
   if (count === 0 || chance <= 0) return { dateKey, dayStart, slots: [] };
   // 用同一个摘要再摇一次，决定今天到底发不发
-  if (chance < 1 && (wordOf(digest, 15) % 1000) / 1000 >= chance) {
+  if (chance < 1 && (word32Of(digest, 7) % 1000) / 1000 >= chance) {
     return { dateKey, dayStart, slots: [] };
   }
 
   const bucket = DAY_MS / count;
   const slots = Array.from({ length: count }, (_, i) => {
-    const offsetInBucket = wordOf(digest, i + 1) % Math.floor(bucket);
+    // 32 位随机数取模才有意义（16 位会小于桶宽，取模失效，见 word32Of 的注释）
+    const offsetInBucket = word32Of(digest, i + 1) % Math.floor(bucket);
     return Math.floor(i * bucket) + offsetInBucket;
   }).sort((a, b) => a - b);
 

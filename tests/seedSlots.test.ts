@@ -55,6 +55,32 @@ describe('seedSlots · 种子信的当天随机时刻', () => {
     }
   });
 
+  it('slot 的桶内偏移真的覆盖整个桶（回归：曾经全部贴着整点）', () => {
+    // 曾经的 bug：桶内偏移只用 16 位随机数（上限 65535），
+    // 对桶宽（约 2160 万毫秒）取模永远不生效，于是所有时刻都贴着整点
+    // （线上实测出 00:00 / 08:00 / 16:00 这种），"分散到全天"完全没做到。
+    // 这条断言专门防它复发。
+    for (const count of [3, 4]) {
+      const bucket = DAY / count;
+      const ratios: number[] = [];
+      for (let i = 0; i < 60; i++) {
+        const plan = seedDayPlan(`h${i}`, '2026-10-31', 0, count, count, 1);
+        for (let k = 0; k < plan.slots.length; k++) {
+          const offset = plan.slots[k] - Math.floor(k * bucket);
+          expect(offset).toBeGreaterThan(0);
+          ratios.push(offset / bucket);
+        }
+      }
+      // 判据是"铺开"，不是"每个值都很大"：
+      // 随机数本来就可能接近桶起点，要求每个值 > 1% 会误伤。
+      // 但 16 位取模失效时，所有值都会被压在 < 0.3% 里，铺开接近 0。
+      const spread = Math.max(...ratios) - Math.min(...ratios);
+      expect(spread).toBeGreaterThan(0.5);
+      // 同时确认确实有值落在桶的后半段（16 位失效时永远到不了这里）
+      expect(Math.max(...ratios)).toBeGreaterThan(0.5);
+    }
+  });
+
   it('slotsArrived：一天里陆续到点，不是一次性全到', () => {
     const plan = seedDayPlan('hash-abc', '2026-10-31', dayStartMs(TZ, AT), 4, 4, 1);
     const midnight = dayStartMs(TZ, AT);
