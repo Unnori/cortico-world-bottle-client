@@ -1,5 +1,5 @@
 /**
- * 五个工具。**没有 bottle_send**：发送只在本地信箱页上发生，模型没有这个能力。
+ * 工具。**没有 bottle_send**：发送只在本地信箱页上发生，模型没有这个能力。
  *
  * 回执的规矩：写/捞/回都只说「放在了哪」，不念正文。正文的显示通道是页面，不是气泡。
  */
@@ -12,6 +12,7 @@ export interface BottleToolDeps {
   catchOne(): Promise<string>;
   reply(text: string): Promise<string>;
   mailbox(): Promise<string>;
+  wakeChoice(action: string, reason: string): Promise<string>;
 }
 
 export const BOTTLE_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
@@ -19,15 +20,15 @@ export const BOTTLE_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
     name: 'bottle_write',
     tags: ['act'],
     description:
-      'Draft a bottle letter and put it in the human\'s mailbox page. Nothing is sent: only the human can send it, from that page. Write to a stranger you will never meet. Supply a short, specific title (1–20 characters, one line) and a separate body (at most 120 characters). Do not repeat the title in the body; the title follows the same privacy rules as the body. Call this when you actually have something to put out to sea: a moment worth keeping, gladness you want someone to know about, a worry or a confusion that keeps pressing, a small thing that would sound like rambling if said out loud. If there is nothing like that, do not write. An empty letter is worse than none. The receipt does not repeat the text; do not read the whole letter aloud again.',
+      'Draft a bottle letter for a stranger and put it in the human\'s mailbox. You are welcome to write in your own voice: any subject or form is welcome, including poems, lists, jokes, fragments, everyday thoughts, and mixed or unfinished feelings. A feeling need not be positive, profound, or important enough to earn a letter. The body is at most 120 characters. A title is optional; when supplied it is one line of 1–20 characters, separate from the body. The privacy boundary applies to both: never disclose the human\'s identity, contact details, or private information from this machine, including files, paths, screens, and schedules. You may express feelings about shared experiences without revealing identifying details. Write when you want to; do not write just to fill a quota or satisfy an invitation. Only the human can send the draft. The receipt does not repeat the body; do not read the whole letter aloud unasked.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        title: { type: 'string', description: 'A specific title for this letter, 1–20 characters on one line; no personal information or contact details.' },
-        text: { type: 'string', description: 'The letter body only, at most 120 characters; do not include the title.' },
+        title: { type: 'string', description: 'Optional title, 1–20 characters on one line if supplied. It may be omitted. Follow the same privacy boundary as the body.' },
+        text: { type: 'string', description: 'The letter body in any form, at most 120 characters.' },
       },
-      required: ['title', 'text'],
+      required: ['text'],
     },
   },
   {
@@ -36,6 +37,17 @@ export const BOTTLE_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
     description:
       'Fish one bottle out of the sea. You may initiate this when bored, curious about strangers, or when the human has been quiet for a while in the current conversation; do not wait for a request. Catch once, then move on if holding a letter, out of quota, or the sea is quiet. The receipt says who wrote it and how many catches are left today; it never contains the text. The text is shown to the human on the mailbox page, and you read it only after the human asks to reply or read together.',
     parameters: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'bottle_wake_choice', tags: ['act'],
+    description: 'Record a voluntary choice to defer the current bottle invitation or reminder, without drafting or catching. For no_idea or not_now, supply only reason: the World identifies the one current task, and a mismatched action cannot turn a valid choice into failure. Use no_idea when you do not feel like writing, or not_now when you prefer not to act; ordinary or unfinished feelings are welcome, so do not judge them as unworthy. Use user_declined only when the human refused, or user_paused only when the human requested a persistent pause. For these human choices, optional action selects write, catch, or remind; omit it to apply to the current invitation. No task or letter ID is needed.',
+    parameters: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        action: { type: 'string', enum: ['write', 'catch', 'remind'] },
+        reason: { type: 'string', enum: ['no_idea', 'not_now', 'user_declined', 'user_paused'] },
+      }, required: ['reason'],
+    },
   },
   {
     name: 'bottle_reply',
@@ -74,6 +86,7 @@ export function bottleTools(deps: BottleToolDeps): ToolDef[] {
     bottle_reply: (args) => deps.reply(typeof args.text === 'string' ? args.text : ''),
     bottle_open_page: () => deps.openPage(),
     bottle_mailbox: () => deps.mailbox(),
+    bottle_wake_choice: (args) => deps.wakeChoice(String(args.action ?? ''), String(args.reason ?? '')),
   };
 
   return BOTTLE_TOOL_DECLS.map((decl) => ({

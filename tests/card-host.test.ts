@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { saveThemePreference } from '../world/theme.ts';
+import { MAILBOX_PALETTES } from '../world/appearance.ts';
 import { CardHost } from '../world/card.ts';
 import { waitingCard } from '../world/cards.ts';
 
@@ -95,4 +97,14 @@ it('卡片时长默认十秒，下张卡片读取热更新，零秒禁用自动�
   expect(durations).toEqual(['10000', '30000', '0']);
   const data = JSON.parse(readFileSync(join(dir, 'bottle-card.json'), 'utf8'));
   expect(data.body).toContain('读完就会');
+});
+
+it('卡片规格带上保存的明暗与配色，启动前也有正确的深色回退', () => {
+  dir = mkdtempSync(join(tmpdir(),'bottle-card-colors-'));
+  saveThemePreference(dir,{theme:'paper',mode:'dark'});
+  const host = new CardHost({dir,platform:'win32',spawnImpl:(() => fakeChild()) as any});
+  host.show(waitingCard('http://127.0.0.1:7796/'));
+  const spec = JSON.parse(readFileSync(join(dir,'bottle-card.json'),'utf8'));
+  expect(spec.appearance.preference).toEqual({theme:'paper',mode:'dark'});
+  expect(spec.appearance.palettes.dark).toEqual(MAILBOX_PALETTES.paper.dark);
 });

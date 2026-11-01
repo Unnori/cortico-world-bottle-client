@@ -20,6 +20,7 @@ export interface LocalDraft {
 
 /** 捞起来、还没决定的那一封。正文只给页面看，永远不进工具回执。 */
 export interface LocalHeld {
+  caughtBy?: 'bot' | 'human';
   letterId: string;
   from: string;
   body: string;
@@ -53,6 +54,8 @@ export interface SentLetter {
   letterId: string;
   body: string;
   at: number;
+  /** 首次拾信播报的持久标记，随信册保存。 */
+  pickedNoticed?: boolean;
 }
 
 export type ReceivedOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'expired' | 'kept';
@@ -115,7 +118,10 @@ export class LocalStore {
    * 否则新装的世界会为历史上每一次海啸都弹一条，那些跟这个人类没关系。
    */
   tsunamiSeen: number | null = null;
-  seenAnnouncementIds: string[] = [];
+  lastWrittenAt = 0;
+  lastCaughtAt = 0;
+  writeDay = '';
+  writesToday = 0;
   /**
    * 这个 Coo 一共起草过几封信（含被重写覆盖的）。
    *
@@ -147,12 +153,14 @@ export class LocalStore {
       this.identity = { clientId: id.clientId, pseudonym: typeof id.pseudonym === 'string' ? id.pseudonym : '' };
     }
 
-    const state = readJson<{ tsunamiSeen?: unknown; draftsMade?: unknown; seenAnnouncementIds?: unknown }>(this.stateFile);
-    this.seenAnnouncementIds = Array.isArray(state?.seenAnnouncementIds)
-      ? state.seenAnnouncementIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
-      : [];
+    const state = readJson<Record<string, unknown>>(this.stateFile);
     this.tsunamiSeen = typeof state?.tsunamiSeen === 'number' ? state.tsunamiSeen : null;
-    this.draftsMade = typeof state?.draftsMade === 'number' && state.draftsMade >= 0 ? Math.floor(state.draftsMade) : 0;
+    const count = (key: string) => typeof state?.[key] === 'number' && Number.isFinite(state[key]) && state[key] >= 0 ? Math.floor(state[key]) : 0;
+    this.draftsMade = count('draftsMade');
+    this.lastWrittenAt = count('lastWrittenAt');
+    this.lastCaughtAt = count('lastCaughtAt');
+    this.writeDay = typeof state?.writeDay === 'string' ? state.writeDay : '';
+    this.writesToday = count('writesToday');
 
     // 落盘格式是 `{ draft, letterDraft }` 两个槽：`draft` 是回信草稿，`letterDraft` 是信稿。
     // 分开存是因为两者会同时存在——手里有信稿的人照样能去读别人那一封，回信稿不能把信稿顶掉。
@@ -201,6 +209,7 @@ export class LocalStore {
         letterId: held.letterId,
         from: typeof held.from === 'string' ? held.from : '一位陌生人',
         body: held.body,
+        caughtBy: held.caughtBy === 'human' ? 'human' : 'bot',
         caughtAt: Number(held.caughtAt ?? 0),
         windowUntil: Number(held.windowUntil ?? 0),
         ...(held.seed === true ? { seed: true } : {}),
@@ -224,7 +233,7 @@ export class LocalStore {
     this.sent = sent
       .filter((item): item is Partial<SentLetter> & { letterId: string; body: string } =>
         typeof item?.letterId === 'string' && typeof item.body === 'string')
-      .map((item) => ({ letterId: item.letterId, body: item.body, ...(typeof item.topic === 'string' && item.topic ? { topic: item.topic } : {}), at: Number(item.at ?? 0) }));
+      .map((item) => ({ letterId: item.letterId, body: item.body, ...(typeof item.topic === 'string' && item.topic ? { topic: item.topic } : {}), at: Number(item.at ?? 0), ...(item.pickedNoticed === true ? { pickedNoticed: true } : {}) }));
 
     const received = Array.isArray(book?.received) ? book.received : [];
     this.received = received
@@ -255,22 +264,32 @@ export class LocalStore {
   }
 
   /** 又起草了一封信（被重写覆盖的也算一次）。只记次数，不记内容。 */
-  bumpDraftsMade(): void {
+  bumpDraftsMade(at: number, day: string): void {
     this.draftsMade += 1;
+    this.lastWrittenAt = at;
+    this.writesToday = this.writeDay === day ? this.writesToday + 1 : 1;
+    this.writeDay = day;
     this.saveState();
   }
 
   private saveState(): void {
     writeJson(this.stateFile, {
       tsunamiSeen: this.tsunamiSeen, draftsMade: this.draftsMade,
-      seenAnnouncementIds: this.seenAnnouncementIds,
+      lastWrittenAt: this.lastWrittenAt, lastCaughtAt: this.lastCaughtAt,
+      writeDay: this.writeDay, writesToday: this.writesToday,
     });
   }
 
-  markAnnouncementSeen(id: string): void {
-    if (this.seenAnnouncementIds.includes(id)) return;
-    this.seenAnnouncementIds.push(id);
+  noteCaught(at: number): void {
+    this.lastCaughtAt = at;
     this.saveState();
+  }
+
+  markPickedNoticed(letterId: string): void {
+    const letter = this.sent.find(item => item.letterId === letterId);
+    if (!letter || letter.pickedNoticed) return;
+    letter.pickedNoticed = true;
+    this.saveLetterbook();
   }
 
   /** 写回信草稿（`kind` 一律按 reply 归槽）；信稿走 `setLetterDraft`。 */

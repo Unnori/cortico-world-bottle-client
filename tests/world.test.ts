@@ -43,13 +43,14 @@ describe('漂流瓶 World · 装载', () => {
     }
   });
 
-  it('五个工具，没有 bottle_send', async () => {
+  it('六个工具，没有 bottle_send', async () => {
     const world = await started();
     expect(world.tools().map((tool) => tool.name).sort()).toEqual([
       'bottle_catch',
       'bottle_mailbox',
       'bottle_open_page',
       'bottle_reply',
+      'bottle_wake_choice',
       'bottle_write',
     ]);
     expect(world.tools().some((tool) => tool.name === 'bottle_send')).toBe(false);
@@ -78,7 +79,12 @@ describe('漂流瓶 World · 装载', () => {
     // 判据是「表达欲」，不是「瞒着谁」——后者是伪命题，信必定经人类审核
     expect(template).toContain('表达欲');
     // 不许拿编号、账号当名字
-    expect(template).toContain('不是通讯录');
+    expect(template).toContain('不念内部信件编号');
+    expect(template).toContain('任何内容与形式都可以');
+    expect(template).toContain('不泄露人的身份、联系方式、本机私密信息');
+    expect(template).not.toContain('句子短');
+    expect(template).not.toContain('不列点');
+    expect(template).not.toContain('不用称呼');
     expect(template).toContain('样子指代');
     expect(template).toContain('人会看到全文');
     expect(template).not.toContain('不想让');
@@ -98,7 +104,9 @@ describe('漂流瓶 World · 装载', () => {
   it('工具描述里写了「什么时候该写」，也留了「没有就不写」的出口', () => {
     const decl = BOTTLE_TOOL_DECLS.find((tool) => tool.name === 'bottle_write');
     const text = String(decl?.description ?? '');
-    expect(text).toContain('Call this when');
+    expect(text).toContain('Write when you want to');
+    expect(text).toContain('any subject or form');
+    expect(decl?.parameters.required).toEqual(['text']);
     expect(text).toContain('do not write');
   });
 
@@ -136,7 +144,7 @@ describe('漂流瓶 World · 装载', () => {
 });
 
 describe('漂流瓶 World · 写信', () => {
-  it.each([undefined, '', '   ', '海'.repeat(21), '第一行\n第二行', 123])('拒绝无效标题 %j，保留原草稿', async (title) => {
+  it.each(['海'.repeat(21), '第一行\n第二行'])('拒绝无效标题 %j，保留原草稿', async (title) => {
     const world = await started();
     await callTool(world, 'bottle_write', { title: '原来的标题', text: '原来的正文。' });
     const receipt = await callTool(world, 'bottle_write', { title, text: '替换正文。' });
@@ -704,7 +712,7 @@ describe('漂流瓶 World · 信件状态（v0.5）', () => {
     });
   });
 
-  it('被人捡起只播报一次，不跟着每次轮询抖', async () => {
+  it('被人捡起只播报一次，轮询、重新漂回和 World 重启都不重播', async () => {
     const world = await started();
     await callTool(world, 'bottle_write', { title: '海边小记', text: '第二封。' });
     await world.pageDeps().send();
@@ -723,6 +731,18 @@ describe('漂流瓶 World · 信件状态（v0.5）', () => {
     h.clock.t += 6 * 60 * 1000;
     world.pageDeps().snapshot();
     await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(count()).toBe(first);
+    const saved = JSON.parse(readFileSync(join(h.dir, 'bottle-letterbook.json'), 'utf8'));
+    expect(saved.sent[0].pickedNoticed).toBe(true);
+    await world.stop();
+    await world.start(host);
+    await vi.waitFor(() => expect(world.pageDeps().snapshot().sent[0]?.state).toBe('picked'));
+    mine.state = 'floating';
+    h.clock.t += 6 * 60_000; world.pageDeps().snapshot();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    mine.state = 'caught';
+    h.clock.t += 6 * 60_000; world.pageDeps().snapshot();
+    await new Promise(resolve => setTimeout(resolve, 30));
     expect(count()).toBe(first);
   });
 });
@@ -868,18 +888,18 @@ describe('漂流瓶 World · 一起读信', () => {
 describe('扩展自带的信箱入口面板', () => {
   it('启动前不提供地址，启动后只返回真实端口，不允许面板传入任意地址', async () => {
     expect(h.world.webUi().panels).toEqual([{ id: 'mailbox', title: '信箱' }]);
-    expect(await h.world.webUi().invoke!('mailbox', 'status', [])).toEqual({ url: null });
+    expect(await h.world.webUi().invoke!('mailbox', 'status', [])).toEqual({ url: null, wake: null });
     const world = await started();
     const ui = world.webUi();
     expect(world.webUi('en').panels?.[0]?.title).toBe('Mailbox');
     const result = await ui.invoke!('mailbox', 'status', ['https://example.invalid/']);
-    expect(result).toEqual({ url: world.envPromptVars()['bottle.page'] });
+    expect(result).toMatchObject({ url: world.envPromptVars()['bottle.page'] });
     expect(h.openedUrls).toHaveLength(0);
     expect(host.events).toHaveLength(0);
     await expect(ui.invoke!('mailbox', 'open', [])).rejects.toThrow('Unknown mailbox action');
     await expect(ui.invoke!('other', 'status', [])).rejects.toThrow('Unknown mailbox action');
     await world.stop();
-    expect(await world.webUi().invoke!('mailbox', 'status', [])).toEqual({ url: null });
+    expect(await world.webUi().invoke!('mailbox', 'status', [])).toEqual({ url: null, wake: null });
   });
 });
 
@@ -902,4 +922,22 @@ describe('World 顶部额度', () => {
     expect(ui.config?.[0]?.schema.properties?.['worlds.bottle.port']?.['x-download']).toBeUndefined();
     expect(ui.links ?? []).toEqual([]);
   });
+});
+
+
+it.each([undefined, '', '   '])('信题 %j 可省略，诗句和列表按原样保存；仍只限制正文 120 字', async title => {
+  const world = await started();
+  const text = '你呀，\n今天有点想念。\n\n1. 开心\n2. 又有点难过\n——还没想好为什么';
+  expect(await callTool(world, 'bottle_write', { ...(title === undefined ? {} : { title }), text })).toContain('草稿已放进信箱');
+  expect(world.pageDeps().snapshot().letterDraft?.body).toBe(text);
+  expect(world.pageDeps().snapshot().letterDraft?.topic).toBeUndefined();
+  await world.pageDeps().send('letter');
+  expect(world.pageDeps().snapshot().sent[0]?.body).toBe(text);
+});
+it('正文可接受 120 字的任意文本形式；121 字仍拒绝，回信仍不新增信题', async () => {
+  const world = await started(); const text = '哈'.repeat(120);
+  expect(await callTool(world, 'bottle_write', { text })).toContain('草稿已放进信箱');
+  expect(await callTool(world, 'bottle_write', { text: text + '哈' })).toContain('超过 120 字');
+  expect(world.pageDeps().snapshot().letterDraft?.body).toBe(text);
+  expect(BOTTLE_TOOL_DECLS.find(t => t.name === 'bottle_wake_choice')?.parameters.required).toEqual(['reason']);
 });

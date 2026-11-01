@@ -20,6 +20,8 @@ export interface Harness {
   openedUrls: string[];
   db: Db;
   world: BottleWorld;
+  cfg: BottleConfigSection;
+  persistedConfig: Partial<BottleConfigSection>[];
   dir: string;
   /** 手动拨的钟。 */
   clock: { t: number };
@@ -31,6 +33,8 @@ export interface Harness {
 export function makeHarness(
   opts: {
     port?: number;
+    random?: () => number;
+    config?: Partial<BottleConfigSection>;
     server?: string;
     seeds?: SeedStore;
     rules?: QuotaRules;
@@ -84,8 +88,10 @@ export function makeHarness(
     server: opts.server ?? 'http://127.0.0.1:8787',
     // 测试里不开窗口：卡片宿主另有专门的用例，这里只验证状态与回执
     surface: 'page',
+    ...opts.config,
   };
 
+  const persistedConfig: Partial<BottleConfigSection>[] = [];
   const ctx: WorldContext<BottleConfigSection> = {
     id: 'bottle',
     cfg,
@@ -99,13 +105,14 @@ export function makeHarness(
     storeSecret: (name, value) => {
       secrets.set(name, value);
     },
-    persist: () => {},
+    persist: patch => { persistedConfig.push(structuredClone(patch)); Object.assign(cfg, patch); },
     restart: async () => {},
   };
 
   const world = new BottleWorld(ctx, {
     fetchImpl: opts.fetchImpl ?? fetchImpl,
     now: () => clock.t,
+    random: opts.random,
     localEnv: { hostname: 'DESKTOP-TEST-PC', username: 'alice', home: 'C:\\Users\\alice' },
     // 测试里绝不真的拉起浏览器；记下被要求打开的地址
     openUrl: (url) => {
@@ -135,6 +142,8 @@ export function makeHarness(
     api,
     db,
     world,
+    cfg,
+    persistedConfig,
     dir,
     openedUrls,
     clock,

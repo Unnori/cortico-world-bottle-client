@@ -8,6 +8,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cardAppearance, DEFAULT_APPEARANCE } from './appearance.ts';
+import { readThemePreference } from './theme.ts';
 import type { CardSpec } from './cards.ts';
 
 const HOST_SCRIPT = fileURLToPath(new URL('./card-host.ps1', import.meta.url));
@@ -50,7 +52,7 @@ export class CardHost {
 
     const data = join(this.opts.dir, 'bottle-card.json');
     try {
-      writeFileSync(data, `${JSON.stringify(spec, null, 2)}\n`, 'utf8');
+      writeFileSync(data, `${JSON.stringify({ ...spec, appearance: cardAppearance(readThemePreference(this.opts.dir) ?? DEFAULT_APPEARANCE, { available: false }) }, null, 2)}\n`, 'utf8');
     } catch (error) {
       this.opts.log?.(`card data write failed: ${error instanceof Error ? error.name : 'unknown'}`);
       return false;

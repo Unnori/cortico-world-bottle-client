@@ -11,7 +11,7 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
   describe: {
     tools: describeTools(BOTTLE_TOOL_DECLS, {
       bottle_write: {
-        zh: '起草一封不超过 120 字的信，放进人类的信箱页；没有发送能力，寄不寄由人类决定。',
+        zh: '起草正文不超过 120 字的信，内容与形式自由，信题可选；仍保护隐私，寄不寄由人决定。',
         en: 'Drafts a letter of at most 120 characters into the human\'s mailbox page. Never sends it.',
       },
       bottle_catch: {
@@ -22,6 +22,10 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
         zh: '给人类刚点开的那一封起草回信，只需正文，信箱自动对应原信。只有人类点了回信的那一轮可用，写完仍是草稿。',
         en: 'Drafts a body-only answer to the letter the human just opened; the mailbox keeps track of the target. Only available in that turn.',
       },
+      bottle_wake_choice: {
+        zh: '明确暂不写信、打捞或提醒并记录原因；人的拒绝当天不再催，暂停持续到手动恢复。',
+        en: 'Records a choice not to write, catch, or remind; honors human refusal and persistent pauses.',
+      },
       bottle_mailbox: {
         zh: '看一眼信箱：手里待回的信、别人回给我的信。只有化名和状态，没有正文。',
         en: 'Lists held letters and answered letters by pseudonym and state, without any text.',
@@ -31,15 +35,15 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
       {
         type: 'bottle.request',
         description: {
-          zh: '人类在信箱页请求 Coo 写信或打捞，不自动寄出。',
-          en: 'The human requested a draft or a catch from the mailbox page. Never sends a letter.',
+          zh: '人在信箱页请求 Coo 起草一封信，不自动寄出。',
+          en: 'The human requested a draft from the mailbox page. Never sends a letter.',
         },
       },
       {
-        type: 'bottle.announcement',
+        type: 'bottle.wake',
         description: {
-          zh: '海边公告，按 id 持久化去重；正文作为外部消息投递，带 notice/alarm 级别。',
-          en: 'A seaside announcement delivered as external text, deduplicated persistently by id, with a notice/alarm level.',
+          zh: '自动写信、打捞需额度大于 1 且没有待办；有待办则温和提醒。人也可立即发出邀请。Bot 自主决定，拒绝与暂停优先，任务持久记录且有限重试。',
+          en: 'An invitation to write or catch, or a gentle reminder about pending mail. May be automatic or human-initiated. The bot may decline; pauses and task progress persist.',
         },
       },
       {

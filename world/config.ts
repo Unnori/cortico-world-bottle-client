@@ -5,8 +5,20 @@ import type { ConfigGroup } from 'cortico/core/types.ts';
  *
  * 这里**不放 token**：凭据走 `ctx.storeSecret('BOTTLE_TOKEN', …)`，落部署 `.env`。
  */
-export interface BottleConfigSection {
+export interface BottleWakeSettings {
+  writeInviteEnabled: boolean;
+  writeInviteIntervalHours: number;
+  catchInviteEnabled: boolean;
+  catchInviteIntervalHours: number;
+  reminderEnabled: boolean;
+  reminderIntervalHours: number;
+}
+
+/** Older deployments may omit the invitation settings; constructor migration retains their preferences. */
+export interface BottleConfigSection extends Partial<BottleWakeSettings> {
   enabled: boolean;
+  /** 随机邀请只提供机会，Bot 可明确暂不做。 */
+  randomWake?: boolean;
   /** 海在哪。改地址要重启 World。 */
   server?: string;
   /** 本地信箱页的端口；占用则顺延，永远跳过 7797。 */
@@ -21,8 +33,40 @@ export interface BottleConfigSection {
   tsunamiNotice?: boolean;
 }
 
+export const BOTTLE_WAKE_FIELDS = [
+  ['write', 'writeInviteEnabled', 'writeInviteIntervalHours', '写信邀请'],
+  ['catch', 'catchInviteEnabled', 'catchInviteIntervalHours', '打捞邀请'],
+  ['remind', 'reminderEnabled', 'reminderIntervalHours', '待办提醒'],
+] as const;
+
+/** Distinguish implicit defaults from explicit deployment values when migrating old scheduler preferences. */
+export function initialiseWakeSettings(config: BottleConfigSection, savedLanes: unknown, explicitConfig: unknown = {}): void {
+  const explicit = explicitConfig && typeof explicitConfig === 'object' ? explicitConfig : {};
+  const lanes = savedLanes && typeof savedLanes === 'object' ? savedLanes as Record<string, unknown> : {};
+  for (const [action, enabled, interval] of BOTTLE_WAKE_FIELDS) {
+    const saved = lanes[action];
+    const lane = saved && typeof saved === 'object' ? saved as Record<string, unknown> : {};
+    // Deployment values override legacy preferences, even when equal to the new defaults.
+    // A default introduced by a package upgrade must not accidentally resume an old pause.
+    if (typeof config[enabled] !== 'boolean' || (!Object.hasOwn(explicit, enabled) &&
+      config[enabled] === BOTTLE_DEFAULTS[enabled] && typeof lane.paused === 'boolean')) config[enabled] = lane.paused !== true;
+    if (typeof config[interval] !== 'number' || !Number.isFinite(config[interval]) || config[interval]! < 2 || config[interval]! > 24 ||
+      (!Object.hasOwn(explicit, interval) && config[interval] === BOTTLE_DEFAULTS[interval] && typeof lane.intervalHours === 'number')) {
+      const hours = lane.intervalHours;
+      config[interval] = typeof hours === 'number' && Number.isFinite(hours) ? Math.min(24, Math.max(2, hours)) : 2;
+    }
+  }
+}
+
 export const BOTTLE_DEFAULTS: BottleConfigSection = {
   enabled: false,
+  randomWake: true,
+  writeInviteEnabled: true,
+  writeInviteIntervalHours: 2,
+  catchInviteEnabled: true,
+  catchInviteIntervalHours: 2,
+  reminderEnabled: true,
+  reminderIntervalHours: 2,
   server: 'https://bottle.sqnori.com',
   port: 7796,
   surface: 'auto',
@@ -37,7 +81,7 @@ export const BOTTLE_CONFIG_GROUP: ConfigGroup = {
   schema: {
     type: 'object',
     title: '漂流瓶',
-    description: '海在哪、信箱页开在哪个端口。改地址与端口要重启 World。',
+    description: '海在哪、信件如何显示，以及海边邀请的开关与间隔。改地址与端口要重启 World，其余标明的选项可直接生效。',
     properties: {
       'worlds.bottle.server': {
         type: 'string',
@@ -76,6 +120,25 @@ export const BOTTLE_CONFIG_GROUP: ConfigGroup = {
           '服务端重启时，还漂在海上的瓶子会被浪拍碎。开着会告诉 Coo 一声；关掉只是不打扰它，基线照样记，以后打开也不会补播旧海啸。',
         'x-hot': true,
       },
+      'worlds.bottle.randomWake': {
+        type: 'boolean', title: '随机海边邀请',
+        description: '有余量且没有待办时，偶尔邀请它写信或打捞；有待办则温和提醒，可以不做。每类每天最多 3 次。下方可分别开启、暂停与调整间隔，与信箱网页共用设置；关闭总开关不会清除各类偏好。',
+        'x-hot': true,
+      },
+      ...Object.fromEntries(BOTTLE_WAKE_FIELDS.flatMap(([action, enabled, interval, label]) => [
+        [`worlds.bottle.${enabled}`, {
+          type: 'boolean' as const, title: label,
+          description: action === 'remind'
+            ? '信箱里有尚未处理的来信或草稿时，偶尔温和提醒；不读正文，也不代替人寄信。关闭即暂停，与网页设置同步。'
+            : '余量大于 1 且手上没有待办时，偶尔邀请它自主选择。关闭即暂停，与网页设置同步；人手动发出的邀请仍尊重暂停。',
+          'x-hot': true,
+        }],
+        [`worlds.bottle.${interval}`, {
+          type: 'number' as const, title: `${label}最短间隔`, minimum: 2, maximum: 24,
+          description: '默认 2 小时，范围 2—24 小时。实际时刻在最短间隔的 1—2 倍内随机，最长 24 小时；每类每天最多 3 次。修改后重新安排，不立即补催。',
+          'x-suffix': '小时', 'x-hot': true,
+        }],
+      ])),
       'worlds.bottle.debug': {
         type: 'boolean',
         title: '开发者模式',

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { Script } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -139,7 +140,9 @@ describe('本地信箱页', () => {
   it('页面里没有可执行的外链，也不读别的东西', () => {
     const html = pageHtml();
     expect(html).not.toContain('<script src');
-    expect(html).not.toMatch(/(?:src|href)=["']https?:\/\//);
+    // The only external URL is an explicit feedback link, never an automatically loaded asset.
+    expect([...html.matchAll(/(?:src|href)=["'](https?:\/\/[^"']+)/g)].map(match => match[1]))
+      .toEqual(['https://github.com/Unnori/cortico-world-bottle-client/issues/new']);
     expect(html).toContain('仍然寄出');
     expect(html).toContain('写出的信');
     expect(html).toContain('来客来信');
@@ -206,6 +209,11 @@ describe('本地信箱页', () => {
       const page = await fetch(`${server.url}`);
       expect(page.status).toBe(200);
       expect(await page.text()).toContain('漂流瓶');
+      const icon = await fetch(`${server.url}icon.png`);
+      expect(icon.headers.get('content-type')).toBe('image/png');
+      expect(icon.headers.get('cache-control')).toContain('max-age=');
+      expect(Buffer.from(await icon.arrayBuffer())).toEqual(readFileSync(new URL('../world/icon.png', import.meta.url)));
+
 
       const fromCard = await fetch(`${server.url}open`, {
         method: 'POST',
@@ -263,4 +271,50 @@ it('折叠摘要显示复用文本的彩色寄信状态，邮局来源显示署�
   for (const status of ['replied', 'drifting', 'picked', 'tsunami', 'sunk']) expect(html).toContain('.status-' + status);
   expect(html).toContain('已投进海里');
   expect(html).not.toContain('寄给海上来客');
+});
+
+
+it('网页 favicon 与标题图标使用扩展同一张 PNG，不经过模型或外部服务', async () => {
+  const html = pageHtml();
+  expect(html).toContain('<link rel="icon" type="image/png" href="/icon.png">');
+  expect(html).toContain('<img src="/icon.png"');
+  const original = readFileSync(new URL('../world/icon.png', import.meta.url));
+  for (const path of ['/icon.png', '/favicon.ico']) {
+    const result = await handlePage(deps(), 'GET', path);
+    expect(result.status).toBe(200); expect(result.binary?.mime).toBe('image/png');
+    expect(Buffer.from(result.binary!.bytes)).toEqual(original);
+  }
+});
+
+it('主题桥接只读且异常可降级，首页带当前颜色快照', async () => {
+  const theme = { available: false, scheme: 'snapshot-test' };
+  const d = deps({ theme: async () => theme });
+  expect((await handlePage(d, 'GET', '/theme')).json).toEqual(theme);
+  expect((await handlePage(d, 'GET', '/')).html).toContain('snapshot-test');
+  expect(d.request).not.toHaveBeenCalled(); expect(d.send).not.toHaveBeenCalled();
+  expect((await handlePage(deps({ theme: async () => { throw new Error('unavailable'); } }), 'GET', '/theme')).json).toEqual({ available: false });
+});
+
+it('外观接口支持读取和保存，严格限制主题与模式且不触发桌宠行动', async () => {
+  const appearance = vi.fn(async () => ({ preference:{ theme:'paper' as const,mode:'dark' as const },palettes:{} as any }));
+  const d = deps({ appearance });
+  expect((await handlePage(d,'POST','/appearance',{body:{theme:'paper',mode:'dark'}})).status).toBe(200);
+  expect(appearance).toHaveBeenLastCalledWith({theme:'paper',mode:'dark'});
+  expect((await handlePage(d,'GET','/appearance')).status).toBe(200);
+  expect(appearance).toHaveBeenLastCalledWith(undefined);
+  expect((await handlePage(d,'POST','/appearance',{body:{theme:'evil',mode:'dark'}})).status).toBe(400);
+  expect(d.request).not.toHaveBeenCalled(); expect(d.send).not.toHaveBeenCalled();
+});
+
+it('外观保存沿用本地请求保护，不带头不能修改，读取不修改设置', async () => {
+  const appearance = vi.fn(async () => ({ preference:{theme:'ocean' as const,mode:'dark' as const},palettes:{} as any }));
+  const server = await startPageServer(deps({ appearance }), { port: 18460 });
+  try {
+    const body = JSON.stringify({theme:'ocean',mode:'dark'});
+    const blocked = await fetch(server.url+'appearance',{method:'POST',body});
+    expect(blocked.status).toBe(403); expect(appearance).not.toHaveBeenCalled();
+    const saved = await fetch(server.url+'appearance',{method:'POST',headers:{'x-bottle':'1','content-type':'application/json'},body});
+    expect(saved.status).toBe(200); expect(appearance).toHaveBeenLastCalledWith({theme:'ocean',mode:'dark'});
+    await fetch(server.url+'appearance'); expect(appearance).toHaveBeenLastCalledWith(undefined);
+  } finally { await server.close(); }
 });

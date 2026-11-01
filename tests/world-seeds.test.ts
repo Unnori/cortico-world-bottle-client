@@ -185,3 +185,15 @@ describe('World · 种子瓶', () => {
     expect(receipt).not.toContain('回它');
   });
 });
+
+it.each(['human', 'bot'] as const)('%s 打捞的群岛来信收好时，也沿用打捞者的通知规则', async actor => {
+  const world = await started();
+  if (actor === 'human') expect((await world.pageDeps().request('catch', 'human')).ok).toBe(true);
+  else await callTool(world, 'bottle_catch');
+  expect(world.pageDeps().snapshot().held?.seed).toBe(true);
+  const before = host.events.length;
+  expect(await world.pageDeps().dismiss()).toMatchObject({ ok: true, message: '收好了。' });
+  expect(world.pageDeps().snapshot().held).toBeNull();
+  expect(world.pageDeps().snapshot().received[0]!.outcome).toBe('dismissed');
+  expect(host.events.slice(before).filter(event => event.type === 'bottle.dismissed')).toHaveLength(actor === 'human' ? 0 : 1);
+});

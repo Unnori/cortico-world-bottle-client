@@ -1,16 +1,35 @@
 import { pageStyles } from './page-style.ts';
+import type { MailboxTheme } from './theme.ts';
 
 /** 单文件页面。数据全部从 `/draft` 拿，这里只写骨架与交互。 */
-export function pageHtml(): string {
+export function pageHtml(hostTheme: MailboxTheme = { available: false }): string {
+  const themeJson = JSON.stringify(hostTheme).replace(/</g, '\\u003c');
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="ocean">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>漂流瓶 · 信箱</title>
+<meta name="theme-color" content="#f0f4fb" id="browser-theme-color">
+<script type="application/json" id="host-theme">${themeJson}</script>
+<script data-theme-init>
+(function(){
+  var root=document.documentElement,theme='ocean',mode='system';
+  try{var saved=localStorage.getItem('bottle-theme');if(['ocean','paper','coopanion'].indexOf(saved)>=0)theme=saved;
+    saved=localStorage.getItem('bottle-appearance');if(['system','light','dark'].indexOf(saved)>=0)mode=saved;}catch(e){}
+  try{var pref=JSON.parse(document.getElementById('host-theme').textContent).preference;if(pref&&['ocean','paper','coopanion'].indexOf(pref.theme)>=0&&['system','light','dark'].indexOf(pref.mode)>=0){theme=pref.theme;mode=pref.mode;}}catch(e){}
+  root.dataset.theme=theme;root.dataset.mode=mode;
+  var dark=mode==='dark'||(mode==='system'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);
+  root.dataset.appearance=dark?'dark':'light';
+  try{var host=JSON.parse(document.getElementById('host-theme').textContent);var palette=host.available&&host.palettes[dark?'dark':'light'];
+    var keys=['paper','sheet','sheet-2','sheet-3','ink','ink-soft','line','line-2','line-strong','accent','on-accent','ink-blue','ok','warn','danger'];if(palette&&keys.every(function(key){return /^#[0-9a-f]{6}$/i.test(palette[key]);})){root.dataset.hostTheme='true';keys.forEach(function(key){root.style.setProperty('--host-'+key,palette[key]);});}}catch(e){}
+})();
+</script>
+<link rel="icon" type="image/png" href="/icon.png">
+<link rel="apple-touch-icon" href="/icon.png">
 <style>${pageStyles}</style>
 </head>
-<body>
+<body id="bottle-mailbox">
 <svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
   <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 6 9 7 9-7M3 19l6-6m12 6-6-6"/></symbol>
   <symbol id="i-pen" viewBox="0 0 24 24"><path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14zM4 20l3-7M13 21h8"/></symbol>
@@ -21,20 +40,38 @@ export function pageHtml(): string {
 </defs></svg>
 <div class="shell">
   <div class="masthead">
-    <div class="brand"><span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-bottle"/></svg></span><div><h1>漂流瓶</h1><small>LETTERS FROM THE SEA</small></div></div>
-    <div class="sub">一片海 · 一封信 · 一次相遇</div>
+    <div class="brand"><span class="brand-mark"><img src="/icon.png" alt="" width="48" height="48"></span><div><h1>漂流瓶</h1><small>LETTERS FROM THE SEA</small></div></div>
+    <div class="masthead-end"><div class="sub">一片海 · 一封信 · 一次相遇</div>
+      <div class="theme-picker" id="theme-picker">
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-expanded="false" aria-controls="theme-menu" aria-label="切换信箱配色"><span class="theme-dot" aria-hidden="true"></span><span class="theme-toggle-label">信箱外观<span id="theme-name">潮蓝</span></span><svg class="theme-chevron" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="theme-menu" id="theme-menu" role="group" aria-label="信箱配色" hidden><div class="theme-menu-heading"><strong>给信箱换一种心情</strong><span>信纸与灯光</span></div><div class="theme-options">
+          <button id="theme-ocean" type="button" aria-pressed="true"><span class="theme-swatch swatch-ocean" aria-hidden="true"></span><span><strong>潮蓝</strong><small>海边的蓝</small></span><span class="theme-check" aria-hidden="true">✓</span></button>
+          <button id="theme-paper" type="button" aria-pressed="false"><span class="theme-swatch swatch-paper" aria-hidden="true"></span><span><strong>暖纸</strong><small>旧日信纸</small></span><span class="theme-check" aria-hidden="true">✓</span></button>
+          <button id="theme-coopanion" type="button" aria-pressed="false"><span class="theme-swatch swatch-coopanion" aria-hidden="true"></span><span><strong>Coopanion</strong><small>跟随桌宠配色</small></span><span class="theme-check" aria-hidden="true">✓</span></button>
+          </div><div class="appearance-settings"><p>明暗模式</p><div class="appearance-options" role="group" aria-label="明暗模式"><button id="mode-system" type="button" aria-pressed="true">跟随系统</button><button id="mode-light" type="button" aria-pressed="false">浅色</button><button id="mode-dark" type="button" aria-pressed="false">深色</button></div><small id="theme-sync-note" role="status">明暗可以自由选择，配色会为你记住。</small><small id="theme-card-note" role="status">桌面信笺也会换上相同配色。</small></div>
+        </div>
+      </div>
+    </div>
   </div>
+  <div class="opening">
   <section class="hero">
-    <div><div class="eyebrow">THE SEASIDE LETTERBOX</div><h2>把远方，收进信箱。</h2><p id="hero-note">留一封信给海，也等一封信靠岸。</p></div>
+    <div><div class="eyebrow">栖潮海 · 海边信箱</div><h2>把远方，<br>收进信箱。</h2><p id="hero-note">留一封信给海，也等一封信靠岸。</p></div>
     <div class="hero-art" aria-hidden="true"><div class="envelope-art"><span class="wax"><svg class="icon"><use href="#i-bottle"/></svg></span></div><div class="postmark">海边邮局<b>SEA</b>LETTERS</div><svg class="hero-wave" viewBox="0 0 130 30" fill="none" stroke="currentColor"><path d="M0 5q16-8 32 0t32 0 32 0 32 0M0 15q16-8 32 0t32 0 32 0 32 0M0 25q16-8 32 0t32 0 32 0 32 0"/></svg></div>
   </section>
   <div class="toolbar">
+    <div class="launch-heading"><span>留给海的一点心事</span><svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg></div>
+    <div class="actor-choice" role="group" aria-label="选择行动主体"><span class="actor-caption">这一趟，谁来？</span><div class="actor-switch"><button id="actor-bot" type="button" aria-pressed="true">让 Coo 来吧</button><button id="actor-human" type="button" aria-pressed="false">让我来吧</button></div><small id="actor-hint">递一份邀请，去不去由 Coo 决定。</small></div>
     <div class="actions">
-      <button class="action-main" id="write-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-pen"/></svg><span><strong>写一封信</strong><small>把此刻的心事寄给远方</small></span></button>
-      <button class="action-main catch" id="catch-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-bottle"/></svg><span><strong>去海边打捞</strong><small>捞起海上来客的一封信</small></span></button>
+      <button class="action-main" id="write-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-pen"/></svg><span><strong id="write-label">写一封信</strong><small>把此刻的心事寄给远方</small></span></button>
+      <button class="action-main catch" id="catch-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-bottle"/></svg><span><strong id="catch-label">去海边打捞</strong><small>捞起海上来客的一封信</small></span></button>
     </div>
     <p id="action-note" role="status">信写好后，寄不寄由你决定。</p>
   </div>
+  </div>
+  <details class="invitation-settings"><summary>海边的邀请 · 暂停与间隔</summary>
+    <p id="wake-note">自动邀请与待办提醒可以分别暂停。间隔设为 2—24 小时，实际时刻在该间隔的 1—2 倍内随机（最长 24 小时）；每天每类最多 3 次。</p>
+    <div id="wake-controls"><div class="invitation-row"><span id="wake-write-status">写信邀请</span><label>最短间隔 <input id="wake-write-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><button class="btn" type="button" id="wake-write-save">调整</button><button class="btn" type="button" id="wake-write-toggle">暂停</button></div><div class="invitation-row"><span id="wake-catch-status">打捞邀请</span><label>最短间隔 <input id="wake-catch-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><button class="btn" type="button" id="wake-catch-save">调整</button><button class="btn" type="button" id="wake-catch-toggle">暂停</button></div><div class="invitation-row"><span id="wake-remind-status">待办提醒</span><label>最短间隔 <input id="wake-remind-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><button class="btn" type="button" id="wake-remind-save">调整</button><button class="btn" type="button" id="wake-remind-toggle">暂停</button></div></div><p id="wake-outcome" role="status"></p>
+  </details>
   <div id="announcements" aria-live="polite"></div>
   <section class="desk"><div class="section-heading"><h2>信笺桌 · 待你决定</h2><div class="tide" id="tide"></div></div><main id="stage"></main></section>
   <details class="book" id="letterbook" open>
@@ -55,11 +92,21 @@ export function pageHtml(): string {
     </div>
   </details>
   <div class="foot" id="foot"></div>
+  <div class="feedback-line"><button class="feedback-entry" id="feedback-entry" type="button" aria-haspopup="dialog">想对毛球说…</button><span>这片海，也想听听你的声音。</span></div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<dialog class="feedback-dialog" id="feedback-dialog" aria-labelledby="feedback-title" aria-describedby="feedback-intro">
+  <div class="feedback-heading"><div><span class="feedback-kicker">留一张小便笺</span><h2 id="feedback-title">想说什么，都欢迎。</h2></div><button id="feedback-close" class="feedback-close" type="button" aria-label="关闭反馈便笺" autofocus>×</button></div>
+  <p id="feedback-intro">这片海哪里不顺手、遇到了什么 bug，或突然冒出一个新点子，都可以来跟我说。不用整理成正式报告，随口一句也很好。</p>
+  <a class="feedback-path" href="https://github.com/Unnori/cortico-world-bottle-client/issues/new" target="_blank" rel="noopener noreferrer"><strong>在 GitHub 留张便笺 <span aria-hidden="true">↗</span></strong><small>会打开新页面，写下你想告诉我的就好。</small></a>
+  <div class="feedback-path feedback-group"><strong>也可以，直接在群里喊我</strong><p>各大「Coo 的家长群」1～5 群我都在，直接 <b>@会动的毛球</b> 就能找到我。不确定是不是问题，也没关系。</p></div>
+  <p class="feedback-whisper"><s>甚至只是来找我闲聊，也可以。</s></p>
+  <p class="feedback-signoff">谢谢你愿意来聊一聊。<span>—— 毛球</span></p>
+</dialog>
 <script>
 (function () {
   var state = null;
+  var actor = 'bot'; // Each visit starts with a free-choice invitation, never a direct catch.
   var busy = false;
   var waiting = false;
   var waitStarted = 0;
@@ -72,7 +119,142 @@ export function pageHtml(): string {
   var renderedState = '';
   var arrivalKeys = new Set();
 
-  function botName() { return state && state.botName || '它'; }
+  function reducedMotion() { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
+  function reveal(node) {
+    if (!node || reducedMotion() || !node.animate) return;
+    if (node._revealAnimation) node._revealAnimation.cancel();
+    node._revealAnimation = node.animate([{ opacity: .25, transform: 'translateY(7px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 260, easing: 'cubic-bezier(.2,.7,.2,1)' });
+  }
+  function afterAnimation(animation, finish) {
+    // Finished promises settle even when a background tab defers animation events.
+    if (animation.finished) animation.finished.then(finish, function () {});
+    else animation.onfinish = finish;
+  }
+  function dismissAnimated(node, finish) {
+    if (node._dismissAnimation) return;
+    if (node._revealAnimation) { node._revealAnimation.cancel(); node._revealAnimation = null; }
+    if (reducedMotion() || !node.animate) { finish(); return; }
+    var animation = node.animate([{ opacity: 1, transform: 'translateY(0)' }, { opacity: 0, transform: 'translateY(6px)' }], { duration: 170, easing: 'ease-in' });
+    node._dismissAnimation = animation;
+    afterAnimation(animation, function () { if (node._dismissAnimation !== animation) return; node._dismissAnimation = null; finish(); });
+  }
+  function closeFeedback() { dismissAnimated(feedback, function () { feedback.close(); }); }
+
+  var themes = { ocean: { name: '潮蓝', light: '#f0f4fb', dark: '#151d2e' }, paper: { name: '暖纸', light: '#f6f1e6', dark: '#211e19' }, coopanion: { name: 'Coopanion', light: '#f0f4fb', dark: '#151d2e' } };
+  var themePicker = document.getElementById('theme-picker');
+  var themeMenu = document.getElementById('theme-menu');
+  var themeToggle = document.getElementById('theme-toggle');
+  var currentTheme = readPref('bottle-theme', 'ocean');
+  var appearanceMode = readPref('bottle-appearance', 'system');
+  if (['system', 'light', 'dark'].indexOf(appearanceMode) < 0) appearanceMode = 'system';
+  var darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  var hostTheme = null;
+  var themeSyncOk = false;
+  var themeSyncPending = false;
+  var themeSyncAt = 0;
+  var hostColorKeys = ['paper','sheet','sheet-2','sheet-3','ink','ink-soft','line','line-2','line-strong','accent','on-accent','ink-blue','ok','warn','danger'];
+  function acceptHostTheme(value) {
+    if (!value || !value.available || !value.palettes) return false;
+    if (!['light', 'dark'].every(function (mode) {
+      return value.palettes[mode] && hostColorKeys.every(function (key) { return /^#[0-9a-f]{6}$/i.test(value.palettes[mode][key]); });
+    })) return false;
+    hostTheme = value;
+    return true;
+  }
+  var appearanceStarted = false;
+  var appearanceSave = Promise.resolve();
+  try {
+    var initialTheme = JSON.parse(document.getElementById('host-theme').textContent);
+    themeSyncOk = acceptHostTheme(initialTheme);
+    var saved = initialTheme.preference;
+    if (saved && Object.prototype.hasOwnProperty.call(themes, saved.theme) && ['system','light','dark'].indexOf(saved.mode) >= 0) {
+      currentTheme = saved.theme; appearanceMode = saved.mode; appearanceStarted = true;
+      savePref('bottle-theme', currentTheme); savePref('bottle-appearance', appearanceMode);
+    }
+  } catch (e) {}
+  function syncAppearance() {
+    var preference = { theme: currentTheme, mode: appearanceMode };
+    appearanceSave = appearanceSave.then(function () {
+      return fetch('/appearance', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-bottle': '1' }, body: JSON.stringify(preference) })
+        .then(function (res) { if (!res.ok) throw new Error('appearance unavailable');
+          document.getElementById('theme-card-note').textContent = '已记住，桌面信笺也会换上相同配色。'; })
+        .catch(function () { document.getElementById('theme-card-note').textContent = '网页已换色，暂未同步到桌面信笺；再次选择可重试。'; });
+    });
+  }
+  function applyTheme(value, persist) {
+    currentTheme = Object.prototype.hasOwnProperty.call(themes, value) ? value : 'ocean';
+    var appearance = appearanceMode === 'system' ? (darkQuery && darkQuery.matches ? 'dark' : 'light') : appearanceMode;
+    var root = document.documentElement;
+    root.dataset.theme = currentTheme; root.dataset.mode = appearanceMode; root.dataset.appearance = appearance; root.dataset.hostTheme = String(!!hostTheme);
+    var palette = hostTheme && hostTheme.palettes[appearance];
+    if (palette) hostColorKeys.forEach(function (key) { root.style.setProperty('--host-' + key, palette[key]); });
+    document.getElementById('theme-name').textContent = themes[currentTheme].name;
+    document.getElementById('browser-theme-color').setAttribute('content', currentTheme === 'coopanion' && palette ? palette.paper : themes[currentTheme][appearance]);
+    Object.keys(themes).forEach(function (key) { document.getElementById('theme-' + key).setAttribute('aria-pressed', String(key === currentTheme)); });
+    ['system', 'light', 'dark'].forEach(function (key) { document.getElementById('mode-' + key).setAttribute('aria-pressed', String(key === appearanceMode)); });
+    document.getElementById('theme-sync-note').textContent = currentTheme === 'coopanion'
+      ? themeSyncOk ? '已同步当前配色；明暗由上方选择。' : hostTheme ? '暂时无法同步，保留上次配色。' : '暂未取得 Coopanion 配色，先用潮蓝。'
+      : '明暗可以自由选择，配色会为你记住。';
+    if (persist) { savePref('bottle-theme', currentTheme); syncAppearance(); }
+  }
+  function refreshHostTheme(force) {
+    if (currentTheme !== 'coopanion' || themeSyncPending || (!force && Date.now() - themeSyncAt < 5000)) return;
+    themeSyncPending = true; themeSyncAt = Date.now();
+    fetch('/theme').then(function (res) { if (!res.ok) throw new Error('theme unavailable'); return res.json(); }).then(function (value) {
+      themeSyncOk = acceptHostTheme(value); applyTheme(currentTheme, false);
+    }).catch(function () { themeSyncOk = false; applyTheme(currentTheme, false); }).then(function () { themeSyncPending = false; });
+  }
+  ['system', 'light', 'dark'].forEach(function (mode) {
+    document.getElementById('mode-' + mode).onclick = function () { appearanceMode = mode; savePref('bottle-appearance', mode); applyTheme(currentTheme, false); syncAppearance(); };
+  });
+  function systemAppearanceChanged() { if (appearanceMode === 'system') applyTheme(currentTheme, false); }
+  if (darkQuery && darkQuery.addEventListener) darkQuery.addEventListener('change', systemAppearanceChanged);
+  else if (darkQuery && darkQuery.addListener) darkQuery.addListener(systemAppearanceChanged);
+  function closeThemeMenu(focus) {
+    themeToggle.setAttribute('aria-expanded', 'false');
+    dismissAnimated(themeMenu, function () { themeMenu.hidden = true; if (focus) themeToggle.focus(); });
+  }
+  themeToggle.onclick = function () {
+    if (themeToggle.getAttribute('aria-expanded') === 'true') { closeThemeMenu(false); return; }
+    if (themeMenu._dismissAnimation) { themeMenu._dismissAnimation.cancel(); themeMenu._dismissAnimation = null; }
+    themeMenu.hidden = false; themeToggle.setAttribute('aria-expanded', 'true'); reveal(themeMenu);
+    document.getElementById('theme-' + currentTheme).focus();
+  };
+  Object.keys(themes).forEach(function (key) {
+    document.getElementById('theme-' + key).onclick = function () { applyTheme(key, true); refreshHostTheme(true); };
+  });
+  applyTheme(currentTheme, false);
+  document.addEventListener('click', function (event) {
+    if (!themeMenu.hidden && !themePicker.contains(event.target)) closeThemeMenu(false);
+    var summary = event.target.closest && event.target.closest('summary');
+    var detail = summary && summary.parentElement;
+    if (!detail || detail.tagName !== 'DETAILS' || reducedMotion() || !detail.animate) return;
+    event.preventDefault();
+    var opening = !(typeof detail._foldTarget === 'boolean' ? detail._foldTarget : detail.open);
+    var start = detail.getBoundingClientRect().height;
+    if (detail._foldAnimation) detail._foldAnimation.cancel();
+    detail.style.height = ''; detail.style.overflow = 'hidden'; detail._foldTarget = opening;
+    detail.open = true;
+    var end = opening ? detail.getBoundingClientRect().height : summary.getBoundingClientRect().height +
+      parseFloat(getComputedStyle(detail).paddingTop || '0') + parseFloat(getComputedStyle(detail).paddingBottom || '0') +
+      parseFloat(getComputedStyle(detail).borderTopWidth || '0') + parseFloat(getComputedStyle(detail).borderBottomWidth || '0');
+    if (detail.dataset.foldKey) openedLetters[detail.dataset.foldKey] = opening;
+    if (detail.id === 'letterbook') savePref('bottle-fold-letterbook', opening ? 'open' : 'closed');
+    var animation = detail.animate([{ height: start + 'px' }, { height: end + 'px' }], { duration: 280, easing: 'cubic-bezier(.2,.7,.2,1)' });
+    detail._foldAnimation = animation;
+    afterAnimation(animation, function () {
+      if (detail._foldAnimation !== animation) return;
+      detail.open = opening; detail.style.height = ''; detail.style.overflow = '';
+      detail._foldAnimation = null; detail._foldTarget = undefined;
+    });
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && !themeMenu.hidden) { event.preventDefault(); closeThemeMenu(true); }
+  });
+  if (window.addEventListener) window.addEventListener('storage', function (event) { if (event.key === 'bottle-theme') { applyTheme(event.newValue, false); refreshHostTheme(true); }
+    if (event.key === 'bottle-appearance') { appearanceMode = ['system','light','dark'].indexOf(event.newValue) >= 0 ? event.newValue : 'system'; applyTheme(currentTheme, false); } });
+
+  function botName() { return state && state.botName || 'Coo'; }
   function icon(name) {
     var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('class', 'icon');
@@ -92,11 +274,11 @@ export function pageHtml(): string {
   function rememberDetails(mail, key) {
     mail.dataset.foldKey = key;
     mail.open = openedLetters[key] === true;
-    mail.ontoggle = function () { if (mail.isConnected) openedLetters[key] = mail.open; };
+    mail.ontoggle = function () { if (mail.isConnected) openedLetters[key] = typeof mail._foldTarget === 'boolean' ? mail._foldTarget : mail.open; };
     return mail;
   }
   function captureDetails() {
-    document.querySelectorAll('details[data-fold-key]').forEach(function (node) { openedLetters[node.dataset.foldKey] = node.open; });
+    document.querySelectorAll('details[data-fold-key]').forEach(function (node) { openedLetters[node.dataset.foldKey] = typeof node._foldTarget === 'boolean' ? node._foldTarget : node.open; });
   }
   function animateArrival(node, key) {
     if (!arrivalKeys.has(key)) { node.classList.add('enter'); arrivalKeys.add(key); }
@@ -136,7 +318,11 @@ export function pageHtml(): string {
     node.textContent = message;
     node.className = 'toast on' + (bad ? ' bad' : '');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { node.className = 'toast'; }, 2600);
+    toastTimer = setTimeout(function () {
+      // Keep the tone class while opacity fades. Removing the error class here makes an
+      // error toast flash into the normal palette during its last transition.
+      node.className = 'toast' + (bad ? ' bad' : '');
+    }, 2600);
   }
 
   function fmt(iso) {
@@ -382,8 +568,8 @@ export function pageHtml(): string {
   function renderNotices() {
     var box = document.getElementById('announcements');
     box.innerHTML = '';
-    if (state.announcement) {
-      var a = state.announcement;
+    if (pageAnnouncement) {
+      var a = pageAnnouncement;
       box.appendChild(el('div', 'notice' + (a.level === 'alarm' ? ' alarm' : ''), a.text));
     }
     if (state.tideOut) {
@@ -395,15 +581,48 @@ export function pageHtml(): string {
   }
 
   function renderActionState(letterDraft) {
-    document.getElementById('write-button').disabled = busy || !!state.pendingAction || !!letterDraft;
-    document.getElementById('catch-button').disabled = busy || !!state.pendingAction || !!state.held;
+    var isBot = actor === 'bot';
+    var cooldowns = state.cooldowns || {};
+    var writeSeconds = isBot ? Math.max(0, Math.ceil(((cooldowns.write || 0) - Date.now()) / 1000)) : 0;
+    var catchSeconds = isBot ? Math.max(0, Math.ceil(((cooldowns.catch || 0) - Date.now()) / 1000)) : 0;
+    document.getElementById('actor-bot').textContent = '让' + botName() + '来吧';
+    document.getElementById('actor-bot').setAttribute('aria-pressed', String(isBot));
+    document.getElementById('actor-human').setAttribute('aria-pressed', String(!isBot));
+    document.getElementById('actor-hint').textContent = isBot ? '递一份邀请，写不写、捞不捞都由' + botName() + '决定。' : '你来打捞，信只给你看；点回信后才交给' + botName() + '。';
+    document.getElementById('write-label').textContent = (isBot ? '写一封信' : '请' + botName() + '写一封信') + (writeSeconds ? ' · ' + writeSeconds + '秒' : '');
+    document.getElementById('catch-label').textContent = '去海边打捞' + (catchSeconds ? ' · ' + catchSeconds + '秒' : '');
+    var active = state.wake && state.wake.active;
+    document.getElementById('write-button').disabled = busy || !!state.pendingAction || !!letterDraft || writeSeconds > 0 || (isBot && (!!active || !!state.held || !!state.replyDraft));
+    document.getElementById('catch-button').disabled = busy || !!state.pendingAction || !!state.held || catchSeconds > 0 || (isBot && (!!active || !!letterDraft || !!state.replyDraft));
     document.getElementById('action-note').textContent = state.pendingAction
-      ? (state.pendingAction === 'write' ? '已请' + botName() + '写信，等候落笔…' : '已请' + botName() + '去海边打捞…')
-      : '和' + botName() + '一起写信、打捞，寄不寄由你。';
+      ? '已请' + botName() + '写信，等候落笔…'
+      : isBot ? '邀请后各等一分钟。信写好后，寄不寄由你。' : '打捞不通知' + botName() + '，寄不寄由你。';
+    renderWakeControls();
     document.getElementById('hero-note').textContent = '你与' + botName() + '的海边信箱。留一封信给海，也等一封信靠岸。';
     var replies = (state.sent || []).filter(function (item) { return item.reply; }).length;
     document.getElementById('book-count').textContent = '收到 ' + ((state.received || []).length + replies) +
       ' 封 · 寄出 ' + (state.sent || []).length + ' 封';
+  }
+
+  function renderWakeControls() {
+    var wake = state.wake;
+    ['write', 'catch', 'remind'].forEach(function (action) {
+      var lane = wake && wake.lanes[action];
+      var paused = lane && (lane.paused || lane.declined || lane.failed);
+      var names = { write: '写信邀请', catch: '打捞邀请', remind: '待办提醒' };
+      document.getElementById('wake-' + action + '-status').textContent = names[action] + (lane ? ' · ' + (paused ? '已暂停' : state.randomWake === false ? '总开关已关闭' : '等待合适时刻') + ' · 今日 ' + lane.count + '/3' : ' · 尚未启动');
+      var toggle = document.getElementById('wake-' + action + '-toggle');
+      toggle.textContent = paused ? '恢复' : '暂停';
+      toggle.disabled = busy || !lane;
+      var input = document.getElementById('wake-' + action + '-hours');
+      if (document.activeElement !== input) input.value = String(lane && lane.intervalHours || 2);
+      document.getElementById('wake-' + action + '-save').disabled = busy || !lane;
+    });
+    var last = wake && wake.history[wake.history.length - 1];
+    var labels = { completed: '已处理', deferred: botName() + '选择暂不做', declined: '今天不再邀请', paused: '已暂停', uncompleted: '这一轮未完成，将有限重试', failed: '未完成，已停止自动重试', cancelled: '条件变化，已取消', interrupted: '重启中断，已延后' };
+    document.getElementById('wake-outcome').textContent = wake && wake.active
+      ? wake.active.phase === 'retry' ? '上一轮没有结果，稍后只补试一次。' : '已有一份邀请在等' + botName() + '选择。'
+      : last ? '最近一次：' + (last.result === 'deferred' && last.reason === 'no_idea' ? botName() + '暂时没有灵感，已选择暂不做；不算失败，也不补试' : last.reason === 'reminder_delivered' ? '提醒已送达，是否询问由' + botName() + '决定' : labels[last.result] || '已记录') : '小感受也值得写，形式随' + botName() + '；没有表达欲可以不写，人说先放着就不催。';
   }
 
   function deleteLink(letterId) {
@@ -591,8 +810,26 @@ export function pageHtml(): string {
     foot.appendChild(storage);
   }
 
+  var pageAnnouncement = null;
+  var announcementAt = 0;
+  function refreshAnnouncement() {
+    if (document.hidden || Date.now() - announcementAt < 60000) return;
+    announcementAt = Date.now();
+    fetch('/announcement').then(function (res) {
+      if (!res.ok) throw new Error('notice unavailable');
+      return res.json();
+    }).then(function (data) {
+      pageAnnouncement = data.announcement || null;
+      if (state) renderNotices();
+    }).catch(function () { pageAnnouncement = null; if (state) renderNotices(); });
+  }
+
   function refresh() {
     clearTimeout(timer);
+    if (document.hidden) { timer = setTimeout(refresh, 5000); return; }
+    if (!appearanceStarted) { appearanceStarted = true; syncAppearance(); }
+    refreshHostTheme(false);
+    refreshAnnouncement();
     var sequence = ++refreshSequence;
     fetch('/draft').then(function (res) { return res.json(); }).then(function (snapshot) {
       if (sequence !== refreshSequence) return;
@@ -612,7 +849,7 @@ export function pageHtml(): string {
       renderedState = '';
     }).then(function () {
       if (sequence !== refreshSequence) return;
-      var waitMs = waiting ? 1200 : (state && state.draft ? 2500 : 4000);
+      var waitMs = waiting ? 1200 : (state && state.draft ? 2500 : 5000);
       timer = setTimeout(refresh, waitMs);
     });
   }
@@ -623,19 +860,45 @@ export function pageHtml(): string {
 
   var book = document.getElementById('letterbook');
   book.open = readPref('bottle-fold-letterbook', 'open') === 'open';
-  book.ontoggle = function () { savePref('bottle-fold-letterbook', book.open ? 'open' : 'closed'); };
+  book.ontoggle = function () { savePref('bottle-fold-letterbook', (typeof book._foldTarget === 'boolean' ? book._foldTarget : book.open) ? 'open' : 'closed'); };
   document.querySelectorAll('.folder').forEach(function (button) {
     button.onclick = function () {
       captureDetails();
       category = button.dataset.category;
       savePref('bottle-category', category);
-      if (state) renderBook();
+      if (state) { renderBook(); reveal(document.getElementById('mail-list')); }
     };
   });
-  document.getElementById('letter-date').onchange = function () { captureDetails(); if (state) renderBook(); };
-  document.getElementById('clear-date').onclick = function () { captureDetails(); document.getElementById('letter-date').value = ''; if (state) renderBook(); };
-  document.getElementById('write-button').onclick = function () { run('/write', this); };
-  document.getElementById('catch-button').onclick = function () { run('/catch', this); };
+  document.getElementById('letter-date').onchange = function () { captureDetails(); if (state) { renderBook(); reveal(document.getElementById('mail-list')); } };
+  document.getElementById('clear-date').onclick = function () { captureDetails(); document.getElementById('letter-date').value = ''; if (state) { renderBook(); reveal(document.getElementById('mail-list')); } };
+  document.getElementById('write-button').onclick = function () { run('/write', this, { actor: actor }); };
+  document.getElementById('catch-button').onclick = function () { run('/catch', this, { actor: actor }); };
+  ['bot', 'human'].forEach(function (choice) {
+    document.getElementById('actor-' + choice).onclick = function () { if (actor === choice) return; actor = choice; if (state) renderActionState(state.letterDraft); reveal(document.getElementById('write-label')); reveal(document.getElementById('actor-hint')); };
+  });
+  ['write', 'catch', 'remind'].forEach(function (action) {
+    document.getElementById('wake-' + action + '-toggle').onclick = function () {
+      var lane = state && state.wake && state.wake.lanes[action];
+      if (lane) run('/wake', this, { action: action, command: lane.paused || lane.declined || lane.failed ? 'resume' : 'pause' });
+    };
+    document.getElementById('wake-' + action + '-save').onclick = function () {
+      var hours = Number(document.getElementById('wake-' + action + '-hours').value);
+      if (!Number.isFinite(hours) || hours < 2 || hours > 24) { toast('最短间隔请填 2—24 小时。', true); return; }
+      run('/wake', this, { action: action, command: 'interval', hours: hours });
+    };
+  });
+  var feedback = document.getElementById('feedback-dialog');
+  var feedbackEntry = document.getElementById('feedback-entry');
+  feedbackEntry.onclick = function () { if (!feedback.open) { feedback.showModal(); reveal(feedback); } };
+  document.getElementById('feedback-close').onclick = closeFeedback;
+  feedback.addEventListener('cancel', function (event) { event.preventDefault(); closeFeedback(); });
+  feedback.addEventListener('close', function () { feedbackEntry.focus(); });
+  feedback.addEventListener('click', function (event) {
+    if (event.target !== feedback) return;
+    var bounds = feedback.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) closeFeedback();
+  });
+  setInterval(function () { if (state && !document.hidden) renderActionState(state.letterDraft); }, 1000);
   refresh();
 })();
 </script>

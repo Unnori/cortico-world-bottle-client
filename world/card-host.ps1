@@ -9,8 +9,11 @@ param(
   [int]$AutoCloseMs = 10000,
   # 开发用：把窗口真实的样子截一张 PNG，然后照常运行。
   [string]$Shot = '',
+  [int]$ShotDelayMs = 500,
   # 开发用：起来后自动触发一个动作，用来验证回传链路。
-  [string]$AutoAction = ''
+  [string]$AutoAction = '',
+  # Render an isolated preview off screen without taking focus.
+  [switch]$PreviewOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,13 +27,60 @@ try {
   [BottleNative.Dpi]::SetProcessDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
 } catch { }
 
+$script:themeBrushes = @{}
+$script:themeColors = @{}
 function Brush([string]$hex) {
+  if ($hex.StartsWith('@')) {
+    $key = $hex.Substring(1)
+    if ($script:themeBrushes.ContainsKey($key)) { return $script:themeBrushes[$key] }
+    $value = $script:themeColors.$key
+    if (-not $value) { $value = '#25334f' }
+    $brush = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString($value))
+    $script:themeBrushes[$key] = $brush
+    return $brush
+  }
   $color = [System.Windows.Media.Color][System.Windows.Media.ColorConverter]::ConvertFromString($hex)
   return [System.Windows.Media.SolidColorBrush]::new($color)
 }
 
 $spec = Get-Content -LiteralPath $Data -Raw -Encoding UTF8 | ConvertFrom-Json
 $script:baseUrl = $Base.TrimEnd('/')
+$script:themeKeys = @('paper','card','ink','muted','line','accent','seal','sea','soft','panel','on-accent','warning-bg','warning-line','warning-text','danger-text')
+$script:themeData = $null
+function Accept-Appearance($candidate) {
+  if (-not $candidate -or -not $candidate.preference -or $candidate.preference.mode -notin @('system','light','dark')) { return }
+  foreach ($mode in @('light','dark')) {
+    $palette = $candidate.palettes.$mode
+    foreach ($key in $script:themeKeys) { if ([string]$palette.$key -notmatch '^#[0-9a-fA-F]{6}$') { return } }
+  }
+  $script:themeData = $candidate
+}
+function Apply-Appearance {
+  if (-not $script:themeData) { return }
+  $mode = $script:themeData.preference.mode
+  if ($mode -eq 'system') {
+    $mode = 'light'
+    try { if ((Get-ItemPropertyValue -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name AppsUseLightTheme -ErrorAction Stop) -eq 0) { $mode = 'dark' } } catch { }
+  }
+  $script:themeColors = $script:themeData.palettes.$mode
+  foreach ($key in @($script:themeBrushes.Keys)) {
+    $brush = $script:themeBrushes[$key]
+    $color = [System.Windows.Media.ColorConverter]::ConvertFromString($script:themeColors.$key)
+    if ($brush.Color -eq $color) { continue }
+    $brush.BeginAnimation([System.Windows.Media.SolidColorBrush]::ColorProperty, $null)
+    if ([System.Windows.SystemParameters]::ClientAreaAnimation -and $script:win -and $script:win.IsLoaded) {
+      $fromColor = $brush.Color
+      $brush.Color = $color
+      $animation = [System.Windows.Media.Animation.ColorAnimation]::new($fromColor, $color, [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(220)))
+      $animation.FillBehavior = 'Stop'
+      $brush.BeginAnimation([System.Windows.Media.SolidColorBrush]::ColorProperty, $animation)
+    } else { $brush.Color = $color }
+  }
+}
+Accept-Appearance $spec.appearance
+try { Accept-Appearance (Invoke-RestMethod -Uri ($script:baseUrl + '/appearance') -TimeoutSec 1 -UseBasicParsing) } catch { }
+Apply-Appearance
+
 $script:busy = $false
 $script:closeTimer = $null
 $script:buttons = New-Object System.Collections.ArrayList
@@ -56,9 +106,9 @@ $shell = New-Object System.Windows.Controls.Grid
 $shell.Margin = [System.Windows.Thickness]::new(26)
 
 $card = New-Object System.Windows.Controls.Border
-$card.Background = Brush '#FFFDF7'
+$card.Background = Brush '@card'
 $card.CornerRadius = [System.Windows.CornerRadius]::new(14)
-$card.BorderBrush = Brush '#E2D8C7'
+$card.BorderBrush = Brush '@line'
 $card.BorderThickness = [System.Windows.Thickness]::new(1)
 $card.Padding = [System.Windows.Thickness]::new(24, 20, 24, 18)
 $shadow = New-Object System.Windows.Media.Effects.DropShadowEffect
@@ -83,7 +133,7 @@ $eyebrow = New-Object System.Windows.Controls.TextBlock
 $eyebrow.Text = [string]$spec.eyebrow
 $eyebrow.FontFamily = 'Microsoft YaHei'
 $eyebrow.FontSize = 11
-$eyebrow.Foreground = Brush '#8A6540'
+$eyebrow.Foreground = Brush '@accent'
 $eyebrow.VerticalAlignment = 'Center'
 $head.Children.Add($eyebrow) | Out-Null
 
@@ -91,17 +141,17 @@ $close = New-Object System.Windows.Controls.TextBlock
 $close.Text = '×'
 $close.FontFamily = 'Segoe UI'
 $close.FontSize = 15
-$close.Foreground = Brush '#C4B9A6'
+$close.Foreground = Brush '@muted'
 $close.Cursor = 'Hand'
 $close.Margin = [System.Windows.Thickness]::new(10, -4, 0, 0)
 $close.VerticalAlignment = 'Top'
 [System.Windows.Controls.Grid]::SetColumn($close, 1)
-$script:brushInk = Brush '#2F2A23'
-$script:brushInkHover = Brush '#443C31'
+$script:brushInk = Brush '@seal'
+$script:brushInkHover = Brush '@accent'
 $script:brushGhost = Brush '#00FFFFFF'
-$script:brushGhostHover = Brush '#F4EEE2'
-$script:brushMuted = Brush '#8B8375'
-$script:brushFaint = Brush '#C4B9A6'
+$script:brushGhostHover = Brush '@soft'
+$script:brushMuted = Brush '@muted'
+$script:brushFaint = Brush '@muted'
 
 $close.Add_MouseLeftButtonUp({ param($s, $e) $script:win.Close() })
 $close.Add_MouseEnter({ param($s, $e) $s.Foreground = $script:brushMuted })
@@ -114,7 +164,7 @@ if ($spec.from) {
   $from.Text = [string]$spec.from
   $from.FontFamily = 'Microsoft YaHei'
   $from.FontSize = 12
-  $from.Foreground = Brush '#8B8375'
+  $from.Foreground = Brush '@muted'
   $from.Margin = [System.Windows.Thickness]::new(0, 3, 0, 12)
   $stack.Children.Add($from) | Out-Null
 }
@@ -126,7 +176,7 @@ if ($spec.title) {
   $title.FontFamily = 'Microsoft YaHei'
   $title.FontSize = 15
   $title.FontWeight = 'SemiBold'
-  $title.Foreground = Brush '#2F2A23'
+  $title.Foreground = Brush '@ink'
   $title.TextWrapping = 'Wrap'
   $title.Margin = [System.Windows.Thickness]::new(0, 0, 0, 10)
   $stack.Children.Add($title) | Out-Null
@@ -134,7 +184,7 @@ if ($spec.title) {
 
 if ($spec.quote) {
   $quote = New-Object System.Windows.Controls.Border
-  $quote.Background = Brush '#FAF6EC'
+  $quote.Background = Brush '@panel'
   $quote.CornerRadius = [System.Windows.CornerRadius]::new(10)
   $quote.Padding = [System.Windows.Thickness]::new(13, 10, 13, 10)
   $quote.Margin = [System.Windows.Thickness]::new(0, 0, 0, 14)
@@ -143,7 +193,7 @@ if ($spec.quote) {
   $quoteLabel.Text = [string]$spec.quote.label
   $quoteLabel.FontFamily = 'Microsoft YaHei'
   $quoteLabel.FontSize = 10.5
-  $quoteLabel.Foreground = Brush '#A39A8A'
+  $quoteLabel.Foreground = Brush '@muted'
   $quoteLabel.Margin = [System.Windows.Thickness]::new(0, 0, 0, 4)
   $quoteStack.Children.Add($quoteLabel) | Out-Null
   $quoteBody = New-Object System.Windows.Controls.TextBlock
@@ -155,7 +205,7 @@ if ($spec.quote) {
   $quoteBody.TextWrapping = 'Wrap'
   $quoteBody.TextTrimming = 'CharacterEllipsis'
   $quoteBody.MaxHeight = 86
-  $quoteBody.Foreground = Brush '#5B5449'
+  $quoteBody.Foreground = Brush '@ink'
   $quoteStack.Children.Add($quoteBody) | Out-Null
   $quote.Child = $quoteStack
   $stack.Children.Add($quote) | Out-Null
@@ -168,14 +218,14 @@ $body.FontSize = 15.5
 $body.LineHeight = 27
 $body.LineStackingStrategy = 'BlockLineHeight'
 $body.TextWrapping = 'Wrap'
-$body.Foreground = Brush '#2F2A23'
+$body.Foreground = Brush '@ink'
 $stack.Children.Add($body) | Out-Null
 
 if ($spec.hints) {
   foreach ($hint in @($spec.hints)) {
     $hintBorder = New-Object System.Windows.Controls.Border
-    $hintBorder.Background = Brush '#FBF3E2'
-    $hintBorder.BorderBrush = Brush '#EFE0C6'
+    $hintBorder.Background = Brush '@warning-bg'
+    $hintBorder.BorderBrush = Brush '@warning-line'
     $hintBorder.BorderThickness = [System.Windows.Thickness]::new(1)
     $hintBorder.CornerRadius = [System.Windows.CornerRadius]::new(9)
     $hintBorder.Padding = [System.Windows.Thickness]::new(11, 7, 11, 7)
@@ -185,7 +235,7 @@ if ($spec.hints) {
     $hintText.FontFamily = 'Microsoft YaHei'
     $hintText.FontSize = 11.5
     $hintText.TextWrapping = 'Wrap'
-    $hintText.Foreground = Brush '#7A5B3A'
+    $hintText.Foreground = Brush '@warning-text'
     $hintBorder.Child = $hintText
     $stack.Children.Add($hintBorder) | Out-Null
   }
@@ -196,7 +246,7 @@ if ($spec.meta) {
   $meta.Text = [string]$spec.meta
   $meta.FontFamily = 'Microsoft YaHei'
   $meta.FontSize = 11
-  $meta.Foreground = Brush '#A39A8A'
+  $meta.Foreground = Brush '@muted'
   $meta.Margin = [System.Windows.Thickness]::new(0, 12, 0, 0)
   $stack.Children.Add($meta) | Out-Null
 }
@@ -205,7 +255,7 @@ $status = New-Object System.Windows.Controls.TextBlock
 $status.FontFamily = 'Microsoft YaHei'
 $status.FontSize = 11.5
 $status.TextWrapping = 'Wrap'
-$status.Foreground = Brush '#5F5E5A'
+$status.Foreground = Brush '@muted'
 $status.Margin = [System.Windows.Thickness]::new(0, 10, 0, 0)
 $status.Visibility = 'Collapsed'
 $script:status = $status
@@ -277,11 +327,11 @@ function New-Pill([string]$label, [string]$tone, [string]$id) {
   if ($tone -eq 'primary') {
     $pill.Background = $script:brushInk
     $pill.BorderBrush = $script:brushInk
-    $fg = '#FDFAF2'
+    $fg = '@on-accent'
   } else {
     $pill.Background = $script:brushGhost
-    $pill.BorderBrush = Brush '#E2D8C7'
-    $fg = '#8B8375'
+    $pill.BorderBrush = Brush '@line'
+    $fg = '@muted'
   }
   $text = New-Object System.Windows.Controls.TextBlock
   $text.Text = $label
@@ -318,6 +368,7 @@ $win.Content = $shell
 $win.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'Escape') { $script:win.Close() } })
 
 $win.Add_ContentRendered({
+  if ($PreviewOnly) { return }
   $wa = [System.Windows.SystemParameters]::WorkArea
   $script:win.Left = [Math]::Max($wa.Left + 12, $wa.Right - $script:win.ActualWidth - 20)
   $script:win.Top = [Math]::Max($wa.Top + 12, $wa.Bottom - $script:win.ActualHeight - 20)
@@ -332,29 +383,44 @@ $win.Add_ContentRendered({
   $slide.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, $rise)
 })
 
+# Poll only the local appearance endpoint. Async IO never blocks reading or button clicks.
+Add-Type -AssemblyName System.Net.Http
+$script:themeClient = [System.Net.Http.HttpClient]::new()
+$script:themeClient.Timeout = [TimeSpan]::FromSeconds(1)
+$script:themeRequest = $null
+$script:themeNext = [DateTime]::MinValue
+$script:themeTimer = [System.Windows.Threading.DispatcherTimer]::new()
+$script:themeTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+$script:themeTimer.Add_Tick({
+  if ($script:themeRequest -and $script:themeRequest.IsCompleted) {
+    try { Accept-Appearance (($script:themeRequest.GetAwaiter().GetResult()) | ConvertFrom-Json) } catch { }
+    $script:themeRequest = $null
+  }
+  Apply-Appearance
+  if (-not $script:themeRequest -and [DateTime]::UtcNow -ge $script:themeNext) {
+    $script:themeNext = [DateTime]::UtcNow.AddSeconds(2)
+    $script:themeRequest = $script:themeClient.GetStringAsync($script:baseUrl + '/appearance')
+  }
+})
+$script:themeTimer.Start()
+$win.Add_Closed({ $script:themeTimer.Stop(); $script:themeClient.Dispose() })
+
 # 人类一直不理它也别永远压在最上面：默认十秒自己收起，0 为保持显示。
 if ($AutoCloseMs -gt 0) { Close-Soon $AutoCloseMs }
 
 if ($Shot) {
   Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
   $script:shotTimer = New-Object System.Windows.Threading.DispatcherTimer
-  $script:shotTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+  $script:shotTimer.Interval = [TimeSpan]::FromMilliseconds([Math]::Max(500, $ShotDelayMs))
   $script:shotTimer.Add_Tick({
     $script:shotTimer.Stop()
     try {
-      $screenDc = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
-      $scale = $screenDc.DpiX / 96.0
-      $screenDc.Dispose()
-      $x = [int][Math]::Round($script:win.Left * $scale)
-      $y = [int][Math]::Round($script:win.Top * $scale)
-      $w = [int][Math]::Round($script:win.ActualWidth * $scale)
-      $h = [int][Math]::Round($script:win.ActualHeight * $scale)
-      $bmp = New-Object System.Drawing.Bitmap($w, $h)
-      $g = [System.Drawing.Graphics]::FromImage($bmp)
-      $g.CopyFromScreen($x, $y, 0, 0, (New-Object System.Drawing.Size($w, $h)))
-      $bmp.Save($Shot, [System.Drawing.Imaging.ImageFormat]::Png)
-      $g.Dispose()
-      $bmp.Dispose()
+      $bitmap = [System.Windows.Media.Imaging.RenderTargetBitmap]::new([int]$card.ActualWidth, [int]$card.ActualHeight, 96, 96, [System.Windows.Media.PixelFormats]::Pbgra32)
+      $bitmap.Render($card)
+      $encoder = [System.Windows.Media.Imaging.PngBitmapEncoder]::new()
+      $encoder.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($bitmap))
+      $stream = [System.IO.File]::Create($Shot)
+      try { $encoder.Save($stream) } finally { $stream.Dispose() }
     } catch { }
   })
   $script:shotTimer.Start()

@@ -49,45 +49,28 @@ describe('客户端退潮与公告', () => {
     expect(rig.page.snapshot().tideOut).toBeNull();
   });
 
-  it('公告按 id 去重，跨重启与清历史保留；消失后清除页面公告', async () => {
+  it('公告只由网页读取，常规额度轮询和重启都不向桌宠推送', async () => {
     const rig = await setup();
     rig.tuning.announcement = { id: 'a', text: '海边邮局来消息了。', level: 'alarm', showUntil: '2099-01-01T00:00:00Z' };
     await poll(rig);
-    await poll(rig);
-    const notices = () => rig.host.events.filter((e) => e.type === 'bottle.announcement');
-    expect(notices()).toHaveLength(1);
-    expect(notices()[0]).toMatchObject({ origin: 'external', text: rig.tuning.announcement.text, meta: { id: 'a', level: 'alarm' } });
-    await rig.page.forget();
+    expect(rig.page.snapshot().announcement).toBeUndefined();
+    expect(rig.page.snapshot().quota).not.toHaveProperty('announcement');
+    const read = await handlePage(rig.page, 'GET', '/announcement');
+    expect(read).toMatchObject({ status: 200, json: { announcement: { id: 'a', level: 'alarm', text: rig.tuning.announcement.text } } });
+    expect(rig.host.events.some(e => e.type === 'bottle.announcement')).toBe(false);
     await rig.world.stop();
     await rig.world.start(rig.host);
     await poll(rig);
-    expect(notices()).toHaveLength(1);
-    rig.tuning.announcement.id = 'b';
-    await poll(rig);
-    expect(notices()).toHaveLength(2);
-    rig.tuning.announcement.id = 'a';
-    await poll(rig);
-    expect(notices()).toHaveLength(2);
+    expect(rig.host.events.some(e => e.type === 'bottle.announcement')).toBe(false);
     rig.tuning.announcement = null;
-    await poll(rig);
-    expect(rig.page.snapshot().announcement).toBeNull();
-    const disk = new LocalStore(rig.dir);
-    disk.load();
-    expect(disk.seenAnnouncementIds).toEqual(['a', 'b']);
+    expect(await handlePage(rig.page, 'GET', '/announcement')).toEqual({ status: 200, json: { announcement: null } });
   });
 
-  it('公告投递失败时不标记已读，下次轮询会补投', async () => {
+  it('网页公告读取失败只返回页面错误，不打扰桌宠', async () => {
     const rig = await setup();
-    const push = rig.host.pushEvent.bind(rig.host);
-    const spy = vi.spyOn(rig.host, 'pushEvent').mockImplementationOnce(async () => { throw new Error('busy'); });
-    rig.tuning.announcement = { id: 'retry', text: '一条消息。', level: 'notice', showUntil: '2099-01-01T00:00:00Z' };
-    await poll(rig);
-    const disk = new LocalStore(rig.dir);
-    disk.load();
-    expect(disk.seenAnnouncementIds).toEqual([]);
-    spy.mockImplementation(push);
-    await poll(rig);
-    expect(rig.host.events.filter((e) => e.type === 'bottle.announcement')).toHaveLength(1);
+    const response = await handlePage({ ...rig.page, announcement: async () => { throw new Error('offline'); } }, 'GET', '/announcement');
+    expect(response).toEqual({ status: 503, json: { announcement: null } });
+    expect(rig.host.events.some(e => e.type === 'bottle.announcement')).toBe(false);
   });
 });
 
@@ -106,8 +89,8 @@ describe('网页请 Coo 写信与打捞', () => {
 
   it('按钮推送立即唤起事件，不自动寄出；重复请求合并，工具执行后解除等待', async () => {
     const rig = await setup();
-    expect((await handlePage(rig.page, 'POST', '/write')).status).toBe(200);
-    await handlePage(rig.page, 'POST', '/write');
+    expect((await handlePage(rig.page, 'POST', '/write', { body: { actor: 'human' } })).status).toBe(200);
+    await handlePage(rig.page, 'POST', '/write', { body: { actor: 'human' } });
     const requests = () => rig.host.events.filter((e) => e.type === 'bottle.request');
     expect(requests()).toHaveLength(1);
     expect(requests()[0]).toMatchObject({ origin: 'internal', meta: { action: 'write' } });
@@ -118,10 +101,8 @@ describe('网页请 Coo 写信与打捞', () => {
     expect(rig.page.snapshot().pendingAction).toBeNull();
     expect((await rig.page.request('write')).ok).toBe(false);
     rig.throwAs('peer', '陌生人的信不能自动给 Coo 读。');
-    await handlePage(rig.page, 'POST', '/catch');
-    expect(requests()).toHaveLength(2);
-    expect(rig.page.snapshot().held).toBeNull();
-    await callTool(rig.world, 'bottle_catch');
+    await handlePage(rig.page, 'POST', '/catch', { body: { actor: 'human' } });
+    expect(requests()).toHaveLength(1);
     expect(rig.page.snapshot().held).not.toBeNull();
     expect(rig.page.snapshot().pendingAction).toBeNull();
     expect(rig.host.events.some((e) => e.type === 'bottle.reading')).toBe(false);

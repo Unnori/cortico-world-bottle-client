@@ -9,9 +9,13 @@
  * 免得别的网页用表单偷偷替人类点「寄出去」。
  */
 import { pageHtml } from './page-view.ts';
+import { isThemePreference, type CardAppearance, type ThemePreference } from './appearance.ts';
+import type { MailboxTheme } from './theme.ts';
 export { pageHtml } from './page-view.ts';
+import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AnnouncementSummary, Quota } from '../shared/contract.ts';
+import type { WakeAction, WakeState } from './wake.ts';
 import type { SoftHint } from '../shared/hints.ts';
 
 export type Surface = 'card' | 'page';
@@ -73,6 +77,9 @@ export interface PageReceivedView {
 
 export interface PageSnapshot {
   botName?: string;
+  wake?: WakeState | null;
+  randomWake?: boolean;
+  cooldowns?: Partial<Record<'write' | 'catch', number>>;
   /** 回信稿优先、其次信稿；卡片与旧逻辑只看这一个。 */
   draft: PageDraftView | null;
   /** 绑在手里那一封上的回信草稿。 */
@@ -109,8 +116,13 @@ export interface PageResult {
 }
 
 export interface PageDeps {
+  theme?(): Promise<MailboxTheme>;
+  appearance?(preference?: ThemePreference): Promise<CardAppearance>;
   snapshot(): PageSnapshot;
-  request(action: 'write' | 'catch'): Promise<PageResult>;
+  announcement?(): Promise<AnnouncementSummary | null>;
+  refresh?(): Promise<void>;
+  wakeControl?(action: WakeAction, command: 'pause' | 'resume' | 'interval', hours?: number): Promise<PageResult>;
+  request(action: 'write' | 'catch', actor?: 'bot' | 'human'): Promise<PageResult>;
   /** 寄哪一份由页面上的按钮决定：信稿或回信稿。 */
   send(kind?: 'letter' | 'reply'): Promise<PageResult>;
   rewrite(kind?: 'letter' | 'reply'): Promise<PageResult>;
@@ -130,6 +142,7 @@ export interface PageResponse {
   status: number;
   json?: unknown;
   html?: string;
+  binary?: { bytes: Uint8Array; mime: string };
 }
 
 export interface PageRequestOptions {
@@ -159,9 +172,25 @@ export async function handlePage(
   opts: PageRequestOptions = {},
 ): Promise<PageResponse> {
   const route = path.replace(/\/+$/, '') || '/';
+  if (method === 'GET' && (route === '/icon.png' || route === '/favicon.ico'))
+    return { status: 200, binary: { bytes: await readFile(new URL('./icon.png', import.meta.url)), mime: 'image/png' } };
 
-  if (method === 'GET' && route === '/') return { status: 200, html: pageHtml() };
-  if (method === 'GET' && route === '/draft') return { status: 200, json: deps.snapshot() };
+  if (method === 'GET' && (route === '/' || route === '/theme')) {
+    let theme: MailboxTheme;
+    try { theme = await deps.theme?.() ?? { available: false }; } catch { theme = { available: false }; }
+    return route === '/' ? { status: 200, html: pageHtml(theme) } : { status: 200, json: theme };
+  }
+  if (route === '/appearance' && (method === 'GET' || method === 'POST')) {
+    if (!deps.appearance) return { status: 503, json: { ok: false } };
+    if (method === 'POST' && !isThemePreference(opts.body)) return { status: 400, json: { ok: false } };
+    try { return { status: 200, json: await deps.appearance(method === 'POST' ? opts.body as ThemePreference : undefined) }; }
+    catch { return { status: 503, json: { ok: false } }; }
+  }
+  if (method === 'GET' && route === '/announcement') {
+    try { return { status: 200, json: { announcement: await deps.announcement?.() ?? null } }; }
+    catch { return { status: 503, json: { announcement: null } }; }
+  }
+  if (method === 'GET' && route === '/draft') { await deps.refresh?.(); return { status: 200, json: deps.snapshot() }; }
 
   if (method === 'POST' && route === '/forget') {
     const letterId = letterIdOf(opts.body);
@@ -175,11 +204,22 @@ export async function handlePage(
   }
 
   if (method === 'POST') {
+    const body = opts.body as Record<string, unknown> | null | undefined;
+    if (route === '/wake') {
+      if (!deps.wakeControl || !['write', 'catch', 'remind'].includes(String(body?.action)) ||
+        !['pause', 'resume', 'interval'].includes(String(body?.command)) ||
+        (body?.command === 'interval' && (typeof body.hours !== 'number' || !Number.isFinite(body.hours) || body.hours < 2 || body.hours > 24)))
+        return { status: 400, json: { ok: false, message: '请检查邀请设置。' } };
+      return { status: 200, json: await deps.wakeControl(body!.action as WakeAction, body!.command as 'pause' | 'resume' | 'interval', body!.hours as number | undefined) };
+    }
+    if ((route === '/write' || route === '/catch') && body?.actor !== undefined && body.actor !== 'bot' && body.actor !== 'human')
+      return { status: 400, json: { ok: false, message: '请选择谁来行动。' } };
+    const actor = body?.actor === 'human' ? 'human' : 'bot';
     const surface = opts.surface ?? 'page';
     const kind = draftKindOf(opts.body);
     const actions: Record<string, () => Promise<PageResult>> = {
-      '/write': () => deps.request('write'),
-      '/catch': () => deps.request('catch'),
+      '/write': () => deps.request('write', actor),
+      '/catch': () => deps.request('catch', actor),
       '/send': () => deps.send(kind),
       '/rewrite': () => deps.rewrite(kind),
       '/discard': () => deps.discard(kind),
@@ -285,6 +325,16 @@ export async function startPageServer(
             'referrer-policy': 'no-referrer',
           });
           res.end(result.html);
+          return;
+        }
+        if (result.binary) {
+          res.writeHead(result.status, {
+            'content-type': result.binary.mime,
+            'content-length': result.binary.bytes.byteLength,
+            'cache-control': 'public, max-age=3600',
+            'x-content-type-options': 'nosniff',
+          });
+          res.end(result.binary.bytes);
           return;
         }
         const text = JSON.stringify(result.json ?? {});
