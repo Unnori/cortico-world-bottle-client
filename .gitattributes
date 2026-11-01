@@ -2,3 +2,8 @@
 * text=auto
 *.sh text eol=lf
 *.ps1 text eol=crlf
+
+# Content-addressed assets must keep identical bytes on Windows and CI.
+webui/* text eol=lf
+dist/* text eol=lf
+scripts/*.mjs text eol=lf

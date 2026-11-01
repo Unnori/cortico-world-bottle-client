@@ -6,12 +6,13 @@ import ts from 'typescript';
 // A development version can be rebuilt many times: content-addressed basenames
 // avoid serving yesterday's panel without requiring a host/Core change.
 const root = new URL('../', import.meta.url);
-const source = readFileSync(new URL('webui/client.ts', root), 'utf8');
+const readText = path => readFileSync(new URL(path, root), 'utf8').replace(/\r\n?/g, '\n');
+const source = readText('webui/client.ts');
 const output = ts.transpileModule(source, { compilerOptions: {
-  target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, verbatimModuleSyntax: true,
+  target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, verbatimModuleSyntax: true, newLine: ts.NewLineKind.LineFeed,
 } }).outputText;
 if (/^import\s/m.test(output)) throw new Error('The browser entry must not have runtime imports');
-const css = readFileSync(new URL('webui/style.css', root), 'utf8');
+const css = readText('webui/style.css');
 const digest = text => createHash('sha256').update(text).digest('hex').slice(0, 12);
 const jsName = `webui-${digest(output)}.js`;
 const cssName = `webui-${digest(css)}.css`;
