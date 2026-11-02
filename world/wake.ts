@@ -9,7 +9,7 @@ export type WakeReason = 'no_idea' | 'not_now' | 'user_declined' | 'user_paused'
 export type WakeResult = 'completed' | 'deferred' | 'declined' | 'paused' | 'uncompleted' | 'failed' | 'cancelled' | 'interrupted';
 export interface WakeTask {
   id: string; action: WakeAction; phase: 'queued' | 'rendered' | 'delivered' | 'retry';
-  attempts: number; createdAt: number; dueAt: number; manual?: boolean;
+  attempts: number; createdAt: number; dueAt: number; manual?: boolean; remote?: boolean;
 }
 export interface WakeOutcome { id: string; action: WakeAction; result: WakeResult; reason: string; at: number; attempts: number }
 interface Lane { intervalHours?: number; nextAt: number | null; count: number; paused: boolean; declined: boolean; failed: boolean }
@@ -128,13 +128,13 @@ export class WakeScheduler {
     this.state.active = task; this.save(); return { ...task };
   }
   /** Explicit human click: same task contract, independent of the automatic daily budget. */
-  invite(action: 'write' | 'catch', eligible: boolean): WakeTask | null {
+  invite(action: 'write' | 'catch', eligible: boolean, remote = false): WakeTask | null {
     this.rollDay();
     const lane = this.state.lanes[action];
     if (!eligible || lane.paused || lane.declined || this.state.active ||
       (this.state.cooldowns?.[action] ?? 0) > this.now()) return null;
     const task: WakeTask = { id: randomUUID(), action, phase: 'queued', attempts: 0,
-      createdAt: this.now(), dueAt: this.now(), manual: true };
+      createdAt: this.now(), dueAt: this.now(), manual: true, ...(remote ? { remote: true } : {}) };
     this.state.active = task;
     this.state.cooldowns![action] = this.now() + 60_000;
     this.save(); return { ...task };

@@ -5,9 +5,10 @@
  * 原文放进气泡；所以需要一个不经模型的显示通道。发送也只从这里出发，模型没有 send 工具。
  *
  * Windows 上主界面是原生卡片（`card-host.ps1`），这一页是兜底、调试，以及「翻旧信」的地方。
- * 只绑 127.0.0.1，不做鉴权（本机就是人类）；但 POST 要求一个自定义头，
+ * 本机监听只绑 127.0.0.1，不做鉴权；可选对外监听由 lan.ts 包裹鉴权。POST 要求一个自定义头，
  * 免得别的网页用表单偷偷替人类点「寄出去」。
  */
+import { soundLibrary, packSound } from './sound.ts';
 import { pageHtml } from './page-view.ts';
 import { isThemePreference, type CardAppearance, type ThemePreference } from './appearance.ts';
 import type { MailboxTheme } from './theme.ts';
@@ -18,7 +19,7 @@ import type { AnnouncementSummary, Quota } from '../shared/contract.ts';
 import type { WakeAction, WakeState } from './wake.ts';
 import type { SoftHint } from '../shared/hints.ts';
 
-export type Surface = 'card' | 'page';
+export type Surface = 'card' | 'page' | 'remote';
 
 export interface PageDraftView {
   topic?: string;
@@ -43,6 +44,7 @@ export interface PageHeldView {
 }
 
 export interface PageReplyView {
+  readCount?: number;
   from: string;
   body: string;
   at: string;
@@ -63,6 +65,7 @@ export interface PageSentView {
 export type PageOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'expired' | 'kept';
 
 export interface PageReceivedView {
+  readCount?: number;
   letterId: string;
   from: string;
   body: string;
@@ -77,6 +80,7 @@ export interface PageReceivedView {
 
 export interface PageSnapshot {
   botName?: string;
+  desktopCards?: boolean;
   wake?: WakeState | null;
   randomWake?: boolean;
   cooldowns?: Partial<Record<'write' | 'catch', number>>;
@@ -122,10 +126,10 @@ export interface PageDeps {
   announcement?(): Promise<AnnouncementSummary | null>;
   refresh?(): Promise<void>;
   wakeControl?(action: WakeAction, command: 'pause' | 'resume' | 'interval', hours?: number): Promise<PageResult>;
-  request(action: 'write' | 'catch', actor?: 'bot' | 'human'): Promise<PageResult>;
+  request(action: 'write' | 'catch', actor?: 'bot' | 'human', surface?: Surface): Promise<PageResult>;
   /** 寄哪一份由页面上的按钮决定：信稿或回信稿。 */
   send(kind?: 'letter' | 'reply'): Promise<PageResult>;
-  rewrite(kind?: 'letter' | 'reply'): Promise<PageResult>;
+  rewrite(kind?: 'letter' | 'reply', surface?: Surface): Promise<PageResult>;
   dismiss(): Promise<PageResult>;
   /** 字已经没了的信：只能珍藏，不再有回信/再等/扔回。 */
   keep(): Promise<PageResult>;
@@ -172,6 +176,11 @@ export async function handlePage(
   opts: PageRequestOptions = {},
 ): Promise<PageResponse> {
   const route = path.replace(/\/+$/, '') || '/';
+  if (method === 'GET' && route === '/sounds') return { status: 200, json: { files: soundLibrary() } };
+  if (method === 'GET' && route.startsWith('/sounds/')) {
+    let id = ''; try { id = decodeURIComponent(route.slice(8)); } catch { return {status:400,json:{ok:false}}; }
+    const file = packSound(id); return file ? {status:200,binary:file} : {status:404,json:{ok:false}};
+  }
   if (method === 'GET' && (route === '/icon.png' || route === '/favicon.ico'))
     return { status: 200, binary: { bytes: await readFile(new URL('./icon.png', import.meta.url)), mime: 'image/png' } };
 
@@ -218,10 +227,10 @@ export async function handlePage(
     const surface = opts.surface ?? 'page';
     const kind = draftKindOf(opts.body);
     const actions: Record<string, () => Promise<PageResult>> = {
-      '/write': () => deps.request('write', actor),
-      '/catch': () => deps.request('catch', actor),
+      '/write': () => deps.request('write', actor, surface),
+      '/catch': () => deps.request('catch', actor, surface),
       '/send': () => deps.send(kind),
-      '/rewrite': () => deps.rewrite(kind),
+      '/rewrite': () => deps.rewrite(kind, surface),
       '/discard': () => deps.discard(kind),
       '/dismiss': () => deps.dismiss(),
       '/keep': () => deps.keep(),
@@ -255,7 +264,7 @@ type BodyRead = { ok: true; value: unknown } | { ok: false };
  * 「没带 letterId」＝「清空整本信册」。请求体坏掉时宁可整个动作不做，
  * 也不要去执行一个比人类预期更狠的动作。
  */
-function readBody(req: IncomingMessage): Promise<BodyRead> {
+export function readBody(req: IncomingMessage): Promise<BodyRead> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -289,11 +298,9 @@ function readBody(req: IncomingMessage): Promise<BodyRead> {
   });
 }
 
-export async function startPageServer(
-  deps: PageDeps,
-  opts: { port: number; log?: (line: string) => void },
-): Promise<PageServer> {
-  const handler = (req: IncomingMessage, res: ServerResponse): void => {
+/** Shared HTTP adapter; authentication belongs to the optional LAN listener. */
+export function pageHandler(deps: PageDeps, log?: (line: string) => void, remote = false): (req: IncomingMessage, res: ServerResponse) => void {
+  return (req: IncomingMessage, res: ServerResponse): void => {
     const method = (req.method ?? 'GET').toUpperCase();
     const path = (req.url ?? '/').split('?')[0] ?? '/';
 
@@ -305,7 +312,7 @@ export async function startPageServer(
     }
     if (method !== 'POST') req.resume();
 
-    const surface: Surface = req.headers['x-bottle-surface'] === 'card' ? 'card' : 'page';
+    const surface: Surface = remote ? 'remote' : req.headers['x-bottle-surface'] === 'card' ? 'card' : 'page';
 
     void readBody(req)
       .then((read) => {
@@ -346,11 +353,19 @@ export async function startPageServer(
         res.end(text);
       })
       .catch((error: unknown) => {
-        opts.log?.(`page failed: ${error instanceof Error ? error.name : 'unknown'}`);
+        log?.(`page failed: ${error instanceof Error ? error.name : 'unknown'}`);
         res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ ok: false, message: '信箱页出了点问题。' }));
       });
   };
+
+}
+
+export async function startPageServer(
+  deps: PageDeps,
+  opts: { port: number; log?: (line: string) => void },
+): Promise<PageServer> {
+  const handler = pageHandler(deps, opts.log);
 
   let lastError: unknown = null;
   for (let step = 0; step < 12; step++) {

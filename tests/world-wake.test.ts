@@ -5,7 +5,7 @@ import { handlePage } from '../world/page.ts';
 import { LocalStore } from '../world/store.ts';
 import type { WakeState } from '../world/wake.ts';
 import { readGroupValues, setByPath } from 'cortico/core/config-schema.ts';
-import { BOTTLE_CONFIG_GROUP } from '../world/config.ts';
+import { BOTTLE_CONFIG_GROUPS } from '../world/config.ts';
 import { BottleClient, BottleError } from '../world/client.ts';
 import { MAX_THROWS } from '../shared/contract.ts';
 
@@ -332,7 +332,7 @@ it('框架原生配置的路径写入与读取直接连接同一份设置，不�
   const lane = rig.world.pageDeps().snapshot().wake!.lanes.write;
   expect(lane).toMatchObject({ paused: true, intervalHours: 10 });
   await rig.world.pageDeps().wakeControl!('write', 'resume');
-  const values = readGroupValues(config as never, BOTTLE_CONFIG_GROUP);
+  const values = readGroupValues(config as never, BOTTLE_CONFIG_GROUPS.find(group => group.id === 'world:bottle:invitations')!);
   expect(values['worlds.bottle.writeInviteEnabled']).toBe(true);
   expect(values['worlds.bottle.writeInviteIntervalHours']).toBe(10);
 });

@@ -1,11 +1,15 @@
 import { describeTools, type WorldDefinition } from 'cortico/world.ts';
 import { BOTTLE_DEFAULTS, type BottleConfigSection } from './config.ts';
 import { BOTTLE_TOOL_DECLS } from './tools.ts';
+import { soundOptions } from './sound.ts';
 import { BottleWorld } from './world.ts';
 
 export const BOTTLE: WorldDefinition<BottleConfigSection> = {
   id: 'bottle',
   label: '漂流瓶',
+  configOptions: (kind, language) => kind === 'bottle-sound-incoming' || kind === 'bottle-sound-reply'
+    ? soundOptions(kind === 'bottle-sound-incoming' ? 'incoming' : 'reply')
+      .map(item => ({value:item.id,label:(item.kind === 'shared' ? (language === 'zh' || language === 'zh-Hant' ? '通用 · ' : 'Shared · ') : '') + item.label})) : [],
   defaults: () => ({ ...BOTTLE_DEFAULTS }),
   create: (ctx) => new BottleWorld(ctx, { botName: ctx.botName || '它' }),
   describe: {

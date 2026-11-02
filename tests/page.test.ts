@@ -63,7 +63,7 @@ describe('本地信箱页', () => {
     await handlePage(d, 'POST', '/send', { body: { kind: 'reply' } });
     expect(d.send).toHaveBeenLastCalledWith('reply');
     await handlePage(d, 'POST', '/rewrite', { body: { kind: 'letter' } });
-    expect(d.rewrite).toHaveBeenLastCalledWith('letter');
+    expect(d.rewrite).toHaveBeenLastCalledWith('letter', 'page');
   });
 
   // 回信额度：顶部要有这一格，用完了就是 0，不能只在点了按钮之后被 429 教育。
@@ -266,7 +266,7 @@ it('界面以海上来客称呼往来者，邮局来信保留独立来源', () =
 
 it('折叠摘要显示复用文本的彩色寄信状态，邮局来源显示署名', () => {
   const html = pageHtml();
-  expect(html).toContain("if (kind === 'sent') summary.appendChild(sentStateBadge(item))");
+  expect(html).toContain("if (kind === 'sent') badges.appendChild(sentStateBadge(item))");
   expect(html).toContain('sentStateText(item)');
   for (const status of ['replied', 'drifting', 'picked', 'tsunami', 'sunk']) expect(html).toContain('.status-' + status);
   expect(html).toContain('已投进海里');

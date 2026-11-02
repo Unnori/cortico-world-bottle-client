@@ -1,16 +1,25 @@
 import type { WakeAction, WakeState } from '../world/wake.ts';
 import type { WebUiClientBundle, WebUiPanelContext } from 'cortico/web/shared/client-panel.ts';
 
-/** Only the currently running loopback mailbox may be opened. */
+/** Only HTTP(S) mailbox roots supplied by this World may be opened. */
 export function mailboxUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   try {
     const url = new URL(value);
-    return url.protocol === 'http:' && url.hostname === '127.0.0.1' && !!url.port &&
+    return ['http:', 'https:'].includes(url.protocol) &&
       !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash
       ? url.href : null;
   } catch { return null; }
 }
+
+export function reachableMailbox(links: Array<{ href: string }>, hostname?: string): string | null {
+  const urls = links.map(link => mailboxUrl(link.href)).filter((url): url is string => !!url);
+  const local = (host: string): boolean => ['127.0.0.1', 'localhost', '[::1]'].includes(host);
+  if (!hostname || local(hostname)) return urls.find(url => local(new URL(url).hostname)) ?? urls[0] ?? null;
+  return urls.find(url => new URL(url).hostname === hostname) ?? urls.find(url => !local(new URL(url).hostname)) ?? null;
+}
+
+interface LanStatus { enabled: boolean; running: boolean; error?: string | null; urls: string[]; port: number; publicUrl: string }
 
 export async function mountMailbox(ctx: WebUiPanelContext): Promise<void> {
   const zh = ctx.language === 'zh' || ctx.language === 'zh-Hant';
@@ -107,26 +116,157 @@ export async function mountMailbox(ctx: WebUiPanelContext): Promise<void> {
     outcome.textContent = last ? (zh ? (last.action === 'write' ? '最近的写信邀请：' : last.action === 'catch' ? '最近的打捞邀请：' : '最近的待办提醒：') : 'Last result: ') + result
       : (zh ? '有想说或想听的时候再做，小感受也值得写；不必为邀请勉强。' : 'An invitation, not an obligation. No letter is better than filler.');
   }
+  // Pairing is a separate human-only surface. Keep one selected QR visible.
+  const lanCard = ui.h('section', 'bottle-lan-card');
+  const lanHeader = ui.h('header', 'bottle-lan-header');
+  const lanIntro = ui.h('div');
+  lanIntro.append(ui.h('h3', null, zh ? '把信箱带在身边' : 'Take your mailbox with you'),
+    ui.h('p', null, zh ? '手机扫一次码，就能随时翻信、确认寄出。' : 'Scan once to read letters and approve sending on your phone.'));
+  const lanBadge = ui.h('span', 'bottle-lan-badge');
+  lanHeader.append(lanIntro, lanBadge);
+  const lanBody = ui.h('div', 'bottle-lan-body');
+  const settings = ui.h('section', 'bottle-lan-settings');
+  settings.append(ui.h('h4', null, zh ? '访问设置' : 'Access settings'));
+  const enabledLabel = ui.h('label', 'bottle-lan-toggle');
+  const enabled = ui.h('input'); enabled.type = 'checkbox';
+  enabledLabel.append(enabled, ui.h('span', null, zh ? '允许其他设备访问' : 'Allow other devices'));
+  const portLabel = ui.h('label', 'bottle-lan-field', zh ? '对外端口' : 'External port');
+  const port = ui.h('input'); port.type = 'number'; port.min = '1'; port.max = '65535'; port.value = '7798'; portLabel.append(port);
+  const addressLabel = ui.h('label', 'bottle-lan-field', zh ? '对外地址 · 可选' : 'Public address · optional');
+  const address = ui.h('input'); address.type = 'url'; address.placeholder = 'http://192.168.1.10:7798/'; addressLabel.append(address);
+  let lanDirty = false, lanBusy = false, resetArmed = false;
+  for (const input of [enabled, port, address]) input.oninput = () => { lanDirty = true; };
+  let lan: LanStatus | undefined;
+  let pairingCards: Array<{ url: string; qr: string }> = [];
+  let addressKey = '';
+  let actionNote = '';
+  const saveLan = ui.button(zh ? '保存访问设置' : 'Save access settings', { onClick: () => { void saveAccess(); } });
+  saveLan.classList.add('bottle-lan-save');
+  settings.append(enabledLabel, portLabel, addressLabel,
+    ui.h('p', 'bottle-lan-help', zh ? '同一网络下通常留空；服务器部署时，填写手机可达的地址。' : 'Usually leave blank on the same network. For a server, enter an address reachable from your phone.'),
+    saveLan,
+    ui.h('p', 'bottle-lan-help', zh ? '保存后重启漂流瓶 World 生效。本机入口不受影响。' : 'Restart Bottle World after saving. Local access stays available.'));
+  const pairing = ui.h('section', 'bottle-lan-pairing');
+  pairing.append(ui.h('h4', null, zh ? '设备配对' : 'Pair a device'));
+  const pickLabel = ui.h('label', 'bottle-lan-field', zh ? '手机可达的地址' : 'Address reachable from your phone');
+  const pick = ui.h('select'); pickLabel.append(pick);
+  const qrList = ui.h('div', 'bottle-lan-qr-list');
+  const lanActions = ui.h('div', 'bottle-lan-actions');
+  const pairButton = ui.button(zh ? '显示配对二维码' : 'Show pairing QR code', { variant: 'primary', onClick: () => {
+    if (pairingCards.length) { pairingCards = []; drawPairing(); return; }
+    void showPairing(false);
+  } });
+  pairButton.classList.add('bottle-lan-reveal');
+  const resetButton = ui.button(zh ? '重置配对' : 'Reset pairing', { onClick: () => {
+    if (!resetArmed) { resetArmed = true; resetButton.textContent = zh ? '确认让旧配对失效' : 'Confirm revocation'; return; }
+    void showPairing(true);
+  } });
+  pairButton.disabled = true; resetButton.disabled = true;
+  lanActions.append(pairButton, resetButton);
+  const lanNote = ui.h('p', 'bottle-lan-feedback'); lanNote.setAttribute('role', 'status');
+  pairing.append(pickLabel, qrList, lanActions, lanNote);
+  lanBody.append(settings, pairing);
+  const footer = ui.h('footer', 'bottle-lan-footer');
+  footer.append(ui.h('p', 'bottle-lan-warning', zh
+    ? 'HTTP 裸端口会明文传输信件与配对凭据，使用风险需自行承担；公网建议使用 HTTPS。二维码是信箱钥匙，请勿分享。'
+    : 'HTTP sends letters and pairing credentials unencrypted, at your own risk. Use HTTPS on public networks. Keep your QR code private.'),
+    ui.h('p', 'bottle-lan-help', zh ? '服务器需自行放行端口；这里不会改动防火墙或端口映射。' : 'Allow the port on your server. Firewall and port forwarding are not changed automatically.'));
+  lanCard.append(lanHeader, lanBody, footer); ctx.root.append(lanCard);
+  pick.onchange = () => { actionNote = ''; drawPairing(); };
+  function drawPairing(): void {
+    qrList.replaceChildren();
+    const item = pairingCards.find(item => new URL(item.url).origin === new URL(pick.value || 'http://localhost').origin);
+    if (item) {
+      const figure = ui.h('figure', 'bottle-lan-qr');
+      const img = ui.h('img'); img.src = item.qr; img.alt = zh ? '手机信箱配对二维码' : 'Mailbox pairing QR code'; img.width = img.height = 224;
+      const caption = ui.h('figcaption', null, zh ? '用手机扫码，配对后会记住这台设备' : 'Scan with your phone. This device will be remembered.');
+      const linkDetails = ui.h('details', 'bottle-lan-link');
+      const link = ui.h('input'); link.type = 'text'; link.readOnly = true; link.value = item.url;
+      link.setAttribute('aria-label', zh ? '配对链接（请勿分享）' : 'Private pairing link'); link.onclick = () => link.select();
+      linkDetails.append(ui.h('summary', null, zh ? '查看配对链接' : 'View pairing link'), link);
+      figure.append(img, caption, linkDetails); qrList.append(figure);
+    } else {
+      const empty = ui.h('div', 'bottle-lan-empty');
+      empty.append(ui.h('span', null, zh ? '让信箱陪你走远一点' : 'Keep your mailbox close'),
+        ui.h('p', null, lan?.running ? (zh ? '选好地址，再显示二维码' : 'Choose an address, then show the QR code') : (zh ? '开启访问并重启 World 后，即可扫码' : 'Enable access and restart World to pair')));
+      qrList.append(empty);
+    }
+    pairButton.textContent = pairingCards.length ? (zh ? '收起二维码' : 'Hide QR code') : (zh ? '显示配对二维码' : 'Show pairing QR code');
+    lanNote.textContent = actionNote;
+  }
+  function renderLan(): void {
+    pairButton.disabled = !lan?.running || !lan.urls.length || lanBusy;
+    resetButton.disabled = !lan?.running || lanBusy;
+    if (!lanDirty) { enabled.checked = lan?.enabled ?? false; port.value = String(lan?.port ?? 7798); address.value = lan?.publicUrl ?? ''; }
+    lanBadge.textContent = lan?.error ? (zh ? '暂不可用' : 'Unavailable') : lan?.running ? (zh ? '已开启' : 'Listening') : (zh ? '未开启' : 'Off');
+    lanNote.textContent = lan?.error || actionNote || (lan?.enabled && !lan.running ? (zh ? '等待重启 World 后生效。' : 'Restart World to apply.') : '');
+    const urls = lan?.urls ?? [];
+    const key = JSON.stringify(urls);
+    if (key !== addressKey) {
+      const previous = pick.value;
+      addressKey = key; pairingCards = []; pick.replaceChildren();
+      for (const href of urls) { const option = ui.h('option', null, href); option.value = href; pick.append(option); }
+      if (!urls.length) { const option = ui.h('option', null, zh ? '尚无可用地址' : 'No address available'); option.value = ''; pick.append(option); }
+      pick.value = urls.includes(previous) ? previous : urls.find(href => href === lan?.publicUrl || /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(href)) ?? urls[0] ?? '';
+      drawPairing();
+    }
+    pick.disabled = !lan?.running || !urls.length || lanBusy;
+    if (!lan?.running && pairingCards.length) { pairingCards = []; drawPairing(); }
+    lanNote.textContent = lan?.error || actionNote || (lan?.enabled && !lan.running ? (zh ? '等待重启 World 后生效。' : 'Restart World to apply.') : '');
+  }
+  async function saveAccess(): Promise<void> {
+    if (lanBusy || ctx.signal.aborted) return;
+    const value = Number(port.value), publicUrl = address.value.trim(), allow = enabled.checked;
+    if (!Number.isInteger(value) || value < 1 || value > 65535 || value === 7797 || (publicUrl && !mailboxUrl(publicUrl))) {
+      actionNote = zh ? '请检查端口（1—65535，避开 7797）和对外地址（仅支持 HTTP/HTTPS 根路径）。' : 'Check the port and HTTP/HTTPS root address.';
+      lanNote.textContent = actionNote; return;
+    }
+    lanBusy = true; saveLan.disabled = true; renderLan();
+    try {
+      await ctx.setConfig('world:bottle', { 'worlds.bottle.lanEnabled': allow, 'worlds.bottle.lanPort': value, 'worlds.bottle.lanPublicUrl': publicUrl });
+      if (!ctx.signal.aborted) { lanDirty = false; pairingCards = []; actionNote = zh ? '已保存，请重启漂流瓶 World 后扫码。' : 'Saved. Restart Bottle World, then scan.'; drawPairing(); }
+    } catch { if (!ctx.signal.aborted) { actionNote = zh ? '未能保存，请稍后重试。' : 'Could not save. Please retry.'; lanNote.textContent = actionNote; } }
+    finally { lanBusy = false; if (!ctx.signal.aborted) { saveLan.disabled = false; renderLan(); } }
+  }
+  async function showPairing(reset: boolean): Promise<void> {
+    if (lanBusy || !lan?.running || ctx.signal.aborted) return;
+    lanBusy = true; pairingCards = []; actionNote = zh ? '正在准备配对码…' : 'Preparing a pairing code…'; drawPairing(); renderLan();
+    try {
+      const result = await ctx.invoke<{ cards: Array<{ url: string; qr: string }> }>(reset ? 'resetPairing' : 'pairing');
+      if (ctx.signal.aborted) return;
+      pairingCards = result.cards.filter(item => item.qr.startsWith('data:image/png;base64,') && lan?.urls.some(href => new URL(href).origin === new URL(item.url).origin));
+      actionNote = pairingCards.length ? (reset ? (zh ? '旧配对已失效，请重新扫码。' : 'Old pairings revoked. Scan again.') : '')
+        : (zh ? '未找到可用配对地址，请检查访问设置。' : 'No pairing address available. Check access settings.');
+      drawPairing();
+    } catch { if (!ctx.signal.aborted) { actionNote = zh ? '未能取得配对码，请稍后重试。' : 'Could not obtain a pairing code. Please retry.'; drawPairing(); } }
+    finally {
+      lanBusy = false; resetArmed = false;
+      if (!ctx.signal.aborted) { resetButton.textContent = zh ? '重置配对' : 'Reset pairing'; renderLan(); }
+    }
+  }
   let pending = false;
   const refresh = async (): Promise<void> => {
     if (pending || ctx.signal.aborted) return;
     pending = true;
     try {
-      const status = await ctx.invoke<{ url: string | null; wake?: WakeState | null }>('status');
+      const status = await ctx.invoke<{ url: string | null; links?: Array<{ href: string }>; wake?: WakeState | null; lan?: LanStatus }>('status');
       if (ctx.signal.aborted) return;
       wake = status.wake ?? null;
+      lan = status.lan;
+      if (!lanBusy) renderLan();
       renderWake();
       let headerFailed = false;
       if (typeof ctx.refresh === 'function') {
         try { await ctx.refresh(); } catch { headerFailed = true; }
       }
       if (ctx.signal.aborted) return;
-      url = mailboxUrl(status.url);
+      url = reachableMailbox(status.links ?? (status.url ? [{ href: status.url }] : []), ctx.root.ownerDocument.defaultView?.location?.hostname);
       button.disabled = !url;
       note.textContent = url ? t.ready + (headerFailed ? (zh ? ' 顶栏暂未同步，稍后会重试。' : ' Header sync failed; retrying shortly.') : '') : t.unavailable;
     } catch {
       if (!ctx.signal.aborted) {
         wake = null;
+        lan = undefined; renderLan();
         controls.forEach(item => { item.toggle.disabled = true; item.save.disabled = true; });
         url = null;
         button.disabled = true;

@@ -160,7 +160,14 @@ export const pageStyles = `
   .mail-subject { min-width:0; flex:1; }
   .mail-subject strong { display:block; font:16px/1.5 Georgia,"Songti SC",serif; overflow-wrap:anywhere; }
   .mail-subject small { display:block; color:var(--muted); font-size:11px; margin-top:4px; }
-  @media(max-width:560px) { .mail > summary { flex-wrap:wrap; } .mail > summary > .mail-status { margin-left:42px; max-width:calc(100% - 42px); order:1; } }
+  @media(max-width:560px) {
+    .mail > summary { display:grid; grid-template-columns:32px minmax(0,1fr) 12px; }
+    .mail-symbol { grid-column:1; grid-row:1; }
+    .mail-subject { grid-column:2; grid-row:1; }
+    .mail-chevron { grid-column:3; grid-row:1; }
+    .mail > summary > .mail-badges { grid-column:2/-1; grid-row:2; max-width:100%; }
+  }
+  .mail-badges { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
   .mail-status { display:inline-block; flex-shrink:0; max-width:150px; border-radius:6px; padding:4px 8px; font:11px/1.5 system-ui,sans-serif; overflow-wrap:anywhere; }
   .status-replied { color:#246743; background:#e4f1e8; }
   .status-drifting { color:#32667c; background:#e7f0f5; }
@@ -358,4 +365,16 @@ export const pageStyles = `
   @media(max-width:560px) { #bottle-mailbox .theme-toggle { padding:7px 9px; } #bottle-mailbox .theme-menu { padding:14px; } .theme-menu-heading > span { display:none; } }
   @media(max-width:400px) { #bottle-mailbox .brand small { display:none; } #bottle-mailbox .brand { gap:7px; } #bottle-mailbox .theme-toggle { gap:7px; } }
   @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
+
+  .sound-toolbar { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin:16px 0; }
+  .sound-toolbar label { display:flex; align-items:center; gap:8px; font-size:13px; }
+  .sound-toolbar input[type=number] { width:80px; }
+  .sound-row { display:grid; grid-template-columns:90px minmax(120px,1fr) minmax(140px,1fr) auto; align-items:center; gap:12px; margin:16px 0; }
+  .sound-row small { grid-column:2/-1; color:var(--muted); overflow-wrap:anywhere; }
+  .sound-settings select, .sound-toolbar input[type=number] { color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px; min-width:0; }
+  .sound-row input[type=file] { max-width:100%; min-width:0; font-size:12px; color:var(--muted); }
+  .sound-row select { grid-column:2; }
+  .sound-row input[hidden] { display:none; }
+  .sound-row button { grid-column:4; }
+  @media(max-width:560px) { .sound-row { grid-template-columns:1fr auto; } .sound-row label, .sound-row small { grid-column:1/-1; } .sound-row select { grid-column:1; } .sound-row button { grid-column:2;grid-row:2; } .sound-row input[type=file] { grid-column:1/-1; } }
 `;

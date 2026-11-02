@@ -131,13 +131,13 @@ describe('漂流瓶 World · 装载', () => {
     expect(decl.promptDocs?.[0]?.path).toBeTruthy();
   });
 
-  it('右上角不再提供重复入口，端口说明保留打开信箱的提示', async () => {
+  it('不在顶栏放置额外入口，端口说明保留打开信箱的提示', async () => {
     const world = await started();
     const links = world.webUi('zh').links ?? [];
     expect(links).toEqual([]);
     expect(world.webUi('en').links ?? []).toEqual([]);
 
-    const port = world.webUi('zh').config?.[0]?.schema.properties['worlds.bottle.port'];
+    const port = world.webUi('zh').config?.find(group => group.id === 'world:bottle:connection')?.schema.properties['worlds.bottle.port'];
     expect(port?.['x-download']).toBeUndefined();
     expect(port?.description).toContain('叫它帮你打开信箱');
   });
@@ -888,7 +888,7 @@ describe('漂流瓶 World · 一起读信', () => {
 describe('扩展自带的信箱入口面板', () => {
   it('启动前不提供地址，启动后只返回真实端口，不允许面板传入任意地址', async () => {
     expect(h.world.webUi().panels).toEqual([{ id: 'mailbox', title: '信箱' }]);
-    expect(await h.world.webUi().invoke!('mailbox', 'status', [])).toEqual({ url: null, wake: null });
+    expect(await h.world.webUi().invoke!('mailbox', 'status', [])).toMatchObject({ url: null, wake: null, links: [], lan: { running: false } });
     const world = await started();
     const ui = world.webUi();
     expect(world.webUi('en').panels?.[0]?.title).toBe('Mailbox');
@@ -899,7 +899,7 @@ describe('扩展自带的信箱入口面板', () => {
     await expect(ui.invoke!('mailbox', 'open', [])).rejects.toThrow('Unknown mailbox action');
     await expect(ui.invoke!('other', 'status', [])).rejects.toThrow('Unknown mailbox action');
     await world.stop();
-    expect(await world.webUi().invoke!('mailbox', 'status', [])).toEqual({ url: null, wake: null });
+    expect(await world.webUi().invoke!('mailbox', 'status', [])).toMatchObject({ url: null, wake: null, links: [], lan: { running: false } });
   });
 });
 
@@ -907,7 +907,7 @@ describe('World 顶部额度', () => {
   it('未取到额度时显示未知值和三盏加载灯', () => {
     expect(h.world.webUi().lamps?.map((lamp) => lamp.state)).toEqual(['loading', 'loading', 'loading']);
     expect(h.world.webUi().badges?.map((badge) => badge.value)).toEqual(['—', '—', '—']);
-    expect(h.world.webUi().config?.[0]?.schema.properties?.['worlds.bottle.port']?.['x-download']).toBeUndefined();
+    expect(h.world.webUi().config?.find(group => group.id === 'world:bottle:connection')?.schema.properties?.['worlds.bottle.port']?.['x-download']).toBeUndefined();
   });
 
   it('灯与顶栏对应网页的寄、捞、回额度', async () => {
@@ -919,7 +919,7 @@ describe('World 顶部额度', () => {
     const quota = world.pageDeps().snapshot().quota!;
     expect(ui.badges?.map((badge) => badge.value)).toEqual([quota.bottles_left, quota.catches_left, quota.replies_left]);
     expect(ui.lamps?.map((lamp) => lamp.label)).toEqual(['可寄', '可捞', '可回']);
-    expect(ui.config?.[0]?.schema.properties?.['worlds.bottle.port']?.['x-download']).toBeUndefined();
+    expect(ui.config?.find(group => group.id === 'world:bottle:connection')?.schema.properties?.['worlds.bottle.port']?.['x-download']).toBeUndefined();
     expect(ui.links ?? []).toEqual([]);
   });
 });

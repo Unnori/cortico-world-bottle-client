@@ -1,7 +1,9 @@
 import { expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { mailboxUrl, mountMailbox } from '../webui/client.ts';
+import { mailboxUrl, reachableMailbox, mountMailbox } from '../webui/client.ts';
+
+function findClass(node, name) { return node.classes?.has(name) ? node : node.children?.map(n => findClass(n, name)).find(Boolean); }
 
 function context(language = 'zh') {
   const open = vi.fn();
@@ -9,6 +11,8 @@ function context(language = 'zh') {
     tag, textContent: text ?? '', children: [], disabled: false,
     classes: new Set((cls ?? '').split(' ').filter(Boolean)),
     append(...children) { this.children.push(...children); },
+    replaceChildren(...children) { this.children = children; },
+    setAttribute: vi.fn(), select: vi.fn(),
     classList: { add: vi.fn() },
   });
   const root = node('div');
@@ -21,6 +25,7 @@ function context(language = 'zh') {
     invoke: vi.fn().mockResolvedValue({url: 'http://127.0.0.1:7798/'}),
     interval: vi.fn(),
     refresh: vi.fn().mockResolvedValue(undefined),
+    setConfig: vi.fn().mockResolvedValue('saved'),
     ui: {
       h: node,
       button(label, options) {
@@ -37,8 +42,8 @@ function context(language = 'zh') {
 }
 
 it.each([
-  'javascript:alert(1)', 'https://example.invalid/', 'http://localhost:7796/',
-  'http://127.0.0.1.evil.invalid:7796/', 'http://127.0.0.1:7796/other',
+  'javascript:alert(1)', 'file:///tmp/mail',
+  'http://127.0.0.1:7796/other',
   'http://127.0.0.1:7796/?url=https://example.invalid/', 'http://user@127.0.0.1:7796/', null,
 ])('rejects non-mailbox destination %s', value => {
   expect(mailboxUrl(value)).toBeNull();
@@ -190,4 +195,71 @@ it('the manifest points to content-addressed JS/CSS, with the current invitation
   expect(h.buttons.filter(n => n.textContent === '调整')).toHaveLength(3);
   expect(h.buttons.filter(n => n.textContent === '暂停邀请')).toHaveLength(2);
   expect(h.buttons.filter(n => n.textContent === '恢复邀请')).toHaveLength(1);
+});
+
+
+it('selects server-advertised links without sending a phone to its own loopback', () => {
+  const links = [{href:'http://127.0.0.1:7796/'}, {href:'https://mail.example.test/'}, {href:'http://192.168.1.8:7798/'}];
+  expect(reachableMailbox(links,'127.0.0.1')).toBe(links[0].href);
+  expect(reachableMailbox(links,'192.168.1.8')).toBe(links[2].href);
+  expect(reachableMailbox(links,'server.example.test')).toBe(links[1].href);
+  expect(reachableMailbox(links.slice(0,1),'192.168.1.8')).toBeNull();
+});
+
+it('renders a separate pairing card, only reveals secrets on click, and resets after confirmation', async () => {
+  const h = context();
+  h.ctx.root.ownerDocument.defaultView.location = {hostname:'192.168.1.8'};
+  const status = { links:[{href:'http://127.0.0.1:7796/'},{href:'http://192.168.1.8:7798/'}],
+    lan:{enabled:true,running:true,urls:['http://192.168.1.8:7798/'],port:7798,publicUrl:''} };
+  h.ctx.invoke.mockImplementation(async method => method==='status' ? status : {cards:[{url:'http://192.168.1.8:7798/pair#test-secret',qr:'data:image/png;base64,AAAA'}]});
+  await mountMailbox(h.ctx);
+  expect(h.ctx.invoke).not.toHaveBeenCalledWith('pairing');
+  h.button().click(); expect(h.open).toHaveBeenCalledWith('http://192.168.1.8:7798/','_blank','noopener,noreferrer');
+  const card = h.ctx.root.children[2];
+  expect(card.classes.has('bottle-lan-card')).toBe(true);
+  expect(findClass(card, 'bottle-lan-warning').textContent).toContain('明文');
+  const pair = h.buttons.find(b=>b.textContent==='显示配对二维码'); pair.click();
+  await vi.waitFor(()=>expect(findClass(card, 'bottle-lan-qr-list').children).toHaveLength(1));
+  expect(findClass(card, 'bottle-lan-qr-list').children[0].children[0].src).toMatch(/^data:image/);
+  const reset = h.buttons.find(b=>b.textContent==='重置配对'); reset.click();
+  expect(h.ctx.invoke).not.toHaveBeenCalledWith('resetPairing'); reset.click();
+  await vi.waitFor(()=>expect(h.ctx.invoke).toHaveBeenCalledWith('resetPairing'));
+});
+
+it('saves the independent listener settings through public config API', async () => {
+  const h = context(); await mountMailbox(h.ctx);
+  const settings = findClass(h.ctx.root, 'bottle-lan-settings');
+  settings.children[1].children[0].checked = true;
+  settings.children[2].children[0].value = '8811';
+  settings.children[3].children[0].value = 'https://mail.example.test/';
+  h.buttons.find(b=>b.textContent==='保存访问设置').click();
+  await vi.waitFor(()=>expect(h.ctx.setConfig).toHaveBeenCalledWith('world:bottle', {
+    'worlds.bottle.lanEnabled':true,'worlds.bottle.lanPort':8811,'worlds.bottle.lanPublicUrl':'https://mail.example.test/',
+  }));
+});
+
+
+it('shows only the selected QR, switches addresses without another RPC and can hide the secret', async () => {
+  const h = context();
+  const urls = ['http://100.64.1.2:7798/', 'http://192.168.1.8:7798/'];
+  h.ctx.invoke.mockImplementation(async method => method === 'status'
+    ? {lan:{enabled:true,running:true,urls,port:7798,publicUrl:''}}
+    : {cards:urls.map((url,i)=>({url:url+'pair#test-'+i,qr:'data:image/png;base64,AAAA'+i}))});
+  await mountMailbox(h.ctx);
+  const pairing = findClass(h.ctx.root,'bottle-lan-pairing');
+  const select = pairing.children[1].children[0];
+  expect(select.value).toBe(urls[1]);
+  const reveal = h.buttons.find(n=>n.textContent==='显示配对二维码');reveal.click();
+  await vi.waitFor(()=>expect(reveal.textContent).toBe('收起二维码'));
+  const list=findClass(h.ctx.root,'bottle-lan-qr-list');
+  expect(list.children).toHaveLength(1);
+  expect(list.children[0].children[0].src).toBe('data:image/png;base64,AAAA1');
+  select.value=urls[0];select.onchange();
+  expect(list.children).toHaveLength(1);
+  expect(list.children[0].children[0].src).toBe('data:image/png;base64,AAAA0');
+  expect(h.ctx.invoke.mock.calls.filter(([method])=>method==='pairing')).toHaveLength(1);
+  const figure=list.children[0];h.ctx.interval.mock.calls[0][0]();
+  await vi.waitFor(()=>expect(h.ctx.refresh).toHaveBeenCalledTimes(2));
+  expect(list.children[0]).toBe(figure);
+  reveal.click();expect(findClass(h.ctx.root,'bottle-lan-qr')).toBeUndefined();
 });

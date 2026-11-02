@@ -42,6 +42,7 @@ export interface LocalHeld {
 }
 /** 别人回给我的一封。只读，没有选项。 */
 export interface LocalReply {
+  readCount?: number;
   letterId: string;
   from: string;
   body: string;
@@ -62,6 +63,7 @@ export type ReceivedOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'exp
 
 /** 我捞到过的信。outcome 记的是这件事最后怎么收场。 */
 export interface ReceivedLetter {
+  readCount?: number;
   letterId: string;
   from: string;
   body: string;
@@ -78,6 +80,10 @@ export interface ReceivedLetter {
 export interface Identity {
   clientId: string;
   pseudonym: string;
+}
+
+export function readingCount(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
 function readJson<T>(path: string): T | null {
@@ -227,6 +233,7 @@ export class LocalStore {
         from: typeof item.from === 'string' ? item.from : '一位陌生人',
         body: item.body,
         at: Number(item.at ?? 0),
+        readCount: readingCount(item.readCount),
       }));
 
     const sent = Array.isArray(book?.sent) ? book.sent : [];
@@ -244,6 +251,7 @@ export class LocalStore {
         from: typeof item.from === 'string' ? item.from : '一位陌生人',
         body: item.body,
         at: Number(item.at ?? 0),
+        readCount: readingCount(item.readCount),
         outcome: normalizeOutcome(item.outcome),
         ...(item.seed === true ? { seed: true } : {}),
         ...(typeof item.myReply === 'string' && item.myReply ? { myReply: item.myReply } : {}),
@@ -338,6 +346,15 @@ export class LocalStore {
     } else {
       this.received.unshift(letter);
     }
+    this.saveLetterbook();
+  }
+
+  /** Count only successful, explicitly authorized hand-offs, never page expansion. */
+  noteRead(kind: 'received' | 'reply', letterId: string): void {
+    const rows = kind === 'received' ? this.received : this.replies;
+    const record = rows.find(item => item.letterId === letterId);
+    if (!record) return;
+    record.readCount = Math.min(Number.MAX_SAFE_INTEGER, readingCount(record.readCount) + 1);
     this.saveLetterbook();
   }
 

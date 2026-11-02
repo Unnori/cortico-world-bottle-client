@@ -1,3 +1,4 @@
+import { pageSoundScript, soundSettingsHtml } from './page-sound.ts';
 import { pageStyles } from './page-style.ts';
 import type { MailboxTheme } from './theme.ts';
 
@@ -72,6 +73,7 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     <p id="wake-note">自动邀请与待办提醒可以分别暂停。间隔设为 2—24 小时，实际时刻在该间隔的 1—2 倍内随机（最长 24 小时）；每天每类最多 3 次。</p>
     <div id="wake-controls"><div class="invitation-row"><span id="wake-write-status">写信邀请</span><label>最短间隔 <input id="wake-write-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><button class="btn" type="button" id="wake-write-save">调整</button><button class="btn" type="button" id="wake-write-toggle">暂停</button></div><div class="invitation-row"><span id="wake-catch-status">打捞邀请</span><label>最短间隔 <input id="wake-catch-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><button class="btn" type="button" id="wake-catch-save">调整</button><button class="btn" type="button" id="wake-catch-toggle">暂停</button></div><div class="invitation-row"><span id="wake-remind-status">待办提醒</span><label>最短间隔 <input id="wake-remind-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><button class="btn" type="button" id="wake-remind-save">调整</button><button class="btn" type="button" id="wake-remind-toggle">暂停</button></div></div><p id="wake-outcome" role="status"></p>
   </details>
+  ${soundSettingsHtml}
   <div id="announcements" aria-live="polite"></div>
   <section class="desk"><div class="section-heading"><h2>信笺桌 · 待你决定</h2><div class="tide" id="tide"></div></div><main id="stage"></main></section>
   <details class="book" id="letterbook" open>
@@ -661,6 +663,11 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     return el('span', 'mail-status status-' + key, sentStateText(item));
   }
 
+  function readBadge(count) {
+    count = Number.isSafeInteger(count) && count > 0 ? count : 0;
+    return el('span', 'mail-status ' + (count ? 'status-replied' : 'status-picked'), count ? '已读' + count + '次' : '尚未阅读');
+  }
+
   function bookEntries() {
     var entries = [];
     (state.received || []).forEach(function (item) {
@@ -731,7 +738,10 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     subject.appendChild(el('strong', null, title));
     subject.appendChild(el('small', null, source));
     summary.appendChild(subject);
-    if (kind === 'sent') summary.appendChild(sentStateBadge(item));
+    var badges = el('span', 'mail-badges');
+    if (kind === 'sent') badges.appendChild(sentStateBadge(item));
+    else badges.appendChild(readBadge(isReply ? item.reply.readCount : item.readCount));
+    summary.appendChild(badges);
     var chevron = el('span', 'mail-chevron', '›');
     chevron.setAttribute('aria-hidden', 'true');
     summary.appendChild(chevron);
@@ -776,6 +786,7 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
           return;
         }
         toast(botName() + '可以看了，等一下读信后的想法。');
+        refresh();
       }).catch(function () {
         btn.disabled = false;
         btn.removeAttribute('aria-busy');
@@ -833,6 +844,7 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     var sequence = ++refreshSequence;
     fetch('/draft').then(function (res) { return res.json(); }).then(function (snapshot) {
       if (sequence !== refreshSequence) return;
+      if (window.bottleSound) window.bottleSound.snapshot(snapshot);
       state = snapshot;
       // 它迟迟没动笔：25 秒后回到那一封，别让页面一直停在这儿
       if (waiting && Date.now() - waitStarted > 25000) waiting = false;
@@ -902,6 +914,7 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
   refresh();
 })();
 </script>
+<script data-bottle-audio>${pageSoundScript}</script>
 </body>
 </html>`;
 }

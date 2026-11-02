@@ -3,14 +3,15 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WorldContext } from 'cortico/world.ts';
+import { coerceGroupValues, readGroupValues } from 'cortico/core/config-schema.ts';
 import { BottleWorld } from '../world/world.ts';
-import { BOTTLE_CONFIG_GROUP, BOTTLE_DEFAULTS, BOTTLE_WAKE_FIELDS, initialiseWakeSettings, type BottleConfigSection } from '../world/config.ts';
+import { BOTTLE_CONFIG_FIELDS, BOTTLE_CONFIG_GROUPS, BOTTLE_DEFAULTS, BOTTLE_WAKE_FIELDS, initialiseWakeSettings, initialiseSoundSettings, type BottleConfigSection } from '../world/config.ts';
 
 describe('邀请配置声明与旧设置迁移', () => {
   it('三类邀请均提供热更新开关与 2—24 小时间隔', () => {
     for (const [, enabled, interval] of BOTTLE_WAKE_FIELDS) {
-      expect(BOTTLE_CONFIG_GROUP.schema.properties[`worlds.bottle.${enabled}`]).toMatchObject({ type: 'boolean', 'x-hot': true });
-      expect(BOTTLE_CONFIG_GROUP.schema.properties[`worlds.bottle.${interval}`]).toMatchObject({ type: 'number', minimum: 2, maximum: 24, 'x-hot': true });
+      expect(BOTTLE_CONFIG_FIELDS[`worlds.bottle.${enabled}`]).toMatchObject({ type: 'boolean', 'x-hot': true });
+      expect(BOTTLE_CONFIG_FIELDS[`worlds.bottle.${interval}`]).toMatchObject({ type: 'number', minimum: 2, maximum: 24, 'x-hot': true });
     }
   });
   it('旧信箱设置里的暂停和间隔会成为新增配置项的初值', () => {
@@ -58,7 +59,55 @@ it.each([false, true])('构造读取旧暂停且尊重部署显式开启=%s，�
     expect(cfg.writeInviteEnabled).toBe(explicit);
     expect(cfg.writeInviteIntervalHours).toBe(explicit ? 2 : 8);
     expect(world.webUi().panels).toEqual([{ id: 'mailbox', title: '信箱' }]);
+    expect(world.webUi().config).toEqual(BOTTLE_CONFIG_GROUPS);
     expect(readFileSync(configPath, 'utf8')).toBe(configText);
     expect(readFileSync(legacyPath, 'utf8')).toBe(legacyText);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+describe('配置页原生分组', () => {
+  it('常用项靠前，音效按来信与回信拆开，连接调试放最后', () => {
+    expect(BOTTLE_CONFIG_GROUPS.map(group => group.schema.title)).toEqual([
+      '显示与通知', '海边邀请与提醒', '桌面音效', '来信提示音', '回信提示音', '其他设备访问', '连接与调试',
+    ]);
+    expect(Object.keys(BOTTLE_CONFIG_GROUPS[0]!.schema.properties)).toEqual([
+      'worlds.bottle.surface', 'worlds.bottle.cardAutoCloseSec', 'worlds.bottle.tsunamiNotice',
+    ]);
+    expect(Object.keys(BOTTLE_CONFIG_GROUPS.at(-1)!.schema.properties)).toEqual([
+      'worlds.bottle.server', 'worlds.bottle.port', 'worlds.bottle.debug',
+    ]);
+  });
+  it('所有配置恰好出现一次，声明与默认值不变', () => {
+    const ids = BOTTLE_CONFIG_GROUPS.map(group => group.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const paths = BOTTLE_CONFIG_GROUPS.flatMap(group => Object.keys(group.schema.properties));
+    expect(new Set(paths).size).toBe(paths.length);
+    expect([...paths].sort()).toEqual(Object.keys(BOTTLE_CONFIG_FIELDS).sort());
+    for (const group of BOTTLE_CONFIG_GROUPS) {
+      expect(group.owner).toBe('world:bottle');
+      const values = readGroupValues({worlds:{bottle:BOTTLE_DEFAULTS}} as never, group);
+      expect(coerceGroupValues(group, values)).toEqual({values});
+      for (const [path, declaration] of Object.entries(group.schema.properties)) {
+        expect(declaration).toBe(BOTTLE_CONFIG_FIELDS[path]);
+        expect(Object.hasOwn(BOTTLE_DEFAULTS,path.replace('worlds.bottle.',''))).toBe(true);
+      }
+    }
+  });
+  it('信箱页签保存访问配置仍使用原有组 ID，各组不会写入别组字段', () => {
+    const lan = BOTTLE_CONFIG_GROUPS.find(group => group.id==='world:bottle')!;
+    const values = {'worlds.bottle.lanEnabled':true,'worlds.bottle.lanPort':7799,'worlds.bottle.lanPublicUrl':'https://mail.example.test/'};
+    expect(coerceGroupValues(lan,{...values,'worlds.bottle.soundVolume':30})).toEqual({values});
+    for (const group of BOTTLE_CONFIG_GROUPS.filter(group=>group!==lan))
+      expect(coerceGroupValues(group,values)).toEqual({values:{}});
+  });
+});
+
+it('migrates retired audio defaults without changing explicit custom, shared or local sources',()=>{
+  const config={...BOTTLE_DEFAULTS,soundIncomingPack:'incoming/default.wav',soundReplyPack:'reply/default.wav'};
+  initialiseSoundSettings(config);
+  expect(config.soundIncomingPack).toBe('incoming/New_notifications_1.wav');
+  expect(config.soundReplyPack).toBe('reply/New_notifications_3.wav');
+  config.soundIncomingPack='shared.wav';config.soundReplyPack='reply/custom.wav';config.soundIncomingSource='local';config.soundIncomingFile='C:/Music/custom.wav';
+  const before={...config};initialiseSoundSettings(config);expect(config).toEqual(before);
 });

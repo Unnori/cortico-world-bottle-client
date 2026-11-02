@@ -108,3 +108,14 @@ it('卡片规格带上保存的明暗与配色，启动前也有正确的深色�
   expect(spec.appearance.preference).toEqual({theme:'paper',mode:'dark'});
   expect(spec.appearance.palettes.dark).toEqual(MAILBOX_PALETTES.paper.dark);
 });
+
+
+it('serializes only the supplied local notification sound and clears it on silent cards',()=>{
+  dir=mkdtempSync(join(tmpdir(),'bottle-card-sound-'));
+  const host=new CardHost({dir,platform:'win32',spawnImpl:(()=>fakeChild()) as unknown as typeof import('node:child_process').spawn});
+  const sound={path:join(dir,'incoming.wav'),volume:0.4,fadeOutMs:250};
+  host.show(waitingCard('http://127.0.0.1:7796/'),sound);
+  expect(JSON.parse(readFileSync(join(dir,'bottle-card.json'),'utf8')).sound).toEqual(sound);
+  host.show(waitingCard('http://127.0.0.1:7796/'));
+  expect(JSON.parse(readFileSync(join(dir,'bottle-card.json'),'utf8')).sound).toBeNull();host.dispose();
+});

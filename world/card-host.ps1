@@ -1,7 +1,7 @@
 ﻿# 漂流瓶 · 原生卡片
 #
 # 由 World 启动，读一份 JSON，画一张纸，按钮把动作回传给本地信箱服务，然后自己关。
-# 只做三件事：显示、回传、关闭。不读网络上的任何东西。
+# 显示、回传、关闭；新来信/回信可以播放一次本机音效，不读取网络音频。
 param(
   [Parameter(Mandatory = $true)][string]$Data,
   [Parameter(Mandatory = $true)][string]$Base,
@@ -20,6 +20,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
+. (Join-Path $PSScriptRoot 'card-sound.ps1')
 
 # 150% 缩放下也别糊；老系统上失败就算了。
 try {
@@ -367,8 +368,10 @@ $win.Content = $shell
 
 $win.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'Escape') { $script:win.Close() } })
 
+$script:soundStarted = $false
 $win.Add_ContentRendered({
   if ($PreviewOnly) { return }
+  if (-not $script:soundStarted) { $script:soundStarted = $true; Start-BottleSound $spec.sound }
   $wa = [System.Windows.SystemParameters]::WorkArea
   $script:win.Left = [Math]::Max($wa.Left + 12, $wa.Right - $script:win.ActualWidth - 20)
   $script:win.Top = [Math]::Max($wa.Top + 12, $wa.Bottom - $script:win.ActualHeight - 20)
@@ -403,7 +406,7 @@ $script:themeTimer.Add_Tick({
   }
 })
 $script:themeTimer.Start()
-$win.Add_Closed({ $script:themeTimer.Stop(); $script:themeClient.Dispose() })
+$win.Add_Closed({ Stop-BottleSound; $script:themeTimer.Stop(); $script:themeClient.Dispose() })
 
 # 人类一直不理它也别永远压在最上面：默认十秒自己收起，0 为保持显示。
 if ($AutoCloseMs -gt 0) { Close-Soon $AutoCloseMs }
