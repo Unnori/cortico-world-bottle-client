@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { WAKE_POLICIES } from '../world/wake-policy.ts';
 import { mailboxUrl, reachableMailbox, mountMailbox } from '../webui/client.ts';
 
 function findClass(node, name) { return node.classes?.has(name) ? node : node.children?.map(n => findClass(n, name)).find(Boolean); }
@@ -120,7 +121,7 @@ it('persists pause/resume choices and displays exhausted-task failures without a
   expect(h.buttons[1].textContent).toBe('暂停邀请');
   expect(h.buttons[3].textContent).toBe('恢复邀请');
   const outcome = h.ctx.root.children[1].children.at(-1);
-  expect(outcome.textContent).toContain('重试后仍未完成');
+  expect(outcome.textContent).toContain('Coo没有回应邀请…');
   expect(outcome.textContent).not.toContain('private-task-id');
   h.buttons[1].click();
   await vi.waitFor(() => expect(h.buttons[1].textContent).toBe('恢复邀请'));
@@ -155,7 +156,7 @@ it('the panel interval control invokes the same validated wake settings endpoint
   const row = h.ctx.root.children[1].children[1];
   const input = row.children[1].children[0]; input.value = '8';
   h.buttons[2].click();
-  await vi.waitFor(() => expect(h.ctx.invoke).toHaveBeenCalledWith('wake', ['write', 'interval', 8]));
+  await vi.waitFor(() => expect(h.ctx.invoke).toHaveBeenCalledWith('wake', ['write', 'interval', 8, 3]));
 });
 
 
@@ -262,4 +263,57 @@ it('shows only the selected QR, switches addresses without another RPC and can h
   await vi.waitFor(()=>expect(h.ctx.refresh).toHaveBeenCalledTimes(2));
   expect(list.children[0]).toBe(figure);
   reveal.click();expect(findClass(h.ctx.root,'bottle-lan-qr')).toBeUndefined();
+});
+
+
+it('opens the feedback form with the actual World version from status', async () => {
+  const h = context();
+  const feedbackUrl = 'https://docs.qq.com/form/page/DZm5DZ3d4V2JiUmt2';
+  h.ctx.invoke.mockResolvedValue({ url: null, version: '9.8.7-beta.1', feedbackUrl });
+  await mountMailbox(h.ctx);
+  const feedback = findClass(h.ctx.root, 'bottle-feedback');
+  expect(feedback.textContent).toBe('反馈收集 · V9.8.7-beta.1');
+  expect(feedback.disabled).toBe(false);
+  feedback.onclick();
+  expect(h.open).toHaveBeenCalledWith(feedbackUrl, '_blank', 'noopener,noreferrer');
+  expect(h.ctx.invoke).toHaveBeenCalledTimes(1);
+  h.abort.abort(); feedback.onclick();
+  expect(h.open).toHaveBeenCalledTimes(1);
+});
+
+it('does not invent a version or destination for an older World', async () => {
+  const h = context(); await mountMailbox(h.ctx);
+  const feedback = findClass(h.ctx.root, 'bottle-feedback');
+  expect(feedback.textContent).toBe('反馈收集 · 版本暂不可用');
+  expect(feedback.disabled).toBe(true);
+  feedback.onclick(); expect(h.open).not.toHaveBeenCalled();
+});
+
+it.each(['javascript:alert(1)', 'https://example.invalid/', 'https://user@docs.qq.com/form'])('rejects unexpected feedback destination %s', async feedbackUrl => {
+  const h = context(); h.ctx.invoke.mockResolvedValue({ url: null, feedbackUrl });
+  await mountMailbox(h.ctx);
+  const feedback = findClass(h.ctx.root, 'bottle-feedback');
+  expect(feedback.disabled).toBe(true); feedback.onclick(); expect(h.open).not.toHaveBeenCalled();
+});
+
+
+it('all native invitation controls mirror the shared scheduler bounds and defaults', async () => {
+  const h = context();
+  h.ctx.invoke.mockResolvedValue({ wake: { lanes: { write: { count: 0 }, catch: { count: 0 }, remind: { count: 0 } }, history: [] } });
+  await mountMailbox(h.ctx);
+  const rows = h.ctx.root.children[1].children.filter(node => node.classes?.has('bottle-wake-row'));
+  for (const [n, action] of ['write', 'catch', 'remind'].entries()) {
+    const policy = WAKE_POLICIES[action];
+    const [label, hoursLabel, limitLabel, apply] = rows[n].children;
+    const hours = hoursLabel.children[0], limit = limitLabel.children[0];
+    expect([+hours.min, +hours.max, +hours.value]).toEqual([policy.minHours, policy.maxHours, policy.interval]);
+    expect([+limit.min, +limit.max, +limit.value]).toEqual([policy.minLimit, policy.maxLimit, policy.dayLimit]);
+    expect(label.textContent).toContain('0/' + policy.dayLimit);
+    limit.value = String(policy.minLimit - 1);
+    apply.click();
+    expect(h.ctx.invoke).not.toHaveBeenCalledWith('wake', expect.anything());
+    limit.value = String(policy.maxLimit + 1);
+    apply.click();
+    expect(h.ctx.invoke).not.toHaveBeenCalledWith('wake', expect.anything());
+  }
 });

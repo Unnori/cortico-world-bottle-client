@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { WakeScheduler, localDay, type WakeAction } from '../world/wake.ts';
@@ -21,7 +21,7 @@ function setup(random = () => 0) {
     return wake.check(eligible, true)!;
   };
   const deliver = (id: string) => { expect(wake.render(id, true)).toBe(true); wake.settled(id, 'delivered'); };
-  return { wake, clock, make, eligible, due, deliver };
+  return { wake, clock, make, eligible, due, deliver, file };
 }
 
 describe('持久化的随机海边邀请', () => {
@@ -150,15 +150,15 @@ describe('持久化的随机海边邀请', () => {
 
 describe('新增提醒与手动邀请持久状态', () => {
   it('调整的间隔跨重启、跨天保留，提醒有独立暂停', () => {
-    const h = setup(); h.wake.configure('remind', 6); h.wake.pause('catch', true);
+    const h = setup(); h.wake.configure('remind', 0.75); h.wake.pause('catch', true);
     const eligible = { write: false, catch: false, remind: true };
     h.wake.check(eligible, true);
-    expect(h.wake.snapshot().lanes.remind.nextAt).toBe(h.clock.t + 6 * HOUR);
+    expect(h.wake.snapshot().lanes.remind.nextAt).toBe(h.clock.t + 0.75 * HOUR);
     h.clock.t += 24 * HOUR;
     const restored = h.make(); restored.check(eligible, true);
-    expect(restored.snapshot().lanes.remind.intervalHours).toBe(6);
+    expect(restored.snapshot().lanes.remind.intervalHours).toBe(0.75);
     expect(restored.snapshot().lanes.catch.paused).toBe(true);
-    expect(restored.snapshot().lanes.remind.nextAt).toBe(h.clock.t + 6 * HOUR);
+    expect(restored.snapshot().lanes.remind.nextAt).toBe(h.clock.t + 0.75 * HOUR);
   });
   it('手动邀请冷却不会被重启绕过，不自动重试手动邀请', () => {
     const h = setup(); const task = h.wake.invite('write', true)!;
@@ -199,4 +199,121 @@ it('没有当前投递任务时不接受无端的暂不做，也不擅自扩大�
   expect(h.wake.snapshot().lanes.write.paused).toBe(false);
   h.wake.decide(undefined, 'user_paused');
   expect(h.wake.snapshot().lanes.write.paused).toBe(true);
+});
+
+
+it.each(['write', 'catch', 'remind'] as const)('每日上限可热调且跨日、重启保留：%s', action => {
+  const h = setup();
+  const eligible = { write: action === 'write', catch: action === 'catch', remind: action === 'remind' };
+  const hours = action === 'remind' ? 0.5 : 2;
+  const initial = action === 'remind' ? 3 : 1;
+  h.wake.configure(action, hours, initial);
+  for (let i = 0; i < initial; i++) {
+    h.wake.check(eligible, true); h.clock.t += 2 * HOUR;
+    const task = h.wake.check(eligible, true)!;
+    h.deliver(task.id); h.wake.success(action);
+  }
+  h.clock.t += 2 * HOUR;
+  expect(h.wake.check(eligible, true)).toBeNull();
+  expect(h.wake.snapshot().lanes[action].count).toBe(initial);
+  h.wake.configure(action, hours, initial + 1);
+  expect(h.wake.snapshot().lanes[action].count).toBe(initial);
+  h.wake.check(eligible, true); h.clock.t += 2 * HOUR;
+  expect(h.wake.check(eligible, true)?.action).toBe(action);
+  const restored = h.make();
+  expect(restored.snapshot().lanes[action].dayLimit).toBe(initial + 1);
+  h.clock.t += 24 * HOUR;
+  restored.check(eligible, true);
+  expect(restored.snapshot().lanes[action]).toMatchObject({ count: 0, dayLimit: initial + 1 });
+});
+
+it('上限为一时不再自动补试，手动邀请仍可单独发出', () => {
+  const h = setup(); h.wake.configure('write', 2, 1);
+  const task = h.due(); h.deliver(task.id); h.wake.turnEnded();
+  expect(h.wake.snapshot().active).toBeNull();
+  expect(h.wake.snapshot().lanes.write.count).toBe(1);
+  expect(h.wake.invite('write', true)?.manual).toBe(true);
+});
+
+it.each([0, -1, 25, 1.5, NaN, Infinity])('拒绝无效每日上限 %s，保留旧配置', limit => {
+  const h = setup();
+  expect(() => h.wake.configure('write', 2, limit)).toThrow('每日上限');
+  expect(h.wake.snapshot().lanes.write.dayLimit).toBeUndefined();
+});
+
+
+describe('仅来信待办使用半小时提醒节奏', () => {
+  const eligible = { write: false, catch: false, remind: true };
+  it.each([0, 0.5, 1])('随机值 %s 对应 30—60 分钟，不提前触发且不受一小时拦截', random => {
+    const h = setup(() => random);
+    h.wake.check(eligible, true);
+    const delay = (0.5 + random * 0.5) * HOUR;
+    expect(h.wake.snapshot().lanes.remind.nextAt).toBe(h.clock.t + delay);
+    h.clock.t += delay - 1;
+    expect(h.wake.check(eligible, true)).toBeNull();
+    h.clock.t++;
+    const first = h.wake.check(eligible, true)!;
+    h.deliver(first.id); h.wake.turnEnded();
+    h.clock.t += delay;
+    expect(h.wake.check(eligible, true)?.action).toBe('remind');
+  });
+  it('默认每日十二次，重启保留今日次数，热调不清零，跨日恢复', () => {
+    const h = setup();
+    h.wake.check(eligible, true);
+    for (let n = 0; n < 12; n++) {
+      h.clock.t += 0.5 * HOUR;
+      const task = h.wake.check(eligible, true)!;
+      expect(task?.action).toBe('remind');
+      h.deliver(task.id); h.wake.turnEnded();
+    }
+    h.clock.t += HOUR;
+    expect(h.wake.check(eligible, true)).toBeNull();
+    const restored = h.make();
+    expect(restored.snapshot().lanes.remind.count).toBe(12);
+    restored.configure('remind', 0.5, 13);
+    expect(restored.snapshot().lanes.remind.count).toBe(12);
+    restored.check(eligible, true); h.clock.t += 0.5 * HOUR;
+    const task = restored.check(eligible, true)!;
+    expect(restored.render(task.id, true)).toBe(true);
+    restored.settled(task.id, 'delivered'); restored.turnEnded();
+    h.clock.t += 24 * HOUR; restored.check(eligible, true);
+    expect(restored.snapshot().lanes.remind).toMatchObject({ count: 0, dayLimit: 13 });
+  });
+  it.each([3, 20])('允许每日上限 %s 并跨重启保留', limit => {
+    const h = setup(); h.wake.configure('remind', 0.5, limit);
+    expect(h.make().snapshot().lanes.remind.dayLimit).toBe(limit);
+  });
+  it.each([2, 21, 3.5, NaN, Infinity])('拒绝非法每日上限 %s，不改动原设置', limit => {
+    const h = setup(); h.wake.configure('remind', 0.5, 12);
+    expect(() => h.wake.configure('remind', 0.75, limit)).toThrow('每日上限');
+    expect(h.wake.snapshot().lanes.remind).toMatchObject({ intervalHours: 0.5, dayLimit: 12 });
+  });
+  it.each([0.49, 1.01, NaN, Infinity])('拒绝超出半小时至一小时的最短间隔 %s', hours => {
+    const h = setup(); expect(() => h.wake.configure('remind', hours, 12)).toThrow('间隔');
+  });
+  it('调大最短间隔仍不会随机等过一小时', () => {
+    const h = setup(() => 1); h.wake.configure('remind', 0.75, 12);
+    h.wake.check(eligible, true);
+    expect(h.wake.snapshot().lanes.remind.nextAt).toBe(h.clock.t + HOUR);
+  });
+  it('没有待处理来信即清除计时；已排队但来信已处理时不投递也不扣次数', () => {
+    const h = setup(); h.wake.check(eligible, true);
+    h.wake.check({ write: false, catch: false, remind: false }, true);
+    expect(h.wake.snapshot().lanes.remind.nextAt).toBeNull();
+    h.wake.check(eligible, true); h.clock.t += 0.5 * HOUR;
+    const task = h.wake.check(eligible, true)!;
+    expect(h.wake.render(task.id, false)).toBe(false);
+    expect(h.wake.snapshot().lanes.remind.count).toBe(0);
+    expect(h.wake.snapshot().history.at(-1)).toMatchObject({ result: 'cancelled', reason: 'conditions_changed' });
+  });
+  it('旧长间隔迁移为半小时，保留计数与暂停且不重启补催', () => {
+    const h = setup();
+    const saved = h.wake.snapshot();
+    Object.assign(saved.lanes.remind, { intervalHours: 2, dayLimit: 12, count: 7, paused: true, nextAt: h.clock.t + 4 * HOUR });
+    writeFileSync(h.file, JSON.stringify(saved));
+    const restored = h.make();
+    expect(restored.snapshot().lanes.remind).toMatchObject({ intervalHours: 0.5, dayLimit: 12, count: 7, paused: true, nextAt: h.clock.t + 0.5 * HOUR });
+    expect(restored.check(eligible, true)).toBeNull();
+    expect(h.make().snapshot().lanes.remind.count).toBe(7);
+  });
 });

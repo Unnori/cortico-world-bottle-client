@@ -1,4 +1,5 @@
 /** Random invitations are World tasks, never promises to send a letter. */
+import { WAKE_POLICIES } from './wake-policy.ts';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -12,7 +13,7 @@ export interface WakeTask {
   attempts: number; createdAt: number; dueAt: number; manual?: boolean; remote?: boolean;
 }
 export interface WakeOutcome { id: string; action: WakeAction; result: WakeResult; reason: string; at: number; attempts: number }
-interface Lane { intervalHours?: number; nextAt: number | null; count: number; paused: boolean; declined: boolean; failed: boolean }
+interface Lane { intervalHours?: number; dayLimit?: number; nextAt: number | null; count: number; paused: boolean; declined: boolean; failed: boolean }
 export interface WakeState {
   version: 1; day: string; lastInviteAt: number; active: WakeTask | null;
   cooldowns?: Partial<Record<WakeAction, number>>;
@@ -50,8 +51,13 @@ export class WakeScheduler {
           this.state.lanes[action] = {
             nextAt: typeof lane.nextAt === 'number' && Number.isFinite(lane.nextAt) ? lane.nextAt : null,
             count: Number.isInteger(lane.count) && lane.count >= 0 ? lane.count : 0,
-            paused: lane.paused === true, declined: lane.declined === true, failed: lane.failed === true, intervalHours: this.validInterval(lane.intervalHours),
+            paused: lane.paused === true, declined: lane.declined === true, failed: lane.failed === true, intervalHours: this.validInterval(lane.intervalHours, action), dayLimit: this.validLimit(lane.dayLimit, action),
           };
+          // Old reminder schedules may be hours away. Rebase timing, retaining counts and pauses.
+          if (action === 'remind' && lane.nextAt !== null && lane.intervalHours !== this.state.lanes[action].intervalHours) {
+            this.state.lanes[action].nextAt = this.now() + this.delay(false, action);
+            recovered = true;
+          }
         }
         this.state.history = Array.isArray(saved.history) ? saved.history.filter(item => item &&
           typeof item.id === 'string' && ACTIONS.includes(item.action) &&
@@ -69,11 +75,20 @@ export class WakeScheduler {
     if (recovered) this.save();
   }
   private day(): string { return localDay(this.now(), this.timeZone); }
-  private validInterval(value: unknown): number { return typeof value === 'number' && Number.isFinite(value) ? Math.min(24, Math.max(2, value)) : 2; }
+  private validInterval(value: unknown, action: WakeAction): number {
+    const policy = WAKE_POLICIES[action];
+    if (action === 'remind' && (typeof value !== 'number' || !Number.isFinite(value) || value < policy.minHours || value > policy.maxHours)) return policy.interval;
+    return typeof value === 'number' && Number.isFinite(value) ? Math.min(policy.maxHours, Math.max(policy.minHours, value)) : policy.interval;
+  }
+  private validLimit(value: unknown, action: WakeAction): number {
+    const policy = WAKE_POLICIES[action];
+    return typeof value === 'number' && Number.isInteger(value) && value >= policy.minLimit && value <= policy.maxLimit ? value : policy.dayLimit;
+  }
   private delay(retry = false, action?: WakeAction): number {
     const value = Math.max(0, Math.min(1, this.random()));
-    const base = this.validInterval(action ? this.state.lanes[action].intervalHours : 2);
-    return retry ? (0.5 + value * 0.5) * HOUR : Math.min(24, base + value * base) * HOUR;
+    const kind = action ?? 'write';
+    const base = this.validInterval(this.state.lanes[kind].intervalHours, kind);
+    return retry ? (0.5 + value * 0.5) * HOUR : Math.min(WAKE_POLICIES[kind].maxDelay, base + value * base) * HOUR;
   }
   private save(): void {
     mkdirSync(dirname(this.file), { recursive: true });
@@ -87,8 +102,8 @@ export class WakeScheduler {
     this.state.active = null;
     this.state.day = this.day();
     for (const action of ACTIONS) {
-      const { paused, intervalHours } = this.state.lanes[action];
-      this.state.lanes[action] = { ...freshLane(), paused, intervalHours };
+      const { paused, intervalHours, dayLimit } = this.state.lanes[action];
+      this.state.lanes[action] = { ...freshLane(), paused, intervalHours, dayLimit };
     }
     this.save();
   }
@@ -105,7 +120,7 @@ export class WakeScheduler {
     const now = this.now();
     for (const action of ACTIONS) {
       const lane = this.state.lanes[action];
-      if (!eligible[action] || lane.paused || lane.declined || lane.failed || lane.count >= WAKE_DAY_LIMIT) {
+      if (!eligible[action] || lane.paused || lane.declined || lane.failed || lane.count >= this.validLimit(lane.dayLimit, action)) {
         if (lane.nextAt !== null) { lane.nextAt = null; this.save(); }
       } else if (lane.nextAt === null) { lane.nextAt = now + this.delay(false, action); this.save(); }
     }
@@ -119,8 +134,9 @@ export class WakeScheduler {
       if (!idle || now < active.dueAt) return null;
       active.phase = 'queued'; this.save(); return { ...active };
     }
-    if (!idle || now - this.state.lastInviteAt < HOUR) return null;
+    if (!idle) return null;
     const due = (ACTIONS).filter(action => eligible[action] && !this.blocked(action) &&
+      now - this.state.lastInviteAt >= (action === 'remind' ? 0.5 : 1) * HOUR &&
       this.state.lanes[action].nextAt !== null && now >= this.state.lanes[action].nextAt!);
     if (!due.length) return null;
     const action = due.sort((a, b) => this.state.lanes[a].nextAt! - this.state.lanes[b].nextAt!)[0];
@@ -139,16 +155,20 @@ export class WakeScheduler {
     this.state.cooldowns![action] = this.now() + 60_000;
     this.save(); return { ...task };
   }
-  configure(action: WakeAction, hours: number): void {
-    if (!Number.isFinite(hours) || hours < 2 || hours > 24) throw new Error('间隔须为 2—24 小时');
+  configure(action: WakeAction, hours: number, dayLimit?: number): void {
+    const policy = WAKE_POLICIES[action];
+    if (!Number.isFinite(hours) || hours < policy.minHours || hours > policy.maxHours) throw new Error(`间隔须为 ${policy.minHours}—${policy.maxHours} 小时`);
     const lane = this.state.lanes[action];
+    if (dayLimit !== undefined && (!Number.isInteger(dayLimit) || dayLimit < policy.minLimit || dayLimit > policy.maxLimit)) throw new Error(`每日上限须为 ${policy.minLimit}—${policy.maxLimit} 次（整数）`);
+    const changed = this.validInterval(lane.intervalHours, action) !== hours;
     lane.intervalHours = hours;
-    if (lane.nextAt !== null) lane.nextAt = this.now() + this.delay(false, action);
+    if (dayLimit !== undefined) lane.dayLimit = dayLimit;
+    if (changed && lane.nextAt !== null) lane.nextAt = this.now() + this.delay(false, action);
     this.save();
   }
   private blocked(action: WakeAction): boolean {
     const lane = this.state.lanes[action];
-    return lane.paused || lane.declined || lane.failed || lane.count >= WAKE_DAY_LIMIT;
+    return lane.paused || lane.declined || lane.failed || lane.count >= this.validLimit(lane.dayLimit, action);
   }
   /** A paused Core never calls this. No stale quota/text is queued in its session. */
   render(id: string, eligible: boolean): boolean {
@@ -181,7 +201,7 @@ export class WakeScheduler {
     if (!task) return;
     if (task.action === 'remind' && task.phase === 'delivered') { this.finish('completed', 'reminder_delivered'); return; }
     this.record(task, 'uncompleted', reason);
-    if (task.manual || task.attempts >= 2 || this.state.lanes[task.action].count >= WAKE_DAY_LIMIT) {
+    if (task.manual || task.attempts >= 2 || this.state.lanes[task.action].count >= this.validLimit(this.state.lanes[task.action].dayLimit, task.action)) {
       this.finish('failed', reason); return;
     }
     task.phase = 'retry'; task.dueAt = this.now() + this.delay(true); this.save();

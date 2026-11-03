@@ -1,3 +1,9 @@
+import type { DefaultFont, FontResource } from './font-catalog.ts';
+import { MY_FONT_MAX_BYTES } from './my-font.ts';
+import { fontAsset } from './fonts.ts';
+import { customPalettes } from './appearance.ts';
+import { BACKGROUND_MAX_BYTES } from './background.ts';
+import { feedbackQr } from './feedback.ts';
 /**
  * 本地信箱 WebUI：信件显示、人工确认与历史信册。
  *
@@ -22,6 +28,7 @@ import type { SoftHint } from '../shared/hints.ts';
 export type Surface = 'card' | 'page' | 'remote';
 
 export interface PageDraftView {
+  at?: number;
   topic?: string;
   kind: 'letter' | 'reply';
   body: string;
@@ -31,6 +38,8 @@ export interface PageDraftView {
 }
 
 export interface PageHeldView {
+  fontId?: string;
+  caughtAt?: number;
   letterId: string;
   from: string;
   body: string;
@@ -44,6 +53,7 @@ export interface PageHeldView {
 }
 
 export interface PageReplyView {
+  fontId?: string;
   readCount?: number;
   from: string;
   body: string;
@@ -65,6 +75,7 @@ export interface PageSentView {
 export type PageOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'expired' | 'kept';
 
 export interface PageReceivedView {
+  fontId?: string;
   readCount?: number;
   letterId: string;
   from: string;
@@ -79,6 +90,10 @@ export interface PageReceivedView {
 }
 
 export interface PageSnapshot {
+  /** Opaque identifier regenerated on each World start; browser-local announcement dismissal uses it. */
+  worldSession?: string;
+  fontResources?:Record<string,FontResource>;
+  defaultFont?:DefaultFont;
   botName?: string;
   desktopCards?: boolean;
   wake?: WakeState | null;
@@ -120,12 +135,16 @@ export interface PageResult {
 }
 
 export interface PageDeps {
+  myFont?(id: string): { bytes: Buffer; mime: string } | null;
+  uploadMyFont?(input: unknown): { id:string; name:string };
+  background?(id: string): { bytes: Buffer; mime: string } | null;
+  uploadBackground?(input: unknown): string;
   theme?(): Promise<MailboxTheme>;
   appearance?(preference?: ThemePreference): Promise<CardAppearance>;
   snapshot(): PageSnapshot;
   announcement?(): Promise<AnnouncementSummary | null>;
   refresh?(): Promise<void>;
-  wakeControl?(action: WakeAction, command: 'pause' | 'resume' | 'interval', hours?: number): Promise<PageResult>;
+  wakeControl?(action: WakeAction, command: 'pause' | 'resume' | 'interval', hours?: number, dayLimit?: number): Promise<PageResult>;
   request(action: 'write' | 'catch', actor?: 'bot' | 'human', surface?: Surface): Promise<PageResult>;
   /** 寄哪一份由页面上的按钮决定：信稿或回信稿。 */
   send(kind?: 'letter' | 'reply'): Promise<PageResult>;
@@ -176,6 +195,32 @@ export async function handlePage(
   opts: PageRequestOptions = {},
 ): Promise<PageResponse> {
   const route = path.replace(/\/+$/, '') || '/';
+  if (method === 'GET' && route.startsWith('/my-font/')) {
+    const file = deps.myFont?.(route.slice(9));
+    return file ? {status:200,binary:file} : {status:404,json:{ok:false}};
+  }
+  if (method === 'POST' && route === '/my-font') {
+    if (!deps.uploadMyFont) return {status:503,json:{ok:false}};
+    try { return {status:200,json:{ok:true,...deps.uploadMyFont(opts.body)}}; }
+    catch { return {status:400,json:{ok:false,message:'请选择不超过 32 MB 的 TTF、OTF、WOFF 或 WOFF2 字体。'}}; }
+  }
+  if (method === 'GET' && route.startsWith('/fonts/')) {
+    const file = fontAsset(route.slice(7));
+    return file ? { status:200, binary:file } : { status:404, json:{ok:false} };
+  }
+  if (method === 'GET' && /^\/palette\/[a-f0-9]{6}$/i.test(route))
+    return { status:200, json:customPalettes('#' + route.slice(9)) };
+  if (method === 'GET' && route.startsWith('/background/')) {
+    const file = deps.background?.(route.slice(12));
+    return file ? { status:200, binary:file } : { status:404, json:{ok:false} };
+  }
+  if (method === 'POST' && route === '/background') {
+    if (!deps.uploadBackground) return { status:503, json:{ok:false} };
+    try { return { status:200, json:{ok:true, id:deps.uploadBackground(opts.body)} }; }
+    catch { return { status:400, json:{ok:false, message:'请选择不超过 8 MB 的 PNG、JPEG 或 WebP 图片。'} }; }
+  }
+  if (method === 'GET' && route === '/feedback-qr.png')
+    return { status: 200, binary: { bytes: await feedbackQr(), mime: 'image/png' } };
   if (method === 'GET' && route === '/sounds') return { status: 200, json: { files: soundLibrary() } };
   if (method === 'GET' && route.startsWith('/sounds/')) {
     let id = ''; try { id = decodeURIComponent(route.slice(8)); } catch { return {status:400,json:{ok:false}}; }
@@ -217,9 +262,10 @@ export async function handlePage(
     if (route === '/wake') {
       if (!deps.wakeControl || !['write', 'catch', 'remind'].includes(String(body?.action)) ||
         !['pause', 'resume', 'interval'].includes(String(body?.command)) ||
-        (body?.command === 'interval' && (typeof body.hours !== 'number' || !Number.isFinite(body.hours) || body.hours < 2 || body.hours > 24)))
+        (body?.command === 'interval' && (typeof body.hours !== 'number' || !Number.isFinite(body.hours) || body.hours < 2 || body.hours > 24 ||
+          (body.dayLimit !== undefined && (typeof body.dayLimit !== 'number' || !Number.isInteger(body.dayLimit) || body.dayLimit < 1 || body.dayLimit > 24)))))
         return { status: 400, json: { ok: false, message: '请检查邀请设置。' } };
-      return { status: 200, json: await deps.wakeControl(body!.action as WakeAction, body!.command as 'pause' | 'resume' | 'interval', body!.hours as number | undefined) };
+      return { status: 200, json: await deps.wakeControl(body!.action as WakeAction, body!.command as 'pause' | 'resume' | 'interval', body!.hours as number | undefined, body!.dayLimit as number | undefined) };
     }
     if ((route === '/write' || route === '/catch') && body?.actor !== undefined && body.actor !== 'bot' && body.actor !== 'human')
       return { status: 400, json: { ok: false, message: '请选择谁来行动。' } };
@@ -264,7 +310,7 @@ type BodyRead = { ok: true; value: unknown } | { ok: false };
  * 「没带 letterId」＝「清空整本信册」。请求体坏掉时宁可整个动作不做，
  * 也不要去执行一个比人类预期更狠的动作。
  */
-export function readBody(req: IncomingMessage): Promise<BodyRead> {
+export function readBody(req: IncomingMessage, limit = 4096): Promise<BodyRead> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -272,7 +318,7 @@ export function readBody(req: IncomingMessage): Promise<BodyRead> {
     req.on('data', (chunk: Buffer) => {
       size += chunk.length;
       // 超限时整块丢弃会把 JSON 截断成「看起来合法」的半截，所以直接标记读不出来
-      if (size > 4096) {
+      if (size > limit) {
         tooLarge = true;
         return;
       }
@@ -314,7 +360,7 @@ export function pageHandler(deps: PageDeps, log?: (line: string) => void, remote
 
     const surface: Surface = remote ? 'remote' : req.headers['x-bottle-surface'] === 'card' ? 'card' : 'page';
 
-    void readBody(req)
+    void readBody(req, path === '/background' ? Math.ceil(BACKGROUND_MAX_BYTES / 3) * 4 + 128 : path === '/my-font' ? Math.ceil(MY_FONT_MAX_BYTES / 3) * 4 + 2048 : 4096)
       .then((read) => {
         if (!read.ok) {
           res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
@@ -338,7 +384,7 @@ export function pageHandler(deps: PageDeps, log?: (line: string) => void, remote
           res.writeHead(result.status, {
             'content-type': result.binary.mime,
             'content-length': result.binary.bytes.byteLength,
-            'cache-control': 'public, max-age=3600',
+            'cache-control': (path.startsWith('/background/') || path.startsWith('/my-font/')) ? 'private, max-age=3600' : 'public, max-age=3600',
             'x-content-type-options': 'nosniff',
           });
           res.end(result.binary.bytes);

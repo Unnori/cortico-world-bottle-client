@@ -54,15 +54,17 @@ export async function readMailboxTheme(botDir: string): Promise<MailboxTheme> {
 export function readThemePreference(dataDir: string): ThemePreference | undefined {
   try {
     const value = JSON.parse(readFileSync(join(dataDir, 'bottle-appearance.json'), 'utf8'));
-    return isThemePreference(value) ? { theme: value.theme, mode: value.mode } : undefined;
+    return isThemePreference(value) ? { theme: value.theme, mode: value.mode, ...(value.customColor !== undefined ? { customColor:value.customColor } : {}), ...(value.background !== undefined ? { background:value.background } : {}), ...(value.backgroundTransparency !== undefined ? { backgroundTransparency:value.backgroundTransparency } : {}), ...(value.myFont !== undefined ? { myFont:value.myFont } : {}), ...(value.myFontName !== undefined ? { myFontName:value.myFontName } : {}) } : undefined;
   } catch { return undefined; }
 }
 export function saveThemePreference(dataDir: string, value: ThemePreference): void {
   if (!isThemePreference(value)) throw new Error('Invalid mailbox appearance');
+  // An older open page may only submit theme/mode; preserve newer optional settings.
+  value = { ...readThemePreference(dataDir), ...value };
   const path = join(dataDir, 'bottle-appearance.json');
   const temp = path + '.' + randomUUID() + '.tmp';
   try {
-    writeFileSync(temp, JSON.stringify({ theme: value.theme, mode: value.mode }) + '\n', 'utf8');
+    writeFileSync(temp, JSON.stringify({ theme: value.theme, mode: value.mode, ...(value.customColor !== undefined ? { customColor:value.customColor } : {}), ...(value.background !== undefined ? { background:value.background } : {}), ...(value.backgroundTransparency !== undefined ? { backgroundTransparency:value.backgroundTransparency } : {}), ...(value.myFont !== undefined ? { myFont:value.myFont } : {}), ...(value.myFontName !== undefined ? { myFontName:value.myFontName } : {}) }) + '\n', 'utf8');
     renameSync(temp, path);
   } finally { try { unlinkSync(temp); } catch { /* renamed, or never created */ } }
 }

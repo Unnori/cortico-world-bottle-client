@@ -1,0 +1,132 @@
+{
+  "date": "2026-11-03",
+  "redistributable": [
+    {
+      "name": "LXGWWenKaiMono-Medium.ttf",
+      "file": "LXGWWenKaiMono-Medium.woff2",
+      "label": "霞鹜文楷等宽",
+      "source": "https://github.com/lxgw/LxgwWenKai",
+      "license": "OFL-1.1",
+      "notice": "licenses/LXGWWenKaiMono-Medium-OFL.txt",
+      "originalBytes": 25864536,
+      "bytes": 10790044,
+      "originalSha256": "87edc1b6e2a5a6aae1f91b0a600538f3b2924e0f69c0080b97e50cd6f8763546",
+      "sha256": "e2e54eb9c9b3395d39eaa45f1fffbf377cff4e25abc6b4c7f9c28058179a416b",
+      "tableDataVerified": true
+    },
+    {
+      "name": "Yozai-Regular.ttf",
+      "file": "Yozai-Regular.woff2",
+      "label": "霞鹜悠哉",
+      "source": "https://github.com/lxgw/yozai-font",
+      "license": "OFL-1.1",
+      "notice": "licenses/Yozai-Regular-OFL.txt",
+      "originalBytes": 15605374,
+      "bytes": 8221224,
+      "originalSha256": "25071998a0fe6a72f54c235e714986d259633e5ff670b1a2b5e264387f3316ac",
+      "sha256": "f3caf51974f837147929e1a62eb7fdf6fca4c3d1c81cb35fbf0930b786e9d50c",
+      "tableDataVerified": true
+    },
+    {
+      "name": "小赖字体 SC.ttf",
+      "file": "小赖字体 SC.woff2",
+      "label": "小赖字体",
+      "source": "https://github.com/lxgw/kose-font",
+      "license": "OFL-1.1",
+      "notice": "licenses/小赖字体 SC-OFL.txt",
+      "originalBytes": 25056308,
+      "bytes": 14159020,
+      "originalSha256": "69f8f50a9a3696357b50b4c5d7d17efecb17a23c7a818ff917c21169f15555f9",
+      "sha256": "0b445144bb8edb71972c138c73628588f274be4d68792eeae6c06623a9973b3d",
+      "tableDataVerified": true
+    },
+    {
+      "name": "NaikaiFont-Regular-2.ttf",
+      "file": "NaikaiFont-Regular-2.woff2",
+      "label": "內海字體",
+      "source": "https://github.com/max32002/naikaifont",
+      "license": "OFL-1.1",
+      "notice": "licenses/NaikaiFont-Regular-2-OFL.txt",
+      "originalBytes": 13836832,
+      "bytes": 7479548,
+      "originalSha256": "714d2e8417a390c80a1333a1d811377fdad6f3e275b24738f29afc904fdce032",
+      "sha256": "31b33241ad1ade28bbb35b3a6758c28630547cdb572a7ec4e517fe848238f8ef",
+      "tableDataVerified": true
+    },
+    {
+      "name": "清松手写体1-Regular.ttf",
+      "file": "清松手写体1-Regular.woff2",
+      "label": "清松手写体1",
+      "source": "https://github.com/jasonhandwriting/JasonHandwriting",
+      "license": "OFL-1.1",
+      "notice": "licenses/清松手写体1-Regular-OFL.txt",
+      "originalBytes": 19207880,
+      "bytes": 7627900,
+      "originalSha256": "55682260720142e7b0d9672794dedb6eb4a7da852339640baf7b9f17d2460f88",
+      "sha256": "b99cbe4c7502a1e4c7de9513c2424670a788965888084775906a4f6cd6a79bb9",
+      "tableDataVerified": true
+    },
+    {
+      "name": "清松手写体2-Regular.ttf",
+      "file": "清松手写体2-Regular.woff2",
+      "label": "清松手写体2",
+      "source": "https://github.com/jasonhandwriting/JasonHandwriting",
+      "license": "OFL-1.1",
+      "notice": "licenses/清松手写体2-Regular-OFL.txt",
+      "originalBytes": 19659300,
+      "bytes": 6858828,
+      "originalSha256": "24a537207e7a19f8e12ad6e4f413d5328cba25763296c56d9fb84f87f092f4f5",
+      "sha256": "a20bc1d2dfc3977fc86a653a8b44d9d4d8821b67d6cbe9fdc0cd9c115f81f30c",
+      "tableDataVerified": true
+    },
+    {
+      "name": "清松手写体8.ttf",
+      "file": "清松手写体8.woff2",
+      "label": "清松手写体8",
+      "source": "https://github.com/jasonhandwriting/JasonHandwriting",
+      "license": "OFL-1.1",
+      "notice": "licenses/清松手写体8-OFL.txt",
+      "originalBytes": 8030664,
+      "bytes": 4527504,
+      "originalSha256": "1437de4a5fee29a5c6b43450df56e734af9cddb5b3a68d236cf5f42be178c93f",
+      "sha256": "3bcf4f4658058ad8032f2f6c4996bc78ef1ca43a82c5d974f2bee9e86f9d2718",
+      "tableDataVerified": true
+    },
+    {
+      "name": "清松手写体9.ttf",
+      "file": "清松手写体9.woff2",
+      "label": "清松手写体9",
+      "source": "https://github.com/jasonhandwriting/JasonHandwriting",
+      "license": "OFL-1.1",
+      "notice": "licenses/清松手写体9-OFL.txt",
+      "originalBytes": 8379644,
+      "bytes": 4770480,
+      "originalSha256": "b50728e2c7442a76a661c4d43c8ec22142e8edc83909a9d40b7c25d04bd04cf5",
+      "sha256": "2d97aa9d97544a977672dbb62a38aaf6fb3690c5526d212e6f767b1646b4adc6",
+      "tableDataVerified": true
+    },
+    {
+      "name": "随峰体Plus.ttf",
+      "file": "随峰体Plus.woff2",
+      "label": "隨峰體Plus",
+      "source": "https://cjkfonts.io/blog/ThePeakFontPlus",
+      "license": "OFL-1.1",
+      "notice": "licenses/随峰体Plus-OFL.txt",
+      "originalBytes": 15800788,
+      "bytes": 8727104,
+      "originalSha256": "3ad901397db9c4917e4e99ae07ab856e85e312c8624cbcb90e38316ca718cfea",
+      "sha256": "a3619ed8c3f32de0676d7c55c34c21b98e432dc8aa31c1c81d4c7b687e6b1aa5",
+      "tableDataVerified": true
+    }
+  ],
+  "restricted": {
+    "id-ftmaru400b-2.otf": "作者免费汉字字体协议禁止向第三方转让字体数据、格式转换等行为。https://idfont.jp/infos_mb.html",
+    "鸿雷小纸条青春体.ttf": "随附声明限制共享、网络传播及修改后再发布；公开分发须取得作者同意。原始声明一并保存。"
+  },
+  "unverified": {
+    "Muyao-Softbrush-2.ttf": "元数据为 Muyao-Softbrush / FlexiFont。未找到对应版本允许二次分发与格式转换的作者原文。",
+    "PingFangShiGuangTi-2.ttf": "元数据版权方为平方造字。下载站免费商用介绍不足以证明当前文件可再分发和转换。",
+    "QingSongShouXieTi1-2.ttf": "旧版 JasonWriting1 / Version 1.016，文件没有 OFL 声明；作者现仓库许可针对 JasonHandwriting 系列，暂不推及此旧文件。",
+    "YaoSuiXinShouXieTi-2.ttf": "元数据家族为 MuyaoPleased，无版权或许可证字段，未找到当前文件分发及转换许可。"
+  }
+}

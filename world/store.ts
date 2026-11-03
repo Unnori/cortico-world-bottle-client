@@ -43,6 +43,7 @@ export interface LocalHeld {
 /** 别人回给我的一封。只读，没有选项。 */
 export interface LocalReply {
   readCount?: number;
+  lastReadAt?: number;
   letterId: string;
   from: string;
   body: string;
@@ -63,7 +64,10 @@ export type ReceivedOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'exp
 
 /** 我捞到过的信。outcome 记的是这件事最后怎么收场。 */
 export interface ReceivedLetter {
+  /** Latest catch; at remains the date first collected in the letterbook. */
+  lastCaughtAt?: number;
   readCount?: number;
+  lastReadAt?: number;
   letterId: string;
   from: string;
   body: string;
@@ -154,6 +158,10 @@ export class LocalStore {
   }
 
   load(): void {
+    // Restarting the same World instance must not keep records removed on disk.
+    this.held = null;
+    this.draft = null;
+    this.letterDraft = null;
     const id = readJson<Partial<Identity>>(this.identityFile);
     if (id && typeof id.clientId === 'string' && id.clientId) {
       this.identity = { clientId: id.clientId, pseudonym: typeof id.pseudonym === 'string' ? id.pseudonym : '' };
@@ -234,6 +242,7 @@ export class LocalStore {
         body: item.body,
         at: Number(item.at ?? 0),
         readCount: readingCount(item.readCount),
+        ...(typeof item.lastReadAt === 'number' && Number.isFinite(item.lastReadAt) && item.lastReadAt > 0 ? { lastReadAt: item.lastReadAt } : {}),
       }));
 
     const sent = Array.isArray(book?.sent) ? book.sent : [];
@@ -252,7 +261,9 @@ export class LocalStore {
         body: item.body,
         at: Number(item.at ?? 0),
         readCount: readingCount(item.readCount),
+        ...(typeof item.lastReadAt === 'number' && Number.isFinite(item.lastReadAt) && item.lastReadAt > 0 ? { lastReadAt: item.lastReadAt } : {}),
         outcome: normalizeOutcome(item.outcome),
+        ...(typeof item.lastCaughtAt === 'number' && Number.isFinite(item.lastCaughtAt) && item.lastCaughtAt > 0 ? { lastCaughtAt: item.lastCaughtAt } : {}),
         ...(item.seed === true ? { seed: true } : {}),
         ...(typeof item.myReply === 'string' && item.myReply ? { myReply: item.myReply } : {}),
         ...(typeof item.signature === 'string' && item.signature ? { signature: item.signature } : {}),
@@ -340,6 +351,7 @@ export class LocalStore {
       existing.body = letter.body;
       existing.from = letter.from;
       existing.outcome = letter.outcome;
+      if (letter.lastCaughtAt) existing.lastCaughtAt = letter.lastCaughtAt;
       if (letter.seed === true) existing.seed = true;
       if (letter.signature) existing.signature = letter.signature;
       if (letter.topic) existing.topic = letter.topic;
@@ -350,10 +362,11 @@ export class LocalStore {
   }
 
   /** Count only successful, explicitly authorized hand-offs, never page expansion. */
-  noteRead(kind: 'received' | 'reply', letterId: string): void {
+  noteRead(kind: 'received' | 'reply', letterId: string, at = Date.now()): void {
     const rows = kind === 'received' ? this.received : this.replies;
     const record = rows.find(item => item.letterId === letterId);
     if (!record) return;
+    record.lastReadAt = at;
     record.readCount = Math.min(Number.MAX_SAFE_INTEGER, readingCount(record.readCount) + 1);
     this.saveLetterbook();
   }

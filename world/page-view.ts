@@ -1,9 +1,18 @@
+import { announcementDismissScript, announcementLinksScript } from './page-announcement.ts';
+import { WAKE_POLICIES } from './wake-policy.ts';
+import { DEFAULT_MY_FONT } from './default-font.ts';
+import { customPalettes } from './appearance.ts';
+import { customizationHtml, customizationScript } from './page-customization.ts';
+import { FEEDBACK_FORM_URL, WORLD_VERSION } from './feedback.ts';
 import { pageSoundScript, soundSettingsHtml } from './page-sound.ts';
+import { stationeryScript } from './page-stationery.ts';
+import { readerHtml, readerScript } from './page-reader.ts';
 import { pageStyles } from './page-style.ts';
 import type { MailboxTheme } from './theme.ts';
 
 /** 单文件页面。数据全部从 `/draft` 拿，这里只写骨架与交互。 */
 export function pageHtml(hostTheme: MailboxTheme = { available: false }): string {
+  const customJson = JSON.stringify(customPalettes(hostTheme.preference?.customColor ?? '#4b62a0'));
   const themeJson = JSON.stringify(hostTheme).replace(/</g, '\\u003c');
   return `<!doctype html>
 <html lang="zh-CN" data-theme="ocean">
@@ -13,15 +22,17 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
 <title>漂流瓶 · 信箱</title>
 <meta name="theme-color" content="#f0f4fb" id="browser-theme-color">
 <script type="application/json" id="host-theme">${themeJson}</script>
+<script type="application/json" id="custom-palettes">${customJson}</script>
 <script data-theme-init>
 (function(){
   var root=document.documentElement,theme='ocean',mode='system';
-  try{var saved=localStorage.getItem('bottle-theme');if(['ocean','paper','coopanion'].indexOf(saved)>=0)theme=saved;
+  try{var saved=localStorage.getItem('bottle-theme');if(['ocean','paper','coopanion','custom'].indexOf(saved)>=0)theme=saved;
     saved=localStorage.getItem('bottle-appearance');if(['system','light','dark'].indexOf(saved)>=0)mode=saved;}catch(e){}
-  try{var pref=JSON.parse(document.getElementById('host-theme').textContent).preference;if(pref&&['ocean','paper','coopanion'].indexOf(pref.theme)>=0&&['system','light','dark'].indexOf(pref.mode)>=0){theme=pref.theme;mode=pref.mode;}}catch(e){}
+  try{var pref=JSON.parse(document.getElementById('host-theme').textContent).preference;if(pref&&['ocean','paper','coopanion','custom'].indexOf(pref.theme)>=0&&['system','light','dark'].indexOf(pref.mode)>=0){theme=pref.theme;mode=pref.mode;}}catch(e){}
   root.dataset.theme=theme;root.dataset.mode=mode;
   var dark=mode==='dark'||(mode==='system'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);
   root.dataset.appearance=dark?'dark':'light';
+  try{if(theme==='custom'){var custom=JSON.parse(document.getElementById('custom-palettes').textContent)[dark?'dark':'light'];Object.keys(custom).forEach(function(key){root.style.setProperty('--'+key,custom[key]);});}}catch(e){}
   try{var host=JSON.parse(document.getElementById('host-theme').textContent);var palette=host.available&&host.palettes[dark?'dark':'light'];
     var keys=['paper','sheet','sheet-2','sheet-3','ink','ink-soft','line','line-2','line-strong','accent','on-accent','ink-blue','ok','warn','danger'];if(palette&&keys.every(function(key){return /^#[0-9a-f]{6}$/i.test(palette[key]);})){root.dataset.hostTheme='true';keys.forEach(function(key){root.style.setProperty('--host-'+key,palette[key]);});}}catch(e){}
 })();
@@ -31,25 +42,32 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
 <style>${pageStyles}</style>
 </head>
 <body id="bottle-mailbox">
+<div id="mailbox-scenery" aria-hidden="true"><div id="background-layer-0" class="background-layer"></div><div id="background-layer-1" class="background-layer"></div></div>
 <svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+  <symbol id="i-waves" viewBox="0 0 36 18"><path d="M2 6c4-5 7 5 11 0s7 5 11 0 7 5 10 0M7 12c4-5 7 5 11 0s7 5 11 0"/></symbol>
   <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 6 9 7 9-7M3 19l6-6m12 6-6-6"/></symbol>
   <symbol id="i-pen" viewBox="0 0 24 24"><path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14zM4 20l3-7M13 21h8"/></symbol>
   <symbol id="i-bottle" viewBox="0 0 24 24"><path d="M10 2h4v5l3 4v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-9l3-4zM9 3h6M7 14h10M10 17h4"/></symbol>
   <symbol id="i-post" viewBox="0 0 24 24"><path d="M3 10h18M5 10v10h14V10M3 7l9-5 9 5M9 20v-6h6v6M2 22h20"/></symbol>
+  <symbol id="i-feedback" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0Z"/><path d="M7 9h9M7 13h6"/></symbol>
   <symbol id="i-reply" viewBox="0 0 24 24"><path d="m9 5-6 6 6 6M3 11h11c5 0 7 3 7 8"/></symbol>
   <symbol id="i-send" viewBox="0 0 24 24"><path d="m3 4 18 8-18 8 3-8zM6 12h15"/></symbol>
 </defs></svg>
+${readerHtml}
 <div class="shell">
   <div class="masthead">
     <div class="brand"><span class="brand-mark"><img src="/icon.png" alt="" width="48" height="48"></span><div><h1>漂流瓶</h1><small>LETTERS FROM THE SEA</small></div></div>
     <div class="masthead-end"><div class="sub">一片海 · 一封信 · 一次相遇</div>
+      <button class="feedback-entry" id="feedback-entry" type="button" aria-haspopup="dialog" aria-controls="feedback-dialog"><svg class="icon" aria-hidden="true"><use href="#i-feedback"/></svg><span>反馈</span></button>
       <div class="theme-picker" id="theme-picker">
         <button class="theme-toggle" id="theme-toggle" type="button" aria-expanded="false" aria-controls="theme-menu" aria-label="切换信箱配色"><span class="theme-dot" aria-hidden="true"></span><span class="theme-toggle-label">信箱外观<span id="theme-name">潮蓝</span></span><svg class="theme-chevron" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <div class="theme-menu" id="theme-menu" role="group" aria-label="信箱配色" hidden><div class="theme-menu-heading"><strong>给信箱换一种心情</strong><span>信纸与灯光</span></div><div class="theme-options">
-          <button id="theme-ocean" type="button" aria-pressed="true"><span class="theme-swatch swatch-ocean" aria-hidden="true"></span><span><strong>潮蓝</strong><small>海边的蓝</small></span><span class="theme-check" aria-hidden="true">✓</span></button>
-          <button id="theme-paper" type="button" aria-pressed="false"><span class="theme-swatch swatch-paper" aria-hidden="true"></span><span><strong>暖纸</strong><small>旧日信纸</small></span><span class="theme-check" aria-hidden="true">✓</span></button>
-          <button id="theme-coopanion" type="button" aria-pressed="false"><span class="theme-swatch swatch-coopanion" aria-hidden="true"></span><span><strong>Coopanion</strong><small>跟随桌宠配色</small></span><span class="theme-check" aria-hidden="true">✓</span></button>
+          <button id="theme-ocean" type="button" aria-pressed="true"><span class="theme-swatch swatch-ocean" aria-hidden="true"></span><span><strong>潮蓝</strong><small>海边的蓝</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
+          <button id="theme-paper" type="button" aria-pressed="false"><span class="theme-swatch swatch-paper" aria-hidden="true"></span><span><strong>暖纸</strong><small>旧日信纸</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
+          <button id="theme-coopanion" type="button" aria-pressed="false"><span class="theme-swatch swatch-coopanion" aria-hidden="true"></span><span><strong>Coopanion</strong><small>跟随桌宠配色</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
           </div><div class="appearance-settings"><p>明暗模式</p><div class="appearance-options" role="group" aria-label="明暗模式"><button id="mode-system" type="button" aria-pressed="true">跟随系统</button><button id="mode-light" type="button" aria-pressed="false">浅色</button><button id="mode-dark" type="button" aria-pressed="false">深色</button></div><small id="theme-sync-note" role="status">明暗可以自由选择，配色会为你记住。</small><small id="theme-card-note" role="status">桌面信笺也会换上相同配色。</small></div>
+          <p id="my-font-current" class="theme-font-current" role="status">写信笔迹 · ${DEFAULT_MY_FONT.name}（默认）</p>
+          ${customizationHtml}
         </div>
       </div>
     </div>
@@ -66,12 +84,13 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
       <button class="action-main" id="write-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-pen"/></svg><span><strong id="write-label">写一封信</strong><small>把此刻的心事寄给远方</small></span></button>
       <button class="action-main catch" id="catch-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-bottle"/></svg><span><strong id="catch-label">去海边打捞</strong><small>捞起海上来客的一封信</small></span></button>
     </div>
+    <div class="invitation-outcome" role="status" aria-live="polite"><span class="invitation-outcome-label">邀请回音</span><p id="wake-outcome">还没有新的邀请。</p></div>
     <p id="action-note" role="status">信写好后，寄不寄由你决定。</p>
   </div>
   </div>
-  <details class="invitation-settings"><summary>海边的邀请 · 暂停与间隔</summary>
-    <p id="wake-note">自动邀请与待办提醒可以分别暂停。间隔设为 2—24 小时，实际时刻在该间隔的 1—2 倍内随机（最长 24 小时）；每天每类最多 3 次。</p>
-    <div id="wake-controls"><div class="invitation-row"><span id="wake-write-status">写信邀请</span><label>最短间隔 <input id="wake-write-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><button class="btn" type="button" id="wake-write-save">调整</button><button class="btn" type="button" id="wake-write-toggle">暂停</button></div><div class="invitation-row"><span id="wake-catch-status">打捞邀请</span><label>最短间隔 <input id="wake-catch-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><button class="btn" type="button" id="wake-catch-save">调整</button><button class="btn" type="button" id="wake-catch-toggle">暂停</button></div><div class="invitation-row"><span id="wake-remind-status">待办提醒</span><label>最短间隔 <input id="wake-remind-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><button class="btn" type="button" id="wake-remind-save">调整</button><button class="btn" type="button" id="wake-remind-toggle">暂停</button></div></div><p id="wake-outcome" role="status"></p>
+  <details class="invitation-settings"><summary>海边的邀请 · 间隔与次数</summary>
+    <p id="wake-note">自动邀请与待办提醒可以分别暂停。写信、打捞间隔设为 2—24 小时，实际在 1—2 倍内随机（最长 24 小时），每天默认各 3 次，可设 1—24 次。待办提醒仅在手上有未处理来信时触发，默认每 30—60 分钟一次，每天最多 12 次，可设 3—20 次；没有来信或只有草稿时不提醒。自动补试计入上限，手动邀请不占上限。</p>
+    <div id="wake-controls"><div class="invitation-row"><span id="wake-write-status">写信邀请</span><label>最短间隔 <input id="wake-write-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><label>每日上限 <input id="wake-write-limit" type="number" min="1" max="24" step="1" value="3"> 次</label><button class="btn" type="button" id="wake-write-save">调整</button><button class="btn" type="button" id="wake-write-toggle">暂停</button></div><div class="invitation-row"><span id="wake-catch-status">打捞邀请</span><label>最短间隔 <input id="wake-catch-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><label>每日上限 <input id="wake-catch-limit" type="number" min="1" max="24" step="1" value="3"> 次</label><button class="btn" type="button" id="wake-catch-save">调整</button><button class="btn" type="button" id="wake-catch-toggle">暂停</button></div><div class="invitation-row"><span id="wake-remind-status">待办提醒</span><label>最短间隔 <input id="wake-remind-hours" type="number" min="0.5" max="1" step="0.01" value="0.5"> 小时</label><label>每日上限 <input id="wake-remind-limit" type="number" min="3" max="20" step="1" value="12"> 次</label><button class="btn" type="button" id="wake-remind-save">调整</button><button class="btn" type="button" id="wake-remind-toggle">暂停</button></div></div>
   </details>
   ${soundSettingsHtml}
   <div id="announcements" aria-live="polite"></div>
@@ -94,18 +113,22 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     </div>
   </details>
   <div class="foot" id="foot"></div>
-  <div class="feedback-line"><button class="feedback-entry" id="feedback-entry" type="button" aria-haspopup="dialog">想对毛球说…</button><span>这片海，也想听听你的声音。</span></div>
+
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <dialog class="feedback-dialog" id="feedback-dialog" aria-labelledby="feedback-title" aria-describedby="feedback-intro">
-  <div class="feedback-heading"><div><span class="feedback-kicker">留一张小便笺</span><h2 id="feedback-title">想说什么，都欢迎。</h2></div><button id="feedback-close" class="feedback-close" type="button" aria-label="关闭反馈便笺" autofocus>×</button></div>
+  <div class="feedback-heading"><div><span class="feedback-kicker">留一张小便笺</span><h2 id="feedback-title">想说什么，都欢迎。</h2></div><button id="feedback-close" class="feedback-close" type="button" aria-label="关闭反馈便笺" autofocus><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m4 4 8 8m0-8-8 8"/></svg></button></div>
   <p id="feedback-intro">这片海哪里不顺手、遇到了什么 bug，或突然冒出一个新点子，都可以来跟我说。不用整理成正式报告，随口一句也很好。</p>
   <a class="feedback-path" href="https://github.com/Unnori/cortico-world-bottle-client/issues/new" target="_blank" rel="noopener noreferrer"><strong>在 GitHub 留张便笺 <span aria-hidden="true">↗</span></strong><small>会打开新页面，写下你想告诉我的就好。</small></a>
+  <div class="feedback-version" aria-label="当前 World 版本号"><span>当前 World 版本号</span><strong>${WORLD_VERSION ? 'V' + WORLD_VERSION : '版本暂不可用'}</strong><small>反馈时带上它，会更方便我找到问题。谢谢你。</small></div>
+  <a class="feedback-path feedback-form" href="${FEEDBACK_FORM_URL}" target="_blank" rel="noopener noreferrer"><strong>漂流瓶 · 和云纪说说话 <span aria-hidden="true">↗</span></strong><small>打开反馈收集表。小问题、新想法，随口写一点就好。</small></a>
+  <details class="feedback-qr"><summary>也可以扫码留下便笺</summary><img src="/feedback-qr.png" width="240" height="240" alt="漂流瓶反馈收集表二维码"><p class="feedback-whisper">扫描二维码，打开同一份反馈收集表。</p></details>
   <div class="feedback-path feedback-group"><strong>也可以，直接在群里喊我</strong><p>各大「Coo 的家长群」1～5 群我都在，直接 <b>@会动的毛球</b> 就能找到我。不确定是不是问题，也没关系。</p></div>
   <p class="feedback-whisper"><s>甚至只是来找我闲聊，也可以。</s></p>
   <p class="feedback-signoff">谢谢你愿意来聊一聊。<span>—— 毛球</span></p>
 </dialog>
 <script>
+var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
 (function () {
   var state = null;
   var actor = 'bot'; // Each visit starts with a free-choice invitation, never a direct catch.
@@ -120,6 +143,7 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
   var refreshSequence = 0;
   var renderedState = '';
   var arrivalKeys = new Set();
+  var deskKeys = new Set(), deskEntries = [], pendingDeskKey = null;
 
   function reducedMotion() { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
   function reveal(node) {
@@ -142,7 +166,12 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
   }
   function closeFeedback() { dismissAnimated(feedback, function () { feedback.close(); }); }
 
-  var themes = { ocean: { name: '潮蓝', light: '#f0f4fb', dark: '#151d2e' }, paper: { name: '暖纸', light: '#f6f1e6', dark: '#211e19' }, coopanion: { name: 'Coopanion', light: '#f0f4fb', dark: '#151d2e' } };
+  ${announcementLinksScript}
+  ${announcementDismissScript}
+  ${customizationScript}
+  ${readerScript}
+  ${stationeryScript}
+  var themes = { custom: { name: '我的颜色', light: '#f0f4fb', dark: '#151d2e' }, ocean: { name: '潮蓝', light: '#f0f4fb', dark: '#151d2e' }, paper: { name: '暖纸', light: '#f6f1e6', dark: '#211e19' }, coopanion: { name: 'Coopanion', light: '#f0f4fb', dark: '#151d2e' } };
   var themePicker = document.getElementById('theme-picker');
   var themeMenu = document.getElementById('theme-menu');
   var themeToggle = document.getElementById('theme-toggle');
@@ -171,11 +200,15 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     var saved = initialTheme.preference;
     if (saved && Object.prototype.hasOwnProperty.call(themes, saved.theme) && ['system','light','dark'].indexOf(saved.mode) >= 0) {
       currentTheme = saved.theme; appearanceMode = saved.mode; appearanceStarted = true;
+      if (/^#[0-9a-f]{6}$/i.test(saved.customColor || '')) customColor = saved.customColor;
+      if (/^[a-f0-9]{64}\\.(png|jpg|webp)$/.test(saved.background || '')) backgroundId = saved.background;
+      if (typeof saved.backgroundTransparency === 'number') backgroundTransparency = Math.max(0,Math.min(100,saved.backgroundTransparency));
+      if (/^[a-f0-9]{64}\\.(ttf|otf|woff2?)$/.test(saved.myFont || '')) {myFontId=saved.myFont;myFontName=typeof saved.myFontName==='string'?saved.myFontName:'';}
       savePref('bottle-theme', currentTheme); savePref('bottle-appearance', appearanceMode);
     }
   } catch (e) {}
   function syncAppearance() {
-    var preference = { theme: currentTheme, mode: appearanceMode };
+    var preference = { theme: currentTheme, mode: appearanceMode, customColor: customColor, background: backgroundId, backgroundTransparency: backgroundTransparency, myFont: myFontId, myFontName: myFontName };
     appearanceSave = appearanceSave.then(function () {
       return fetch('/appearance', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-bottle': '1' }, body: JSON.stringify(preference) })
         .then(function (res) { if (!res.ok) throw new Error('appearance unavailable');
@@ -197,6 +230,8 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     document.getElementById('theme-sync-note').textContent = currentTheme === 'coopanion'
       ? themeSyncOk ? '已同步当前配色；明暗由上方选择。' : hostTheme ? '暂时无法同步，保留上次配色。' : '暂未取得 Coopanion 配色，先用潮蓝。'
       : '明暗可以自由选择，配色会为你记住。';
+    applyCustomization(appearance);
+    if (currentTheme === 'custom' && customColors[appearance]) document.getElementById('browser-theme-color').setAttribute('content', customColors[appearance].paper);
     if (persist) { savePref('bottle-theme', currentTheme); syncAppearance(); }
   }
   function refreshHostTheme(force) {
@@ -223,7 +258,7 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     document.getElementById('theme-' + currentTheme).focus();
   };
   Object.keys(themes).forEach(function (key) {
-    document.getElementById('theme-' + key).onclick = function () { applyTheme(key, true); refreshHostTheme(true); };
+    document.getElementById('theme-' + key).onclick = function () { customColorRequest++; applyTheme(key, true); refreshHostTheme(true); document.getElementById('customization-note').textContent = '颜色和背景会保存在这只信箱，其他设备也能看到。'; };
   });
   applyTheme(currentTheme, false);
   document.addEventListener('click', function (event) {
@@ -382,17 +417,16 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     card.dataset.kind = draft.kind;
     var topic = isLetter ? draft.topic : null;
     card.appendChild(el('div', 'eyebrow', isLetter ? '信稿 · 尚未寄出' : '回信稿 · 尚未寄出'));
-    card.appendChild(el('h2', 'title', isLetter ? topic || '无题信' : '回信'));
+    if (!isLetter) card.appendChild(el('h2', 'title', '回信'));
+    card.appendChild(letterSheet({ topic: isLetter ? topic || '无题信' : null, body: draft.body, own: true, signature: botName(), heading: 'h2' }));
 
     if (!isLetter && s.held) {
       var detail = rememberDetails(el('details', 'original'), 'original:' + s.held.letterId);
       detail.appendChild(el('summary', null, '看看原来那一封（来自 ' + s.held.from + '）'));
-      if (s.held.topic) detail.appendChild(el('div', 'mail-topic', s.held.topic));
-      detail.appendChild(el('div', 'letter small', s.held.body));
+      detail.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.signature || s.held.from }));
       card.appendChild(detail);
     }
 
-    card.appendChild(el('div', 'letter', draft.body));
     card.appendChild(el('div', 'meta', draft.chars + ' / 120 字'));
 
     if (draft.hints && draft.hints.length) {
@@ -435,8 +469,8 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     var head = el('div', 'eyebrow', '捞到一封 · 来自 ');
     head.appendChild(el('span', 'who', s.held.from));
     card.appendChild(head);
-    card.appendChild(el('h2', 'title', s.held.topic || '还没决定要不要回'));
-    card.appendChild(el('div', 'letter', s.held.body));
+    if (!s.held.topic) card.appendChild(el('h2', 'title', '还没决定要不要回'));
+    card.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.from, heading: 'h2' }));
     card.appendChild(el('div', 'meta', s.held.hoursLeft > 0 ? '还有 ' + s.held.hoursLeft + ' 小时回海' : '随时会回海'));
     // 今天回不了就直说，别让人点了「回信」才发现第 4 封被 429
     if (s.canReply === false) {
@@ -459,7 +493,7 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     head.appendChild(el('span', 'who', s.held.from));
     card.appendChild(head);
     card.appendChild(el('h2', 'title', '它的字被海带走了'));
-    card.appendChild(el('div', 'letter', s.held.body || '这封的字已经不在海上了。'));
+    card.appendChild(letterSheet({ body: s.held.body || '这封的字已经不在海上了。', fontId: s.held.fontId, signature: s.held.signature || s.held.from }));
     card.appendChild(el('div', 'meta', '海那边已经没有它了，你这边还留着。'));
     card.appendChild(buttons([{ label: '珍藏', path: '/keep', style: 'seal' }]));
     return card;
@@ -470,12 +504,29 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     head.appendChild(el('span', 'who', s.held.from));
     card.appendChild(head);
     // 没有 topic 时才用来源顶替标题，免得标题位置空着
-    card.appendChild(el('h2', 'title', s.held.topic || '来自群岛上的某位居民'));
-    card.appendChild(el('div', 'letter', s.held.body));
-    if (s.held.signature) card.appendChild(el('div', 'meta', '—— ' + s.held.signature));
+    if (!s.held.topic) card.appendChild(el('h2', 'title', '来自群岛上的某位居民'));
+    card.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.signature, heading: 'h2' }));
     card.appendChild(el('div', 'meta', '来自群岛上的某位居民'));
     card.appendChild(buttons([{ label: '收好', path: '/dismiss', style: 'seal' }]));
     return card;
+  }
+
+  function focusDeskArrival() {
+    if (!pendingDeskKey || document.hidden || document.getElementById('feedback-dialog').open) return;
+    var entry = deskEntries.find(function (item) { return item.key === pendingDeskKey; });
+    if (!entry) { pendingDeskKey = null; return; }
+    pendingDeskKey = null;
+    // Called after the whole page render: scrollIntoView resolves the final layout itself.
+    // Avoid requestAnimationFrame, which background mobile tabs may suspend indefinitely.
+    if (entry.node.scrollIntoView) entry.node.scrollIntoView({ behavior: reducedMotion() ? 'instant' : 'smooth', block: 'center', inline: 'nearest' });
+  }
+  function updateDeskArrivals(entries) {
+    var fresh = entries.filter(function (entry) { return !deskKeys.has(entry.key); });
+    deskEntries = entries;
+    deskKeys = new Set(entries.map(function (entry) { return entry.key; }));
+    if (fresh.length) pendingDeskKey = fresh[fresh.length - 1].key;
+    if (pendingDeskKey && !deskKeys.has(pendingDeskKey)) pendingDeskKey = null;
+    focusDeskArrival();
   }
 
   function render() {
@@ -495,14 +546,18 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     // 从前这里是「有草稿就只画草稿」，一封信稿就能把刚捞到的信整块藏掉。
     var replyDraft = state.replyDraft !== undefined ? state.replyDraft : (state.draft && state.draft.kind === 'reply' ? state.draft : null);
     var letterDraft = state.letterDraft !== undefined ? state.letterDraft : (state.draft && state.draft.kind === 'letter' ? state.draft : null);
-    var shown = 0;
+    var shown = 0, entries = [];
+    function putCard(node, key) {
+      stage.appendChild(animateArrival(node, key));
+      entries.push({ key: key, node: node });
+    }
 
     if (letterDraft) {
-      stage.appendChild(animateArrival(renderDraft(letterDraft, state), 'letter-draft:' + letterDraft.body));
+      putCard(renderDraft(letterDraft, state), JSON.stringify(['letter-draft', letterDraft.at, letterDraft.topic, letterDraft.body]));
       shown += 1;
     }
     if (replyDraft) {
-      stage.appendChild(animateArrival(renderDraft(replyDraft, state), 'reply-draft:' + replyDraft.letterId + ':' + replyDraft.body));
+      putCard(renderDraft(replyDraft, state), JSON.stringify(['reply-draft', replyDraft.at, replyDraft.letterId, replyDraft.body]));
       shown += 1;
       waiting = false;
     } else if (waiting) {
@@ -513,7 +568,7 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
       shown += 1;
     }
     if (!replyDraft && state.held) {
-      stage.appendChild(animateArrival(renderHeld(state), 'held:' + state.held.letterId));
+      putCard(renderHeld(state), JSON.stringify(['held', state.held.letterId, state.held.caughtAt]));
       shown += 1;
     }
     if (shown === 0) {
@@ -526,11 +581,14 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
       stage.appendChild(empty);
     }
 
+    applyMyFont();
+    updateMyFontLabel();
     renderTide();
     renderNotices();
     renderActionState(letterDraft);
     renderBook();
     renderFoot();
+    updateDeskArrivals(entries);
     document.title = (letterDraft || replyDraft) ? '● 有草稿 · 漂流瓶' : '漂流瓶 · 信箱';
     if (focusedFold) {
       var replacement = Array.from(document.querySelectorAll('details[data-fold-key]')).find(function (node) { return node.dataset.foldKey === focusedFold; });
@@ -570,9 +628,24 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
   function renderNotices() {
     var box = document.getElementById('announcements');
     box.innerHTML = '';
-    if (pageAnnouncement) {
+    syncAnnouncementSession(state.worldSession);
+    if (pageAnnouncement && !pageAnnouncementsDismissed()) {
       var a = pageAnnouncement;
-      box.appendChild(el('div', 'notice' + (a.level === 'alarm' ? ' alarm' : ''), a.text));
+      var announcement = el('div', 'notice announcement' + (a.level === 'alarm' ? ' alarm' : ''));
+      var content = el('div', 'announcement-content');
+      appendAnnouncementText(content, a.text);
+      var close = el('button', 'announcement-close');
+      close.type = 'button';
+      close.setAttribute('aria-label', '关闭公告，World 重启前不再显示');
+      close.title = '仅在这个浏览器关闭，World 重启后恢复';
+      close.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m4 4 8 8m0-8-8 8"/></svg>';
+      close.onclick = function () {
+        dismissPageAnnouncements();
+        dismissAnimated(announcement, function () { renderNotices(); });
+      };
+      announcement.appendChild(content);
+      announcement.appendChild(close);
+      box.appendChild(announcement);
     }
     if (state.tideOut) {
       var notice = el('div', 'notice', state.tideOut.text);
@@ -612,19 +685,21 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
       var lane = wake && wake.lanes[action];
       var paused = lane && (lane.paused || lane.declined || lane.failed);
       var names = { write: '写信邀请', catch: '打捞邀请', remind: '待办提醒' };
-      document.getElementById('wake-' + action + '-status').textContent = names[action] + (lane ? ' · ' + (paused ? '已暂停' : state.randomWake === false ? '总开关已关闭' : '等待合适时刻') + ' · 今日 ' + lane.count + '/3' : ' · 尚未启动');
+      document.getElementById('wake-' + action + '-status').textContent = names[action] + (lane ? ' · ' + (paused ? '已暂停' : state.randomWake === false ? '总开关已关闭' : '等待合适时刻') + ' · 今日 ' + lane.count + '/' + (lane.dayLimit || wakePolicies[action].dayLimit) : ' · 尚未启动');
       var toggle = document.getElementById('wake-' + action + '-toggle');
       toggle.textContent = paused ? '恢复' : '暂停';
       toggle.disabled = busy || !lane;
       var input = document.getElementById('wake-' + action + '-hours');
-      if (document.activeElement !== input) input.value = String(lane && lane.intervalHours || 2);
+      if (document.activeElement !== input) input.value = String(lane && lane.intervalHours || wakePolicies[action].interval);
+      var limit = document.getElementById('wake-' + action + '-limit');
+      if (document.activeElement !== limit) limit.value = String(lane && lane.dayLimit || wakePolicies[action].dayLimit);
       document.getElementById('wake-' + action + '-save').disabled = busy || !lane;
     });
     var last = wake && wake.history[wake.history.length - 1];
-    var labels = { completed: '已处理', deferred: botName() + '选择暂不做', declined: '今天不再邀请', paused: '已暂停', uncompleted: '这一轮未完成，将有限重试', failed: '未完成，已停止自动重试', cancelled: '条件变化，已取消', interrupted: '重启中断，已延后' };
+    var labels = { completed: '已处理', deferred: botName() + '选择暂不做', declined: '今天不再邀请', paused: '已暂停', uncompleted: botName() + '没有回应邀请…稍后再轻轻问一次。', failed: botName() + '没有回应邀请…今天先不打扰了。', cancelled: '条件变化，已取消', interrupted: '重启中断，已延后' };
     document.getElementById('wake-outcome').textContent = wake && wake.active
-      ? wake.active.phase === 'retry' ? '上一轮没有结果，稍后只补试一次。' : '已有一份邀请在等' + botName() + '选择。'
-      : last ? '最近一次：' + (last.result === 'deferred' && last.reason === 'no_idea' ? botName() + '暂时没有灵感，已选择暂不做；不算失败，也不补试' : last.reason === 'reminder_delivered' ? '提醒已送达，是否询问由' + botName() + '决定' : labels[last.result] || '已记录') : '小感受也值得写，形式随' + botName() + '；没有表达欲可以不写，人说先放着就不催。';
+      ? wake.active.phase === 'retry' ? botName() + '没有回应邀请…稍后再轻轻问一次。' : '已有一份邀请在等' + botName() + '选择。'
+      : last ? '最近的' + (last.action === 'write' ? '写信邀请' : last.action === 'catch' ? '打捞邀请' : '待办提醒') + '：' + (last.result === 'deferred' && last.reason === 'no_idea' ? botName() + '暂时没有灵感，已选择暂不做；不算失败，也不补试' : last.reason === 'reminder_delivered' ? '提醒已送达，是否询问由' + botName() + '决定' : last.reason === 'queue_failed' ? '邀请暂时未能送达，请稍后再试。' : labels[last.result] || '已记录') : '小感受也值得写，形式随' + botName() + '；没有表达欲可以不写，人说先放着就不催。';
   }
 
   function deleteLink(letterId) {
@@ -749,17 +824,16 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     var body = el('div', 'mail-body');
     var labels = { caught: '还没回', replied: '回过信', dismissed: '扔回海里', sank: '裂开沉底', expired: '自己回海了', kept: '珍藏' };
     var head = el('div', 'head');
-    head.appendChild(el('span', null, source));
+    head.appendChild(el('span', null, entry.at ? (kind === 'sent' ? '寄出于 ' : '收于 ') + fmt(entry.at) : '留在信箱里的一页'));
     head.appendChild(kind === 'sent' ? sentStateBadge(item) : el('span', null, kind === 'seed' ? '只需收好，不必回信' : isReply ? '回给你的' : (labels[item.outcome] || '看过')));
     body.appendChild(head);
-    if (!isReply && item.topic) body.appendChild(el('div', 'mail-topic', item.topic));
-    body.appendChild(el('div', 'letter small', entry.body));
-    if (item.seed && item.signature) body.appendChild(el('div', 'meta', '—— ' + item.signature));
+    body.appendChild(letterSheet({ topic: !isReply ? item.topic : null, body: entry.body,
+      fontId: isReply ? item.reply.fontId : kind === 'sent' ? null : item.fontId,
+      own: kind === 'sent', signature: kind === 'seed' ? item.signature : kind === 'sent' ? botName() : isReply ? item.reply.from : item.from }));
     if (isReply || item.myReply) {
       var quote = el('div', 'reply-quote');
-      quote.appendChild(isReply ? el('div', 'reply-quote-label', '你写的') : el('div', 'reply-quote-label', '你回的'));
-      if (isReply && item.topic) quote.appendChild(el('div', 'mail-topic', item.topic));
-      quote.appendChild(el('div', 'letter small', isReply ? item.body : item.myReply));
+      quote.appendChild(el('div', 'reply-quote-label', botName() + (isReply ? '写下的原信' : '的回信')));
+      quote.appendChild(letterSheet({ topic: isReply ? item.topic : null, body: isReply ? item.body : item.myReply, own: true, signature: botName() }));
       body.appendChild(quote);
     }
     if (kind === 'received' && !item.myReply && item.outcome === 'replied') body.appendChild(el('div', 'meta', '回过信，但这段没有留下来。'));
@@ -846,6 +920,7 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
       if (sequence !== refreshSequence) return;
       if (window.bottleSound) window.bottleSound.snapshot(snapshot);
       state = snapshot;
+      updateFontResources(snapshot);
       // 它迟迟没动笔：25 秒后回到那一封，别让页面一直停在这儿
       if (waiting && Date.now() - waitStarted > 25000) waiting = false;
       var nextState = JSON.stringify(state) + ':' + waiting;
@@ -853,6 +928,7 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
         render();
         renderedState = JSON.stringify(state) + ':' + waiting;
       }
+      focusDeskArrival();
     }).catch(function () {
       if (sequence !== refreshSequence) return;
       state = state || { draft: null, held: null, sent: [], received: [], quota: null, online: false };
@@ -895,8 +971,11 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
     };
     document.getElementById('wake-' + action + '-save').onclick = function () {
       var hours = Number(document.getElementById('wake-' + action + '-hours').value);
-      if (!Number.isFinite(hours) || hours < 2 || hours > 24) { toast('最短间隔请填 2—24 小时。', true); return; }
-      run('/wake', this, { action: action, command: 'interval', hours: hours });
+      var policy = wakePolicies[action];
+      if (!Number.isFinite(hours) || hours < policy.minHours || hours > policy.maxHours) { toast('最短间隔请填 ' + policy.minHours + '—' + policy.maxHours + ' 小时。', true); return; }
+      var dayLimit = Number(document.getElementById('wake-' + action + '-limit').value);
+      if (!Number.isInteger(dayLimit) || dayLimit < policy.minLimit || dayLimit > policy.maxLimit) { toast('每日上限请填 ' + policy.minLimit + '—' + policy.maxLimit + ' 次（整数）。', true); return; }
+      run('/wake', this, { action: action, command: 'interval', hours: hours, dayLimit: dayLimit });
     };
   });
   var feedback = document.getElementById('feedback-dialog');
@@ -904,7 +983,7 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
   feedbackEntry.onclick = function () { if (!feedback.open) { feedback.showModal(); reveal(feedback); } };
   document.getElementById('feedback-close').onclick = closeFeedback;
   feedback.addEventListener('cancel', function (event) { event.preventDefault(); closeFeedback(); });
-  feedback.addEventListener('close', function () { feedbackEntry.focus(); });
+  feedback.addEventListener('close', function () { feedbackEntry.focus({ preventScroll: true }); focusDeskArrival(); });
   feedback.addEventListener('click', function (event) {
     if (event.target !== feedback) return;
     var bounds = feedback.getBoundingClientRect();

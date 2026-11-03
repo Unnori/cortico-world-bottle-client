@@ -1,3 +1,4 @@
+import { customPalettes } from '../world/appearance.ts';
 import { Script } from 'node:vm';
 import { expect, it, vi } from 'vitest';
 import { BUILTIN_PALETTES } from 'cortico/web/shared/theme.ts';
@@ -18,6 +19,7 @@ function page(snapshot: Record<string, unknown> = {}, preferences = new Map<stri
     return nodes.get(id);
   };
   get('host-theme').textContent = JSON.stringify(host);
+  get('custom-palettes').textContent = JSON.stringify(customPalettes(host.preference?.customColor ?? '#4b62a0'));
   const darkMedia = { matches: false, listener: () => {}, addEventListener(_event: string, listener: () => void) { this.listener = listener; } };
   const appearanceFetch = vi.fn(async (_path: string, _options?: unknown) => ({ ok: true }));
   const fetch = vi.fn(() => new Promise(() => {}));
@@ -25,10 +27,10 @@ function page(snapshot: Record<string, unknown> = {}, preferences = new Map<stri
   const clearTimeout = vi.fn();
   const state = { botName: '小满', letterDraft: null, pendingAction: null, received: [], sent: [], held: null,
     wake: { lanes: { write: { count: 0 }, catch: { count: 0 }, remind: { count: 0 } }, history: [] }, ...snapshot };
-  const script = pageHtml().match(/<script>([\s\S]*?)<\/script>/)![1].replace(/  refresh\(\);\s*\}\)\(\);\s*$/, '  globalThis.actions = { toast: toast, sync: refreshHostTheme, show: function(s) { state = s; renderActionState(s.letterDraft); } };\n})();');
+  const script = pageHtml().match(/<script>([\s\S]*?)<\/script>/)![1].replace(/  refresh\(\);\s*\}\)\(\);\s*$/, '  globalThis.actions = { toast: toast, desk: updateDeskArrivals, focusDesk: focusDeskArrival, sync: refreshHostTheme, show: function(s) { state = s; renderActionState(s.letterDraft); } };\n})();');
   const listeners: Record<string, (event: any) => void> = {};
   const windowListeners: Record<string, (event: any) => void> = {};
-  const sandbox: any = { document: { documentElement: { dataset: {}, style: { setProperty: vi.fn() } }, getElementById: get, querySelectorAll: () => [],
+  const sandbox: any = { Image: class { onload: any; onerror: any; src = ''; }, document: { documentElement: { dataset: {}, style: { setProperty: vi.fn() } }, getElementById: get, querySelectorAll: () => [],
       addEventListener(type: string, fn: (event: any) => void) { listeners[type] = fn; }, hidden: false },
     localStorage: { getItem: (key: string) => preferences.get(key), setItem: (key: string, value: string) => preferences.set(key, value) },
     fetch: (path: string, options?: unknown) => path === '/appearance' ? appearanceFetch(path as any, options as any) : (options === undefined ? (fetch as any)(path) : (fetch as any)(path, options)), setInterval: vi.fn(), clearTimeout, setTimeout: timeout,
@@ -37,7 +39,7 @@ function page(snapshot: Record<string, unknown> = {}, preferences = new Map<stri
   expect(script).toContain('globalThis.actions =');
   new Script(script).runInNewContext(sandbox);
   sandbox.actions.show(state);
-  return { appearanceFetch, toast: sandbox.actions.toast, timeout, clearTimeout, sync: sandbox.actions.sync, darkMedia, get, fetch, state, preferences, listeners, windowListeners, document: sandbox.document, show: () => sandbox.actions.show(state) };
+  return { desk: sandbox.actions.desk, focusDesk: sandbox.actions.focusDesk, appearanceFetch, toast: sandbox.actions.toast, timeout, clearTimeout, sync: sandbox.actions.sync, darkMedia, get, fetch, state, preferences, listeners, windowListeners, document: sandbox.document, show: () => sandbox.actions.show(state) };
 }
 
 it('主体切换在行动上方，默认邀请由桌宠决定，切到人后更新按钮文案', () => {
@@ -83,7 +85,7 @@ it('已展开的设置有三个独立暂停与间隔控件，修改中的输入�
 });
 
 
-it('页脚的反馈入口弹出小卡片，关闭和点遮罩会收起，并将焦点交还入口', () => {
+it('顶栏的反馈入口弹出小卡片，关闭和点遮罩会收起，并将焦点交还入口', () => {
   const h = page(); const dialog = h.get('feedback-dialog'); const entry = h.get('feedback-entry');
   entry.onclick(); expect(dialog.open).toBe(true);
   h.get('feedback-close').onclick(); expect(dialog.open).toBe(false); expect(entry.focus).toHaveBeenCalled();
@@ -91,7 +93,7 @@ it('页脚的反馈入口弹出小卡片，关闭和点遮罩会收起，并将�
   dialog.listeners.click({ target: dialog, clientX: 50, clientY: 50 }); expect(dialog.open).toBe(false);
   expect(h.fetch).not.toHaveBeenCalled();
   const html = pageHtml();
-  expect(html).toContain('想对毛球说…');
+  expect(html).toContain('<span>反馈</span>');
   expect(html).toContain('https://github.com/Unnori/cortico-world-bottle-client/issues/new');
   expect(html).toContain('target="_blank" rel="noopener noreferrer"');
   expect(html).toContain('@会动的毛球'); expect(html).toContain('1～5 群');
@@ -246,7 +248,7 @@ it('主题选择按先后保存到卡片接口，手动明暗也保存，桌宠�
   const h = page(); h.get('theme-paper').onclick(); h.get('mode-dark').onclick();
   await new Promise(resolve => setTimeout(resolve, 0));
   const requests = h.appearanceFetch.mock.calls.map(call => JSON.parse((call[1] as { body:string }).body));
-  expect(requests).toEqual([{ theme:'paper', mode:'system' }, { theme:'paper', mode:'dark' }]);
+  expect(requests).toEqual([{ theme:'paper', mode:'system', customColor:'#4b62a0', background:null, backgroundTransparency:82, myFont:null, myFontName:'' }, { theme:'paper', mode:'dark', customColor:'#4b62a0', background:null, backgroundTransparency:82, myFont:null, myFontName:'' }]);
   expect((h.appearanceFetch.mock.calls[0][1] as any).headers['x-bottle']).toBe('1');
   expect(h.get('actor-hint').textContent).toContain('都由小满决定');
   h.get('actor-human').onclick(); expect(h.get('actor-hint').textContent).toContain('交给小满');
@@ -271,4 +273,149 @@ it('错误提示淡出时仍保留错误配色，下一条普通提示正常切�
   expect(h.clearTimeout).toHaveBeenCalled();
   h.timeout.mock.calls.at(-1)![0]();
   expect(h.get('toast').className).toBe('toast');
+});
+
+
+it('无回应结果直接放在按钮下方的独立文本框，使用桌宠名而不声称工具报错', () => {
+  const h = page({ wake: { lanes: {}, history: [{ action: 'write', result: 'failed', reason: 'turn_ended' }] } });
+  expect(h.get('wake-outcome').textContent).toContain('小满没有回应邀请…');
+  expect(h.get('wake-outcome').textContent).not.toContain('未完成');
+  const html = pageHtml();
+  const outcome = html.indexOf('id="wake-outcome"');
+  expect(outcome).toBeGreaterThan(html.indexOf('id="catch-button"'));
+  expect(outcome).toBeLessThan(html.indexOf('<details class="invitation-settings">'));
+});
+
+it('设置可提交每日上限与间隔，轮询显示配置值并保护正在编辑的次数', () => {
+  const h = page({ wake: { lanes: { write: { count: 1, dayLimit: 5, intervalHours: 4 } }, history: [] } });
+  expect(h.get('wake-write-status').textContent).toContain('今日 1/5');
+  expect(h.get('wake-write-limit').value).toBe('5');
+  h.document.activeElement = h.get('wake-write-limit');
+  h.get('wake-write-limit').value = '6'; h.show();
+  expect(h.get('wake-write-limit').value).toBe('6');
+  h.get('wake-write-save').onclick();
+  const [, options] = h.fetch.mock.calls[0] as unknown as [string, { body: string }];
+  expect(JSON.parse(options.body)).toEqual({ action: 'write', command: 'interval', hours: 4, dayLimit: 6 });
+});
+
+
+it('新待办居中一次，普通轮询不打断阅读；新草稿和重新出现的信仍可定位', () => {
+  const h = page(); const first = { scrollIntoView: vi.fn() }, replacement = { scrollIntoView: vi.fn() };
+  h.desk([{ key: 'held:a', node: first }]);
+  expect(first.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  h.desk([{ key: 'held:a', node: replacement }]);
+  expect(replacement.scrollIntoView).not.toHaveBeenCalled();
+  h.desk([{ key: 'draft:2', node: replacement }]);
+  expect(replacement.scrollIntoView).toHaveBeenCalledTimes(1);
+  h.desk([]); h.desk([{ key: 'held:a', node: first }]);
+  expect(first.scrollIntoView).toHaveBeenCalledTimes(2);
+});
+
+it('反馈弹窗打开时延后定位，关闭后定位最新卡片且尊重减少动态效果', () => {
+  const h = page({}, new Map(), true), first = { scrollIntoView: vi.fn() }, latest = { scrollIntoView: vi.fn() };
+  h.get('feedback-dialog').open = true;
+  h.desk([{ key: 'first', node: first }]); h.desk([{ key: 'latest', node: latest }]);
+  expect(first.scrollIntoView).not.toHaveBeenCalled(); expect(latest.scrollIntoView).not.toHaveBeenCalled();
+  h.get('feedback-dialog').close();
+  expect(latest.scrollIntoView).toHaveBeenCalledWith({ behavior: 'instant', block: 'center', inline: 'nearest' });
+});
+
+it('反馈入口位于顶栏，收集表预留按钮没有提前接入旧问卷', () => {
+  const html = pageHtml();
+  expect(html.indexOf('id="feedback-entry"')).toBeLessThan(html.indexOf('id="stage"'));
+  expect(html).not.toContain('feedback-invite');expect(html).toContain('href="#i-feedback"');expect(html).toContain('https://docs.qq.com/form/page/DZm5DZ3d4V2JiUmt2');
+  expect(html).toContain('class="feedback-version" aria-label="当前 World 版本号"');
+  expect(html).toContain('src="/feedback-qr.png"');
+  expect(html).not.toContain('反馈收集表 · 准备中');
+  expect(html).not.toContain('wjx.cn');
+});
+
+it('自定义配色与背景从部署偏好恢复，切换基础主题不丢失背景', async () => {
+  const background = 'a'.repeat(64) + '.png';
+  const h = page({}, new Map(), false, {available:false, preference:{theme:'custom',mode:'dark',customColor:'#e08050',background}});
+  expect(h.get('theme-name').textContent).toBe('我的颜色');
+  expect(h.get('custom-color').value).toBe('#e08050');
+  expect(h.document.documentElement.dataset.customBackground).toBe('true');
+  expect(h.document.documentElement.style.setProperty).toHaveBeenCalledWith('--mailbox-background', 'url("/background/' + background + '")');
+  h.get('theme-paper').onclick();
+  expect(h.document.documentElement.style.setProperty).toHaveBeenCalledWith('--paper','');
+  h.get('background-remove').onclick();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(JSON.parse((h.appearanceFetch.mock.calls.at(-1)![1] as any).body).background).toBe(null);
+});
+
+it('背景透明度仅在有图片时显示，拖动预览，松手保存', async()=>{
+ const h=page();expect(h.get('background-options').hidden).toBe(true);
+ const shown=page({},new Map(),false,{available:false,preference:{theme:'paper',mode:'light',background:'a'.repeat(64)+'.png',backgroundTransparency:35}});
+ expect(shown.get('background-options').hidden).toBe(false);expect(shown.get('background-transparency').value).toBe('35');
+ shown.get('background-transparency').value='62';shown.get('background-transparency').oninput();
+ expect(shown.get('background-transparency-value').textContent).toBe('62%');expect(shown.appearanceFetch).not.toHaveBeenCalled();
+ expect(shown.document.documentElement.style.setProperty).toHaveBeenCalledWith('--background-opacity','0.38');
+ shown.get('background-transparency').onchange();await new Promise(resolve=>setTimeout(resolve,0));
+ expect(JSON.parse((shown.appearanceFetch.mock.calls[0][1] as any).body).backgroundTransparency).toBe(62);
+ shown.get('background-remove').onclick();expect(shown.get('background-options').hidden).toBe(true);
+});
+
+
+it('阅读字号拖动即保存，只更新正文字号变量，重置恢复默认', () => {
+  const h = page();
+  const set = h.document.documentElement.style.setProperty;
+  expect(h.get('reader-size').value).toBe('26');
+  set.mockClear();
+  h.get('reader-size').value = '35';
+  h.get('reader-size').oninput();
+  expect(set.mock.calls).toEqual([['--letter-size', '35px']]);
+  expect(h.get('reader-size-value').textContent).toBe('35 px');
+  expect(h.preferences.get('bottle-reading-size')).toBe('35');
+  expect(page({}, h.preferences).get('reader-size').value).toBe('35');
+  h.get('reader-reset').onclick();
+  expect(h.preferences.get('bottle-reading-size')).toBe('26');
+});
+it.each([['garbage','26'],['0','26'],['','26'],['Infinity','26'],['999','40'],['12','18'],['27.6','28']])('保存的阅读字号 %s 安全恢复为 %s', (saved, expected) => {
+  const h = page({}, new Map([['bottle-reading-size',saved]]));
+  expect(h.get('reader-size').value).toBe(expected);
+});
+it('字号面板可展开与 Escape 收起，并恢复按钮焦点', () => {
+  const h = page({}, new Map(), true);
+  h.get('reader-toggle').onclick();
+  expect(h.get('reader-panel').hidden).toBe(false);
+  expect(h.get('reader-toggle').attrs['aria-expanded']).toBe('true');
+  h.get('reader-tools').listeners.keydown({key:'Escape',preventDefault:vi.fn()});
+  expect(h.get('reader-panel').hidden).toBe(true);
+  expect(h.get('reader-toggle').focus).toHaveBeenCalled();
+});
+
+it('外观菜单直接显示默认写信笔迹，自定义选择优先且恢复默认不清空其他外观', () => {
+ const h=page();
+ expect(h.get('my-font-current').textContent).toContain('霞鹜悠哉（默认）');
+ expect(h.get('my-font-name').textContent).toBe('霞鹜悠哉（默认）');
+ expect(h.get('my-font-remove').disabled).toBe(true);
+ const own=page({},new Map(),false,{available:false,preference:{theme:'paper',mode:'dark',myFont:'a'.repeat(64)+'.ttf',myFontName:'我的手写.ttf'}});
+ expect(own.get('my-font-current').textContent).toContain('我的手写.ttf');
+ expect(own.get('my-font-name').textContent).toBe('我的手写.ttf');
+ own.get('my-font-remove').onclick();
+ expect(own.get('my-font-current').textContent).toContain('霞鹜悠哉（默认）');
+ expect(own.document.documentElement.dataset.theme).toBe('paper');
+ expect(own.document.documentElement.dataset.appearance).toBe('dark');
+});
+
+
+it('网页提醒默认半小时、每日十二次，并校验提醒的独立范围', () => {
+  const h = page();
+  expect(h.get('wake-remind-hours').value).toBe('0.5');
+  expect(h.get('wake-remind-limit').value).toBe('12');
+  expect(h.get('wake-remind-status').textContent).toContain('0/12');
+  for (const limit of [2, 21, 3.5]) {
+    h.get('wake-remind-limit').value = String(limit);
+    h.get('wake-remind-save').onclick();
+    expect(h.fetch).not.toHaveBeenCalled();
+    expect(h.get('toast').textContent).toContain('3—20');
+  }
+  h.get('wake-remind-limit').value = '12';
+  h.get('wake-remind-hours').value = '0.49';
+  h.get('wake-remind-save').onclick();
+  expect(h.fetch).not.toHaveBeenCalled();
+  h.get('wake-remind-hours').value = '0.5';
+  h.get('wake-remind-save').onclick();
+  expect(h.fetch).toHaveBeenCalledWith('/wake', expect.objectContaining({ body: JSON.stringify({ action: 'remind', command: 'interval', hours: 0.5, dayLimit: 12 }) }));
 });

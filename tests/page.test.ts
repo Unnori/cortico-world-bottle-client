@@ -140,9 +140,9 @@ describe('本地信箱页', () => {
   it('页面里没有可执行的外链，也不读别的东西', () => {
     const html = pageHtml();
     expect(html).not.toContain('<script src');
-    // The only external URL is an explicit feedback link, never an automatically loaded asset.
+    // External URLs are explicit feedback links, never automatically loaded assets.
     expect([...html.matchAll(/(?:src|href)=["'](https?:\/\/[^"']+)/g)].map(match => match[1]))
-      .toEqual(['https://github.com/Unnori/cortico-world-bottle-client/issues/new']);
+      .toEqual(['https://github.com/Unnori/cortico-world-bottle-client/issues/new', 'https://docs.qq.com/form/page/DZm5DZ3d4V2JiUmt2']);
     expect(html).toContain('仍然寄出');
     expect(html).toContain('写出的信');
     expect(html).toContain('来客来信');
@@ -159,7 +159,7 @@ describe('本地信箱页', () => {
     const html = pageHtml();
 
     // 手里那封：h2 用 topic
-    expect(html).toContain("el('h2', 'title', s.held.topic || '来自群岛上的某位居民')");
+    expect(html).toContain("letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.signature, heading: 'h2' })");
     // 来源是单独一行小字，不再和 topic 拼在一起
     expect(html).toContain("el('div', 'meta', '来自群岛上的某位居民')");
     // 历史区：topic 必须有位置
@@ -175,7 +175,7 @@ describe('本地信箱页', () => {
     const html = (await handlePage(deps(), 'GET', '/')).html ?? '';
     // 结构化断言：渲染里确实读了 item.myReply，并且用了引用样式
     expect(html).toContain('item.myReply');
-    expect(html).toContain("el('div', 'reply-quote-label', '你回的')");
+    expect(html).toContain("el('div', 'reply-quote-label', botName() + (isReply ? '写下的原信' : '的回信'))");
     // 老记录（回过但没存正文）要说明，不能让人以为字丢了
     expect(html).toContain('回过信，但这段没有留下来');
   });
@@ -241,11 +241,11 @@ describe('本地信箱页', () => {
 it('普通信的标题用于草稿、待回信和归档列表，页面脚本可解析', () => {
   const html = pageHtml();
   expect(html).toContain("var topic = isLetter ? draft.topic : null");
-  expect(html).toContain("isLetter ? topic || '无题信' : '回信'");
+  expect(html).toContain("letterSheet({ topic: isLetter ? topic || '无题信' : null, body: draft.body, own: true, signature: botName(), heading: 'h2' })");
   expect(html).toContain('信稿 · 尚未寄出');
   expect(html).not.toContain('这封信还没寄出去');
   expect(html).not.toContain('这封回信还没寄出去');
-  expect(html).toContain("s.held.topic || '还没决定要不要回'");
+  expect(html).toContain("letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.from, heading: 'h2' })");
   expect(html).toContain("var title = isReply ? item.reply.from + '的回信'");
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   expect(script).toBeTruthy();
@@ -317,4 +317,16 @@ it('外观保存沿用本地请求保护，不带头不能修改，读取不修�
     expect(saved.status).toBe(200); expect(appearance).toHaveBeenLastCalledWith({theme:'ocean',mode:'dark'});
     await fetch(server.url+'appearance'); expect(appearance).toHaveBeenLastCalledWith(undefined);
   } finally { await server.close(); }
+});
+
+
+it('serves a local feedback QR image and renders this installed package version', async () => {
+  const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const page = await handlePage(deps(), 'GET', '/');
+  expect(page.html).toContain('<strong>V' + version + '</strong>');
+  expect(page.html).toContain('https://docs.qq.com/form/page/DZm5DZ3d4V2JiUmt2');
+  const image = await handlePage(deps(), 'GET', '/feedback-qr.png');
+  expect(image.status).toBe(200);
+  expect(image.binary?.mime).toBe('image/png');
+  expect(Buffer.from(image.binary!.bytes).subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
 });

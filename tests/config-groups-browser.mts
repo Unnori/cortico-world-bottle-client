@@ -83,7 +83,15 @@ try{
   await panel(`var row=Array.from(document.querySelectorAll('.trow')).find(n=>n.querySelector('.tlabel').textContent.startsWith('允许其他设备访问信箱'));var box=row.querySelector('input');box.checked=true;box.dispatchEvent(new Event('change'));true`);
   for(let n=0;n<40&&saves.length<2;n++)await new Promise(done=>setTimeout(done,100));
   assert.equal(saves[1]?.group,'world:bottle');assert.equal(state.worlds.bottle.lanEnabled,true);assert.equal(Object.keys(saves[1]!.values).length,3);
-  console.log('PASS native autosave: per-group persistence and original LAN group ID; all data synthetic');
+  await panel(`var row=Array.from(document.querySelectorAll('.trow')).find(n=>n.querySelector('.tlabel').textContent.startsWith('写信邀请每日上限'));var input=row.querySelector('input');input.value='5';input.dispatchEvent(new Event('change'));true`);
+  for(let n=0;n<40&&saves.length<3;n++)await new Promise(done=>setTimeout(done,100));
+  assert.equal(saves[2]?.group,'world:bottle:invitations');assert.equal(state.worlds.bottle.writeInviteDayLimit,5);
+  const reminder = await panel(`(()=>{const rows=Array.from(document.querySelectorAll('.trow'));const find=title=>rows.find(row=>row.querySelector('.tlabel').textContent.startsWith(title)).querySelector('input');const hours=find('待办提醒最短间隔'),limit=find('待办提醒每日上限');return {hours:[hours.min,hours.max,hours.value,hours.step],limit:[limit.min,limit.max,limit.value],valid:hours.checkValidity()&&limit.checkValidity()}})()`);
+  assert.deepEqual(reminder.hours,['0.5','1','0.5','0.01']);assert.deepEqual(reminder.limit,['3','20','12']);assert.equal(reminder.valid,true);
+  await panel(`var row=Array.from(document.querySelectorAll('.trow')).find(n=>n.querySelector('.tlabel').textContent.startsWith('待办提醒每日上限'));var input=row.querySelector('input');input.value='20';input.dispatchEvent(new Event('change'));true`);
+  for(let n=0;n<40&&saves.length<4;n++)await new Promise(done=>setTimeout(done,100));
+  assert.equal(saves[3]?.group,'world:bottle:invitations');assert.equal(state.worlds.bottle.reminderDayLimit,20);
+  console.log('PASS native autosave: reminder bounds/defaults, per-group persistence and original LAN group ID; all data synthetic');
   const out=resolve('../../scratch/bottle-config-groups');mkdirSync(out,{recursive:true});
   await panel('scrollTo(0,0);true');
   if(process.env.BOTTLE_BROWSER_SCREENSHOTS !== '0') await rpc('/screenshot?target='+tab+'&file='+encodeURIComponent(resolve(out,'mobile.png')));

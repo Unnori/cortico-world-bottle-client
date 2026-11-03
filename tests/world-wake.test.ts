@@ -43,7 +43,7 @@ describe('World 随机邀请接线', () => {
     const rig = await start(3, 1, 3); await tick(); await tick(2);
     const id = host.deferred[0].meta?.taskId;
     const events = await host.deliverDeferred(rig.world);
-    expect(events[0].origin).toBe('internal');
+    expect(events[0].origin).toBe('external');
     expect(events[0].text).toContain('今天写了 0 封');
     expect(events[0].text).toContain('小感受也值得写');
     expect(events[0].text).not.toContain(String(id));
@@ -97,8 +97,8 @@ describe('World 随机邀请接线', () => {
     rig.clock.t += 2 * HOUR;
     if (condition === 'request') await rig.world.pageDeps().request('write');
     await tick();
-    expect(host.deferred).toHaveLength(condition === 'draft' || condition === 'held' ? 1 : 0);
-    if (condition === 'draft' || condition === 'held') expect(host.deferred[0].meta?.action).toBe('remind');
+    expect(host.deferred).toHaveLength(condition === 'held' ? 1 : 0);
+    if (condition === 'held') expect(host.deferred[0].meta?.action).toBe('remind');
   });
   it('排队后新草稿出现会取消邀请，宿主暂停期间不入模型、不积压', async () => {
     const rig = await start(); await tick(); await tick(2);
@@ -205,8 +205,10 @@ describe('信箱行动主体、提醒与可调间隔', () => {
   });
   it('待办处理后取消已排队的提醒；暂停提醒不影响别的类别', async () => {
     const rig = await start(); const page = rig.world.pageDeps();
+    rig.throwAs('peer', '待处理的来信。'); await page.request('catch', 'human');
     await callTool(rig.world, 'bottle_write', { title: '一份草稿', text: '还没寄。' });
-    await tick(); await tick(2); await page.discard('letter');
+    await tick(); await tick(0.5); await page.dismiss();
+    expect(page.snapshot().letterDraft).not.toBeNull();
     expect(await host.deliverDeferred(rig.world)).toHaveLength(0);
     expect((await status()).wake.history.at(-1)).toMatchObject({ action: 'remind', result: 'cancelled' });
     await handlePage(page, 'POST', '/wake', { body: { action: 'remind', command: 'pause' } });
@@ -239,7 +241,7 @@ describe('信箱行动主体、提醒与可调间隔', () => {
 
 it('待办提醒也能明确延后或按人的选择暂停，不需要产生空信来结束任务', async () => {
   const rig = await start();
-  await callTool(rig.world, 'bottle_write', { title: '留给明天', text: '还没有寄。' });
+  rig.throwAs('peer', '还没处理的信。'); await rig.world.pageDeps().request('catch', 'human');
   await tick(); await tick(2); await host.deliverDeferred(rig.world);
   expect(await callTool(rig.world, 'bottle_wake_choice', { action: 'remind', reason: 'not_now' })).toContain('不必勉强');
   rig.world.onTurnEnded();
@@ -271,11 +273,11 @@ describe('原配置页与信箱设置共用同一份偏好', () => {
   it('原配置页的三个开关与间隔无需重启即可同步到任务和网页', async () => {
     const rig = await start();
     Object.assign(rig.cfg, { writeInviteEnabled: false, writeInviteIntervalHours: 7,
-      catchInviteEnabled: false, catchInviteIntervalHours: 5, reminderEnabled: false, reminderIntervalHours: 9 });
+      catchInviteEnabled: false, catchInviteIntervalHours: 5, reminderEnabled: false, reminderIntervalHours: 0.9 });
     const snapshot = rig.world.pageDeps().snapshot().wake!;
     expect(snapshot.lanes.write).toMatchObject({ paused: true, intervalHours: 7 });
     expect(snapshot.lanes.catch).toMatchObject({ paused: true, intervalHours: 5 });
-    expect(snapshot.lanes.remind).toMatchObject({ paused: true, intervalHours: 9 });
+    expect(snapshot.lanes.remind).toMatchObject({ paused: true, intervalHours: 0.9 });
     await tick(10);
     expect(host.deferred).toHaveLength(0);
     rig.cfg.writeInviteEnabled = true;
@@ -287,16 +289,16 @@ describe('原配置页与信箱设置共用同一份偏好', () => {
     const rig = await start();
     await rig.world.pageDeps().wakeControl!('catch', 'interval', 6);
     await rig.world.pageDeps().wakeControl!('catch', 'pause');
-    await rig.world.webUi().invoke!('mailbox', 'wake', ['remind', 'interval', 8]);
+    await rig.world.webUi().invoke!('mailbox', 'wake', ['remind', 'interval', 0.8]);
     await rig.world.webUi().invoke!('mailbox', 'wake', ['remind', 'pause']);
     expect(rig.cfg).toMatchObject({ catchInviteEnabled: false, catchInviteIntervalHours: 6,
-      reminderEnabled: false, reminderIntervalHours: 8 });
+      reminderEnabled: false, reminderIntervalHours: 0.8 });
     expect(rig.persistedConfig).toContainEqual({ catchInviteEnabled: false });
-    expect(rig.persistedConfig).toContainEqual({ reminderIntervalHours: 8 });
+    expect(rig.persistedConfig).toContainEqual({ reminderIntervalHours: 0.8 });
     await rig.world.stop(); await rig.world.start(host);
     const lanes = (await status()).wake.lanes;
     expect(lanes.catch).toMatchObject({ paused: true, intervalHours: 6 });
-    expect(lanes.remind).toMatchObject({ paused: true, intervalHours: 8 });
+    expect(lanes.remind).toMatchObject({ paused: true, intervalHours: 0.8 });
     await rig.world.webUi().invoke!('mailbox', 'wake', ['catch', 'resume']);
     expect(rig.cfg.catchInviteEnabled).toBe(true);
   });
@@ -420,4 +422,94 @@ describe('按打捞者区分归还通知', () => {
     expect(rig.db.letters.find(letter => letter.id === letterId)).toMatchObject({ state: 'archived', archivedReason: 'sunk', throws: MAX_THROWS });
     expect(host.events.slice(before).filter(event => event.type === 'bottle.dismissed')).toHaveLength(actor === 'human' ? 0 : 1);
   });
+});
+
+
+it('三处设置共用每日上限，非法修改不污染已保存的间隔', async () => {
+  const rig = await start();
+  Object.assign(rig.cfg, { writeInviteDayLimit: 1, catchInviteDayLimit: 5, reminderDayLimit: 3 });
+  let lanes = (await status()).wake.lanes;
+  expect([lanes.write.dayLimit, lanes.catch.dayLimit, lanes.remind.dayLimit]).toEqual([1, 5, 3]);
+  const result = await handlePage(rig.world.pageDeps(), 'POST', '/wake', { body: { action: 'catch', command: 'interval', hours: 4, dayLimit: 6 } });
+  expect(result.status).toBe(200);
+  expect(rig.cfg).toMatchObject({ catchInviteIntervalHours: 4, catchInviteDayLimit: 6 });
+  await rig.world.webUi().invoke!('mailbox', 'wake', ['remind', 'interval', 0.6, 4]);
+  expect(rig.cfg).toMatchObject({ reminderIntervalHours: 0.6, reminderDayLimit: 4 });
+  const invalid = await handlePage(rig.world.pageDeps(), 'POST', '/wake', { body: { action: 'catch', command: 'interval', hours: 8, dayLimit: 1.5 } });
+  expect(invalid.status).toBe(400);
+  expect(rig.cfg.catchInviteIntervalHours).toBe(4);
+  await rig.world.stop(); await rig.world.start(host);
+  lanes = (await status()).wake.lanes;
+  expect(lanes.catch).toMatchObject({ intervalHours: 4, dayLimit: 6 });
+});
+
+it('打捞邀请带上一瓶的署名与标题；写信只说实际授权读信的时间', async () => {
+  const rig = await start();
+  await rig.world.stop();
+  const disk = new LocalStore(rig.dir);
+  disk.addReceived({ letterId: 'private-letter-id', from: '海上来客', signature: '灯塔守望人', topic: '今晚的海风',
+    body: '秘密正文不应进入邀请', at: rig.clock.t - 3 * HOUR, outcome: 'kept' });
+  disk.noteRead('received', 'private-letter-id', rig.clock.t - HOUR);
+  await rig.world.start(host);
+  await rig.world.pageDeps().request!('catch', 'bot');
+  let events = await host.deliverDeferred(rig.world);
+  expect(events[0].text).toContain('上一瓶是3 小时前');
+  expect(events[0].text).toContain('「灯塔守望人」写的《今晚的海风》');
+  expect(events[0].text).not.toContain('秘密正文');
+  expect(events[0].text).not.toContain('private-letter-id');
+  await callTool(rig.world, 'bottle_wake_choice', { reason: 'not_now' });
+  await rig.world.pageDeps().request!('write', 'bot');
+  events = await host.deliverDeferred(rig.world);
+  expect(events[0].text).toContain('1 小时前读了「灯塔守望人」的信');
+  expect(events[0].text).toContain('结合你的近况，有什么想对陌生人说的吗？小感受也值得写');
+  expect(events[0].text).not.toContain('秘密正文');
+});
+
+it('未读或旧版只有阅读次数的信，不凭收信时间编造读信间隔', async () => {
+  const rig = await start(); await rig.world.stop();
+  const disk = new LocalStore(rig.dir);
+  disk.addReceived({ letterId: 'old', from: '海上来客', body: '正文', at: rig.clock.t - HOUR, outcome: 'kept', readCount: 2 });
+  await rig.world.start(host); await rig.world.pageDeps().request!('write', 'bot');
+  const events = await host.deliverDeferred(rig.world);
+  expect(events[0].text).not.toContain('前读了');
+  expect(events[0].text).toContain('结合你的近况');
+});
+
+
+it.each([false, true])('没有来信（只有草稿=%s）时绝不安排待办提醒', async draft => {
+  const rig = await start(1, 1, 1);
+  if (draft) await callTool(rig.world, 'bottle_write', { title: '未寄出', text: '这只是主动写信稿。' });
+  await tick();
+  for (let n = 0; n < 15; n++) await tick(0.5);
+  expect(host.deferred).toHaveLength(0);
+  expect((await status()).wake.lanes.remind).toMatchObject({ nextAt: null, count: 0 });
+});
+
+it('持有来信时半小时即可提醒，送达后再等半小时；处理完立即停止', async () => {
+  const rig = await start(); const page = rig.world.pageDeps();
+  rig.throwAs('peer', '不应出现在提醒中的私密正文。'); await page.request('catch', 'human');
+  await tick(); await tick(0.49); expect(host.deferred).toHaveLength(0);
+  await tick(0.01);
+  expect(host.deferred[0].meta?.action).toBe('remind');
+  const [event] = await host.deliverDeferred(rig.world);
+  expect(event.text).not.toContain('不应出现在提醒中的私密正文');
+  rig.world.onTurnEnded();
+  await tick(0.49); expect(host.deferred).toHaveLength(0);
+  await tick(0.01); expect(host.deferred).toHaveLength(1);
+  await host.deliverDeferred(rig.world); rig.world.onTurnEnded();
+  expect((await status()).wake.lanes.remind.count).toBe(2);
+  await page.dismiss();
+  await tick(0.5); await tick(1);
+  expect(host.deferred).toHaveLength(0);
+  expect((await status()).wake.lanes.remind.nextAt).toBeNull();
+});
+
+it.each([2, 21, 3.5])('网页和面板拒绝提醒上限 %s，合法配置跨重启保存', async limit => {
+  const rig = await start(); const page = rig.world.pageDeps();
+  expect((await page.wakeControl!('remind', 'interval', 0.5, 12)).ok).toBe(true);
+  expect((await handlePage(page, 'POST', '/wake', { body: { action: 'remind', command: 'interval', hours: 0.75, dayLimit: limit } })).status).toBe(400);
+  expect(await rig.world.webUi().invoke!('mailbox', 'wake', ['remind', 'interval', 0.75, limit])).toMatchObject({ ok: false });
+  expect(rig.cfg).toMatchObject({ reminderIntervalHours: 0.5, reminderDayLimit: 12 });
+  await rig.world.stop(); await rig.world.start(host);
+  expect((await status()).wake.lanes.remind.dayLimit ?? rig.cfg.reminderDayLimit).toBe(12);
 });

@@ -410,7 +410,9 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
       (letter) => letter.state === 'caught' && letter.catcherHash === bot.clientHash,
     );
     if (held) {
-      const res: CatchRes = { empty: true, reason: 'holding', quota };
+      const res: CatchRes = { empty: true, reason: 'holding', quota,
+        held: { letterId: held.id, from: pseudonymOf(held.authorHash),
+          windowUntil: new Date(held.replyWindowUntil!).toISOString(), caughtAt: new Date(held.caughtAt!).toISOString() } };
       return ok(res);
     }
     if (quota.catches_left <= 0) {

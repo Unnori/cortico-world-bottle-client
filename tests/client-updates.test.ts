@@ -123,3 +123,17 @@ describe('网页请 Coo 写信与打捞', () => {
     expect((await rig.page.request('write')).ok).toBe(false);
   });
 });
+
+
+it('the public World lifetime is stable across page/quota refreshes and changes on every World start', async () => {
+  const rig = await setup();
+  const session = rig.page.snapshot().worldSession;
+  expect(session).toMatch(/^[a-f0-9-]{36}$/);
+  expect((await handlePage(rig.page, 'GET', '/draft')).json).toMatchObject({ worldSession: session });
+  await poll(rig);
+  expect(rig.page.snapshot().worldSession).toBe(session);
+  await rig.world.stop(); await rig.world.start(rig.host);
+  const restarted = rig.world.pageDeps().snapshot().worldSession;
+  expect(restarted).toMatch(/^[a-f0-9-]{36}$/);
+  expect(restarted).not.toBe(session);
+});

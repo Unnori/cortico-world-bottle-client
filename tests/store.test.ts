@@ -211,3 +211,11 @@ describe('信件标题往返', () => {
     expect(again.sent[0]).toMatchObject({ topic: '昨日的云', body: '云很低。' });
   });
 });
+
+
+it('同一实例重新加载时，磁盘已清空的 held 和草稿不能从旧内存复活', () => {
+  const dir = freshDir(); const store = new LocalStore(dir);
+  store.setHeld({ letterId: 'removed', from: '来客', body: '正文', caughtAt: 1, windowUntil: 2 });
+  const other = reload(dir); other.setHeld(null);
+  store.load(); expect(store.held).toBeNull();
+});

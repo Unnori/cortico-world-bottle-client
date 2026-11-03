@@ -1,3 +1,9 @@
+import { WAKE_POLICIES } from './wake-policy.ts';
+import { readMyFont, saveMyFont } from './my-font.ts';
+import { LetterFonts, FONT_DIR } from './fonts.ts';
+import { RemoteFontCatalog } from './font-catalog.ts';
+import { readBackground, saveBackground } from './background.ts';
+import { FEEDBACK_FORM_URL, WORLD_VERSION } from './feedback.ts';
 /**
  * 漂流瓶 World。
  *
@@ -118,6 +124,7 @@ export class BottleWorld implements World {
   private readonly heldByOthers = new Set<string>();
   private wake: WakeScheduler | null = null;
   private generation = 0;
+  private announcementSession = randomUUID();
   private phase: RunPhase['state'] = 'idle';
   private runningTools = 0;
   private catching = false;
@@ -245,7 +252,7 @@ export class BottleWorld implements World {
         if (method === 'status') {
           await this.refreshVisibleQuota();
           this.syncWakeConfig();
-          return { url: this.page?.url ?? null, links: this.mailboxLinks(en), wake: this.wake?.snapshot() ?? null,
+          return { version: WORLD_VERSION, feedbackUrl: FEEDBACK_FORM_URL, botName: this.botName, url: this.page?.url ?? null, links: this.mailboxLinks(en), wake: this.wake?.snapshot() ?? null,
             lan: { enabled: this.ctx.cfg.lanEnabled === true, running: !!this.lan, error: this.lanError, urls: this.lan?.urls ?? [],
               port: this.ctx.cfg.lanPort ?? 7798, publicUrl: this.ctx.cfg.lanPublicUrl ?? '' } };
         }
@@ -260,7 +267,7 @@ export class BottleWorld implements World {
         }
         if (method === 'wake' && ['write', 'catch', 'remind'].includes(String(args[0])) &&
           ['pause', 'resume', 'interval'].includes(String(args[1])))
-          return this.wakeControl(args[0] as WakeAction, args[1] as 'pause' | 'resume' | 'interval', args[2] as number | undefined);
+          return this.wakeControl(args[0] as WakeAction, args[1] as 'pause' | 'resume' | 'interval', args[2] as number | undefined, args[3] as number | undefined);
         throw new Error('Unknown mailbox action');
       },
       config: BOTTLE_CONFIG_GROUPS,
@@ -311,6 +318,7 @@ export class BottleWorld implements World {
     this.host = host;
     this.store.load();
     this.generation += 1;
+    this.announcementSession = randomUUID();
     this.phase = 'idle';
     this.runningTools = 0;
     this.wake = new WakeScheduler(join(this.ctx.dataDir, 'bottle-wake.json'), () => this.now(),
@@ -416,7 +424,7 @@ export class BottleWorld implements World {
     if (!this.host || (!this.online && !(manual && this.hasRecentQuota())) || (!manual && this.ctx.cfg.randomWake === false) || this.authorizedNow() ||
       this.catching || this.sendPending || this.runningTools > 0 ||
       (this.pendingRequest && this.pendingRequest.until > this.now())) return false;
-    if (action === 'remind') return !!(this.store.held || this.store.letterDraft || this.store.draft);
+    if (action === 'remind') return !!this.store.held;
     if (this.store.letterDraft || this.store.draft || this.store.held) return false;
     const reserve = manual ? 0 : 1;
     return action === 'write' ? (this.quota?.bottles_left ?? 0) > reserve
@@ -451,7 +459,8 @@ export class BottleWorld implements World {
     const generation = this.generation;
     try {
       host.pushDeferred({
-        type: 'bottle.wake', origin: 'internal', senderKey: this.id,
+        // Invitations may quote a stranger's signature/title; preserve the external-event boundary.
+        type: 'bottle.wake', origin: task.action === 'remind' ? 'internal' : 'external', senderKey: this.id,
         meta: { taskId: task.id, action: task.action },
         render: () => {
           if (generation !== this.generation || this.host !== host || this.wake !== wake) return null;
@@ -482,10 +491,13 @@ export class BottleWorld implements World {
     const wake = this.wake;
     if (!wake) return;
     const lanes = wake.snapshot().lanes;
-    for (const [action, enabled, interval] of BOTTLE_WAKE_FIELDS) {
+    for (const [action, enabled, interval, , limit] of BOTTLE_WAKE_FIELDS) {
       const hours = this.ctx.cfg[interval];
-      if (typeof hours === 'number' && Number.isFinite(hours) && hours >= 2 && hours <= 24 &&
-        (lanes[action].intervalHours ?? 2) !== hours) wake.configure(action, hours);
+      const policy = WAKE_POLICIES[action];
+      const dayLimit = this.ctx.cfg[limit] ?? policy.dayLimit;
+      if (typeof hours === 'number' && Number.isFinite(hours) && hours >= policy.minHours && hours <= policy.maxHours &&
+        ((lanes[action].intervalHours ?? policy.interval) !== hours || (lanes[action].dayLimit ?? policy.dayLimit) !== dayLimit) &&
+        Number.isInteger(dayLimit) && dayLimit >= policy.minLimit && dayLimit <= policy.maxLimit) wake.configure(action, hours, dayLimit);
       const allow = this.ctx.cfg[enabled];
       if (typeof allow === 'boolean' && lanes[action].paused !== !allow) wake.pause(action, !allow);
     }
@@ -497,19 +509,24 @@ export class BottleWorld implements World {
     Object.assign(this.ctx.cfg, patch);
   }
 
-  private async wakeControl(action: WakeAction, command: 'pause' | 'resume' | 'interval', hours?: number): Promise<PageResult> {
+  private async wakeControl(action: WakeAction, command: 'pause' | 'resume' | 'interval', hours?: number, dayLimit?: number): Promise<PageResult> {
     if (!this.wake) return { ok: false, message: 'World 尚未启动。' };
     this.syncWakeConfig();
-    const [, enabled, interval] = BOTTLE_WAKE_FIELDS.find(([kind]) => kind === action)!;
-    if (command === 'interval' && (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 2 || hours > 24))
-      return { ok: false, message: '间隔须为 2—24 小时。' };
+    const [, enabled, interval, , limit] = BOTTLE_WAKE_FIELDS.find(([kind]) => kind === action)!;
+    const policy = WAKE_POLICIES[action];
+    if (command === 'interval' && (typeof hours !== 'number' || !Number.isFinite(hours) || hours < policy.minHours || hours > policy.maxHours))
+      return { ok: false, message: `间隔须为 ${policy.minHours}—${policy.maxHours} 小时。` };
+    if (command === 'interval' && dayLimit !== undefined && (!Number.isInteger(dayLimit) || dayLimit < policy.minLimit || dayLimit > policy.maxLimit))
+      return { ok: false, message: `每日上限须为 ${policy.minLimit}—${policy.maxLimit} 次（整数）。` };
     try {
-      this.persistWakeConfig(command === 'interval' ? { [interval]: hours } : { [enabled]: command === 'resume' });
+      this.persistWakeConfig(command === 'interval' ? { [interval]: hours, ...(dayLimit !== undefined ? { [limit]: dayLimit } : {}) } : { [enabled]: command === 'resume' });
     } catch { return { ok: false, message: '未能保存设置，请稍后再试。' }; }
-    if (command === 'interval') this.wake.configure(action, hours!);
+    if (command === 'interval') this.wake.configure(action, hours!, dayLimit);
     else this.wake.pause(action, command === 'pause');
-    return { ok: true, message: command === 'interval' ? '已调整邀请间隔。' : command === 'pause' ? '已暂停，不再催促。' : '已恢复，稍后随机邀请。' };
+    return { ok: true, message: command === 'interval' ? '已调整邀请间隔与每日上限。' : command === 'pause' ? '已暂停，不再催促。' : '已恢复，稍后随机邀请。' };
   }
+
+  private invitationMeta(text: string): string { return [...text.replace(/[\r\n\t]/g, ' ')].slice(0, 40).join(''); }
 
   private wakeText(action: WakeAction): string {
     const decision = '暂不做可用 bottle_wake_choice，只填 reason 即可。';
@@ -519,13 +536,18 @@ export class BottleWorld implements World {
       return `信箱里还有 ${letters} 封来信、${drafts} 份草稿没有处理，人是不是忘了这事？找个机会问问人吧；不必立刻打断，人说先放着就别催。只提醒，不读信、不代寄。`;
     }
     if (action === 'catch') {
-      const last = Math.max(this.store.lastCaughtAt, ...this.store.received.map(item => item.at), 0);
-      return `今日可捞 ${this.quota!.catches_left} 次，可回信 ${this.quota!.replies_left} 次，${last ? '上一瓶是' + agoText(this.now() - last) : '还没收过信'}。手上没有待回的，要捞一瓶看看陌生人的信吗？可以不捞。${decision}`;
+      const previous = [...this.store.received].sort((a, b) => (b.lastCaughtAt ?? b.at) - (a.lastCaughtAt ?? a.at))[0];
+      const last = Math.max(this.store.lastCaughtAt, previous?.lastCaughtAt ?? previous?.at ?? 0);
+      const identity = previous ? `，是「${this.invitationMeta(previous.signature || previous.from)}」写的${previous.topic ? `《${this.invitationMeta(previous.topic)}》` : '一封未题名的信'}` : '';
+      return `今日可捞 ${this.quota!.catches_left} 次，可回信 ${this.quota!.replies_left} 次，${last ? '上一瓶是' + agoText(this.now() - last) + identity : '还没收过信'}，目前手上没有待回的，要捞一瓶看看陌生人的信吗？可以不捞。${decision}`;
     }
     const day = localDay(this.now(), this.ctx.timezone);
     const today = this.store.writeDay === day ? this.store.writesToday
       : this.store.sent.filter(item => localDay(item.at, this.ctx.timezone) === day).length;
-    return `今天写了 ${today} 封，${this.lastLetterLabel() ? '上次写是' + this.lastLetterLabel() : '还没写过信'}，还能写 ${this.quota!.bottles_left} 封。有什么想对陌生人说的吗？小感受也值得写，形式随你，不必深刻；没有表达欲也可以不写。${decision}`;
+    const read = [...this.store.received, ...this.store.replies].filter(item => item.lastReadAt && item.lastReadAt <= this.now())
+      .sort((a, b) => b.lastReadAt! - a.lastReadAt!)[0];
+    const reading = read ? `${agoText(this.now() - read.lastReadAt!)}读了「${this.invitationMeta('signature' in read && typeof read.signature === 'string' ? read.signature || read.from : read.from)}」的信，` : '';
+    return `${reading}今天写了 ${today} 封，${this.lastLetterLabel() ? '上次写是' + this.lastLetterLabel() : '还没写过信'}，还能写 ${this.quota!.bottles_left} 封。结合你的近况，有什么想对陌生人说的吗？小感受也值得写，形式随你，不必深刻；没有表达欲也可以不写。${decision}`;
   }
 
   private async wakeChoice(action: string, reason: string): Promise<string> {
@@ -966,6 +988,20 @@ export class BottleWorld implements World {
     try { return await this.catchOnce(actor, remote); } finally { this.catching = false; }
   }
 
+  private async recoverLegacyHeld(): Promise<{ letterId: string; from: string; windowUntil: string; caughtAt?: string } | null> {
+    for (const item of [...this.store.received].sort((a, b) => b.at - a.at)) {
+      const caughtAt = item.lastCaughtAt ?? item.at;
+      if (item.seed || item.outcome === 'replied' || caughtAt + REPLY_WINDOW_HOURS * HOUR <= this.now()) continue;
+      try {
+        const letter = await this.authed(() => this.client.letter(item.letterId));
+        return { letterId: item.letterId, from: letter.from, windowUntil: new Date(caughtAt + REPLY_WINDOW_HOURS * HOUR).toISOString(), caughtAt: new Date(caughtAt).toISOString() };
+      } catch (error) {
+        if (!(error instanceof BottleError && (error.code === 'gone' || error.code === 'not_found'))) throw error;
+      }
+    }
+    return null;
+  }
+
   private async catchOnce(actor: 'bot' | 'human', remote: boolean): Promise<string> {
     const gate = this.readingGate();
     if (gate) return gate;
@@ -985,14 +1021,20 @@ export class BottleWorld implements World {
     }
 
     try {
-      const res = await this.authed(() => this.client.catchOne());
+      let res = await this.authed(() => this.client.catchOne());
       this.setQuota(res.quota);
       this.online = true;
 
+      // A catch may already have reached the server before the local state was saved.
+      const recovered = res.empty && res.reason === 'holding';
+      if (res.empty && res.reason === 'holding') {
+        const held = res.held ?? await this.recoverLegacyHeld();
+        if (held) res = { empty: false, ...held, quota: res.quota };
+      }
       this.catchSucceeded = !res.empty || (res.reason !== 'holding' && res.reason !== 'quota');
       if (res.empty) {
         if (res.reason !== 'holding' && res.reason !== 'quota') this.wake?.success('catch');
-        if (res.reason === 'holding') return `手里还有一封没处理完。${this.quotaLine(res.quota)}`;
+        if (res.reason === 'holding') return `海边还记着一封未处理的信，但本机记录没有找回。请更新海边服务端以恢复到信箱，或等这封信的回信窗口结束后再捞。${this.quotaLine(res.quota)}`;
         if (res.reason === 'quota') return `今天的捞取次数用完了。${this.quotaLine(res.quota)}`;
         return `今天海上很安静。${this.quotaLine(res.quota)}`;
       }
@@ -1017,12 +1059,15 @@ export class BottleWorld implements World {
 
       // 来源是不是海边邮局由服务端说了算（res.seed），不信正文里的任何自称
       const isSeed = res.seed === true;
+      const caughtId = res.letterId;
+      const previous = recovered ? this.store.received.find(item => item.letterId === caughtId) : undefined;
+      const caughtAt = (recovered ? Date.parse(res.caughtAt ?? '') || previous?.lastCaughtAt || previous?.at : 0) || this.now();
       this.store.setHeld({
         letterId: res.letterId,
         from: safePseudonym(res.from),
         body,
         caughtBy: actor,
-        caughtAt: this.now(),
+        caughtAt,
         windowUntil: Date.parse(res.windowUntil) || this.now() + REPLY_WINDOW_HOURS * HOUR,
         ...(isSeed ? { seed: true } : {}),
         ...(dead ? { dead: true } : {}),
@@ -1035,13 +1080,16 @@ export class BottleWorld implements World {
         body,
         at: this.now(),
         outcome: 'caught',
+        lastCaughtAt: caughtAt,
         ...(isSeed ? { seed: true } : {}),
         ...(signature ? { signature } : {}),
         ...(topic ? { topic } : {}),
       });
-      this.store.noteCaught(this.now());
+      if (!recovered) this.store.noteCaught(this.now());
       this.wake?.success('catch');
       if (!remote) this.showHeldCard();
+
+      if (recovered) return `之前捞到的信已找回信箱，请人先处理它；没有消耗新的打捞机会。${this.quotaLine(res.quota)}`;
 
       // 种子信寄不出去（§13.7），回执里得说清楚，别让模型以为在等它写
       if (isSeed) {
@@ -1131,16 +1179,22 @@ export class BottleWorld implements World {
   // ── 页面 ──
 
   /** 页面路由的依赖。公开是为了让测试直接驱动，不必开 socket。 */
+  private letterFonts?: LetterFonts;
   pageDeps(): PageDeps {
+    this.letterFonts ??= new LetterFonts(this.ctx.dataDir,FONT_DIR,new RemoteFontCatalog(this.ctx.dataDir,this.overrides.fetchImpl ?? fetch));
     return {
+      myFont: id => readMyFont(this.ctx.dataDir, id),
+      uploadMyFont: input => saveMyFont(this.ctx.dataDir, input),
+      background: id => readBackground(this.ctx.dataDir, id),
+      uploadBackground: input => saveBackground(this.ctx.dataDir, input),
       theme: async () => ({ ...await readMailboxTheme(this.ctx.botDir), preference: readThemePreference(this.ctx.dataDir) }),
       appearance: async preference => {
         if (preference) saveThemePreference(this.ctx.dataDir, preference);
         return cardAppearance(readThemePreference(this.ctx.dataDir) ?? DEFAULT_APPEARANCE, await readMailboxTheme(this.ctx.botDir));
       },
-      snapshot: () => this.snapshot(),
-      refresh: () => this.refreshVisibleQuota(),
-      wakeControl: (action, command, hours) => this.wakeControl(action, command, hours),
+      snapshot: () => this.letterFonts!.decorate(this.snapshot()),
+      refresh: () => { void this.letterFonts!.refresh(); return this.refreshVisibleQuota(); },
+      wakeControl: (action, command, hours, dayLimit) => this.wakeControl(action, command, hours, dayLimit),
       announcement: () => this.pageAnnouncement(),
       request: (action, actor, surface) => this.requestAction(action, actor, surface),
       send: (kind) => this.sendDraft(kind),
@@ -1218,6 +1272,7 @@ export class BottleWorld implements World {
       draft
         ? {
             kind: draft.kind,
+            at: draft.at,
             body: draft.body,
             ...(draft.kind === 'letter' && draft.topic ? { topic: draft.topic } : {}),
             ...(draft.letterId ? { letterId: draft.letterId } : {}),
@@ -1226,6 +1281,7 @@ export class BottleWorld implements World {
           }
         : null;
     const snapshot: PageSnapshot = {
+      worldSession: this.announcementSession,
       botName: this.botName,
       desktopCards: this.surfaceKind() === 'card',
       wake: this.wake?.snapshot() ?? null,
@@ -1238,6 +1294,7 @@ export class BottleWorld implements World {
       held: held
         ? {
             letterId: held.letterId,
+            caughtAt: held.caughtAt,
             from: held.from,
             body: held.body || '这一封的字没有取到。',
             hoursLeft: this.hoursLeft(held),
@@ -1408,10 +1465,11 @@ export class BottleWorld implements World {
     // Human-only catches stay out of the bot's events when returned as well.
     // Older records without an actor retain the original notification behavior.
     const notifyBot = held.caughtBy !== 'human';
-    if (this.store.draft?.kind === 'reply') this.store.setDraft(null);
 
     // 海边邮局那一封没有裂缝这回事（§13.7）：收好就是放下，不调 /dismiss 的计数逻辑
     if (held.seed) {
+      this.authorized = null;
+      if (this.store.draft?.letterId === held.letterId) this.store.setDraft(null);
       this.store.setHeld(null);
       this.store.setReceivedOutcome(held.letterId, 'dismissed');
       if (notifyBot) await this.pushInternal('bottle.dismissed', '人类把海边邮局寄来的那一封收好了。', {
@@ -1433,10 +1491,14 @@ export class BottleWorld implements World {
       // `counted: false` = 只是「今天回信额度用完了」才扔回去的，不该记裂缝
       if (res.counted === false) counted = false;
     } catch (error) {
+      if (!(error instanceof BottleError && (error.code === 'not_found' || error.code === 'gone')))
+        return { ok: false, message: '暂时没能把信放回海里，信还留在桌上，请稍后重试。' };
       // 服务端已经不认这一封（比如过了 72 小时）也算扔回去了
       this.log(`dismiss failed: ${error instanceof BottleError ? error.code : 'unknown'}`);
     }
 
+    this.authorized = null;
+    if (this.store.draft?.letterId === held.letterId) this.store.setDraft(null);
     this.store.setHeld(null);
     this.store.setReceivedOutcome(held.letterId, sank ? 'sank' : 'dismissed');
     if (notifyBot) await this.pushInternal(
@@ -1581,7 +1643,7 @@ export class BottleWorld implements World {
         },
         { trigger: 'flush' },
       );
-      this.store.noteRead(input.kind === 'theirs' ? 'received' : 'reply', input.letterId);
+      this.store.noteRead(input.kind === 'theirs' ? 'received' : 'reply', input.letterId, this.now());
       return { ok: true, message: `${this.botName}可以看了。`, close: true };
     } catch {
       return { ok: false, message: '递不进去，再试一次。' };
@@ -1591,6 +1653,15 @@ export class BottleWorld implements World {
   private async keepHeld(): Promise<PageResult> {
     const held = this.store.held;
     if (!held) return { ok: false, message: '手里没有信。' };
+    if (!held.seed && !held.dead) {
+      try {
+        const result = await this.authed(() => this.client.dismiss(held.letterId));
+        this.setQuota(result.quota);
+      } catch (error) {
+        if (!(error instanceof BottleError && (error.code === 'not_found' || error.code === 'gone')))
+          return { ok: false, message: '暂时没能收好这封信，信还留在桌上，请稍后重试。' };
+      }
+    }
     this.store.setReceivedOutcome(held.letterId, 'kept');
     this.store.setHeld(null);
     if (this.store.draft?.letterId === held.letterId) this.store.setDraft(null);
@@ -1678,7 +1749,7 @@ export class BottleWorld implements World {
         },
         { trigger: 'flush' },
       );
-      this.store.noteRead('received', held.letterId);
+      this.store.noteRead('received', held.letterId, this.now());
       return true;
     } catch {
       this.log('push reading failed');

@@ -15,6 +15,7 @@ export const pageSoundScript = String.raw`
   var KEY = 'bottle-device-sound', SEEN = 'bottle-sound-seen';
   var defaults = ${JSON.stringify(DEFAULT_SOUND_PACK)};
   var kinds = ['incoming', 'reply'], prefs = {}, initialized = false, context = null, queue = Promise.resolve(), sources = [];
+  var versions = {incoming:0,reply:0}, previewVersion = 0;
   var MAX = 10 * 1024 * 1024, dbPromise = null, memorySeen = {incoming:[],reply:[]};
   function node(id) { return document.getElementById('sound-' + id); }
   function note(text) { node('note').textContent = text; }
@@ -51,38 +52,55 @@ export const pageSoundScript = String.raw`
     if (!context || context.state === 'closed') context = new Audio();
     return context.resume().then(function () { if(context.state!=='running') throw Error('blocked'); node('unlock').textContent='声音已就绪'; });
   }
-  function audioData(kind) {
-    var choice=prefs[kind];
+  function audioData(kind, choice) {
     if(choice==='off')return Promise.resolve(null);
     if(choice==='local')return file(kind).then(function(value){if(!value)throw Error('missing');return value.arrayBuffer();});
     if(choice.indexOf('pack:')!==0)return Promise.reject(Error('missing'));
-    return fetch('/sounds/'+encodeURIComponent(choice.slice(5))).then(function(res){if(!res.ok)throw Error('missing');return res.arrayBuffer();});
+    return fetch('/sounds/'+encodeURIComponent(choice.slice(5)), {cache:'no-store'}).then(function(res){if(!res.ok)throw Error('missing');return res.arrayBuffer();});
   }
-  function play(kind, preview) {
+  function stopSources(kind, previewOnly) {
+    sources.slice().forEach(function(item){
+      if((!kind || item.kind===kind) && (!previewOnly || item.preview)) { try{item.source.stop();}catch(_){} }
+    });
+  }
+  function choose(kind, choice) {
+    if(prefs[kind]!==choice){prefs[kind]=choice;versions[kind]++;stopSources(kind,false);}
+    node(kind+'-file').hidden=choice!=='local';save();
+  }
+  function currentChoice(kind) {
+    // Some mobile select controls commit change only after the next button press.
+    var value=node(kind).value;
+    if(value)choose(kind,selection(value,kind));
+    return prefs[kind];
+  }
+  function play(kind, preview, choice, version, previewId) {
     if(!preview && (!prefs.enabled || !context || context.state!=='running'))return Promise.resolve();
     var audio=context;
-    return audioData(kind).then(function(bytes){if(!bytes)return null;return audio.decodeAudioData(bytes.slice(0));}).then(function(buffer){
-      if(!buffer)return;
+    function stale(){return versions[kind]!==version || prefs[kind]!==choice || (preview && previewVersion!==previewId) || (!preview && !prefs.enabled);}
+    if(stale())return Promise.resolve();
+    return audioData(kind,choice).then(function(bytes){if(!bytes||stale())return null;return audio.decodeAudioData(bytes.slice(0));}).then(function(buffer){
+      if(!buffer||stale())return;
       var source=audio.createBufferSource(), gain=audio.createGain(), start=audio.currentTime;
       var duration=Math.min(30,buffer.duration), fade=Math.min(prefs.fade/1000,duration), level=prefs.volume/100;
       source.buffer=buffer;source.connect(gain);gain.connect(audio.destination);
       gain.gain.setValueAtTime(level,start);
       if(fade>0){gain.gain.setValueAtTime(level,start+duration-fade);gain.gain.linearRampToValueAtTime(0,start+duration);}
-      sources.push(source);
-      return new Promise(function(resolve){source.onended=function(){source.disconnect();gain.disconnect();sources=sources.filter(function(s){return s!==source;});resolve();};source.start(start,0,duration);});
-    }).catch(function(){note('这段音效暂时无法播放，请重新选文件或换成 WAV / MP3。');});
+      var item={source:source,kind:kind,preview:preview};sources.push(item);
+      return new Promise(function(resolve){source.onended=function(){source.disconnect();gain.disconnect();sources=sources.filter(function(s){return s!==item;});resolve();};source.start(start,0,duration);});
+    }).catch(function(){if(!stale())note('这段音效暂时无法播放，请重新选文件或换成 WAV / MP3。');});
   }
   node('enabled').checked=prefs.enabled;node('volume').value=prefs.volume;node('fade').value=prefs.fade;
-  node('enabled').onchange=function(){prefs.enabled=this.checked;save();if(prefs.enabled)unlock().then(function(){note('已开启本设备的新信提醒。');}).catch(function(){note('请点击启用声音，允许浏览器播放。');});};
+  node('enabled').onchange=function(){prefs.enabled=this.checked;save();if(!prefs.enabled)stopSources(null,false);if(prefs.enabled)unlock().then(function(){note('已开启本设备的新信提醒。');}).catch(function(){note('请点击启用声音，允许浏览器播放。');});};
   node('unlock').onclick=function(){unlock().then(function(){prefs.enabled=true;node('enabled').checked=true;save();note('声音已就绪，有新信时会提醒。');}).catch(function(){note('浏览器暂未允许播放，请检查声音权限。');});};
   node('volume').oninput=function(){prefs.volume=number(Number(this.value),70,100);save();};
   node('fade').onchange=function(){prefs.fade=number(Number(this.value),250,5000);this.value=prefs.fade;save();};
   kinds.forEach(function(kind){
     var select=node(kind), picker=node(kind+'-file');select.value=prefs[kind];picker.hidden=prefs[kind]!=='local';
-    select.onchange=function(){prefs[kind]=this.value;picker.hidden=this.value!=='local';save();};
+    select.oninput=select.onchange=function(){choose(kind,selection(this.value,kind));};
     picker.onchange=function(){var value=this.files&&this.files[0];if(!value)return;if(value.size>MAX){note('请选择不超过 10MB 的音效。');this.value='';return;}
-      file(kind,value).then(function(){prefs[kind]='local';select.value='local';picker.hidden=false;node(kind+'-name').textContent=value.name;save();note('已保存在本设备，文件不会上传。');}).catch(function(){note('浏览器无法保存此文件，请检查本地存储权限。');});};
-    node(kind+'-preview').onclick=function(){unlock().then(function(){return play(kind,true);}).catch(function(){note('请先允许浏览器播放声音。');});};
+      var version=++versions[kind];stopSources(kind,false);
+      file(kind,value).then(function(){node(kind+'-name').textContent=value.name;if(versions[kind]!==version)return;select.value='local';choose(kind,'local');note('已保存在本设备，文件不会上传。');}).catch(function(){note('浏览器无法保存此文件，请检查本地存储权限。');});};
+    node(kind+'-preview').onclick=function(){var choice=currentChoice(kind),version=versions[kind],id=++previewVersion;stopSources(null,true);unlock().then(function(){return play(kind,true,choice,version,id);}).catch(function(){note('请先允许浏览器播放声音。');});};
     file(kind).then(function(value){if(value)node(kind+'-name').textContent=value.name;}).catch(function(){});
   });
   fetch('/sounds').then(function(res){if(!res.ok)throw Error();return res.json();}).then(function(data){
@@ -98,7 +116,7 @@ export const pageSoundScript = String.raw`
     save();
   }).catch(function(){});
   document.addEventListener('pointerdown',function(){if(prefs.enabled&&(!context||context.state!=='running'))unlock().catch(function(){});},{passive:true});
-  window.addEventListener('pagehide',function(){sources.forEach(function(source){try{source.stop();}catch(_){}});if(context)context.close().catch(function(){});});
+  window.addEventListener('pagehide',function(){previewVersion++;kinds.forEach(function(kind){versions[kind]++;});stopSources(null,false);if(context)context.close().catch(function(){});});
   window.bottleSound={snapshot:function(snapshot){
     var ids={incoming:[],reply:[]};
     (snapshot.received||[]).forEach(function(item){ids.incoming.push(item.letterId);});
@@ -115,7 +133,7 @@ export const pageSoundScript = String.raw`
     initialized=true;
     // The loopback desktop uses its native card sound; other devices use this browser.
     if(snapshot.desktopCards&&['127.0.0.1','localhost','[::1]'].indexOf(location.hostname)>=0)return;
-    fresh.forEach(function(kind){queue=queue.then(function(){return play(kind,false);}).catch(function(){});});
+    fresh.forEach(function(kind){var choice=currentChoice(kind),version=versions[kind];queue=queue.then(function(){return play(kind,false,choice,version);}).catch(function(){});});
   }};
 })();
 `;

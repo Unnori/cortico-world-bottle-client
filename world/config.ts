@@ -1,3 +1,4 @@
+import { WAKE_POLICIES } from './wake-policy.ts';
 import { DEFAULT_SOUND_PACK, soundPackChoice, type SoundConfig } from './sound.ts';
 import type { ConfigGroup, ConfigProperty } from 'cortico/core/types.ts';
 
@@ -9,10 +10,13 @@ import type { ConfigGroup, ConfigProperty } from 'cortico/core/types.ts';
 export interface BottleWakeSettings {
   writeInviteEnabled: boolean;
   writeInviteIntervalHours: number;
+  writeInviteDayLimit: number;
   catchInviteEnabled: boolean;
   catchInviteIntervalHours: number;
+  catchInviteDayLimit: number;
   reminderEnabled: boolean;
   reminderIntervalHours: number;
+  reminderDayLimit: number;
 }
 
 /** Older deployments may omit the invitation settings; constructor migration retains their preferences. */
@@ -40,26 +44,28 @@ export interface BottleConfigSection extends Partial<BottleWakeSettings>, SoundC
 }
 
 export const BOTTLE_WAKE_FIELDS = [
-  ['write', 'writeInviteEnabled', 'writeInviteIntervalHours', '写信邀请'],
-  ['catch', 'catchInviteEnabled', 'catchInviteIntervalHours', '打捞邀请'],
-  ['remind', 'reminderEnabled', 'reminderIntervalHours', '待办提醒'],
+  ['write', 'writeInviteEnabled', 'writeInviteIntervalHours', '写信邀请', 'writeInviteDayLimit'],
+  ['catch', 'catchInviteEnabled', 'catchInviteIntervalHours', '打捞邀请', 'catchInviteDayLimit'],
+  ['remind', 'reminderEnabled', 'reminderIntervalHours', '待办提醒', 'reminderDayLimit'],
 ] as const;
 
 /** Distinguish implicit defaults from explicit deployment values when migrating old scheduler preferences. */
 export function initialiseWakeSettings(config: BottleConfigSection, savedLanes: unknown, explicitConfig: unknown = {}): void {
   const explicit = explicitConfig && typeof explicitConfig === 'object' ? explicitConfig : {};
   const lanes = savedLanes && typeof savedLanes === 'object' ? savedLanes as Record<string, unknown> : {};
-  for (const [action, enabled, interval] of BOTTLE_WAKE_FIELDS) {
+  for (const [action, enabled, interval, , limit] of BOTTLE_WAKE_FIELDS) {
+    const policy = WAKE_POLICIES[action];
+    if (!Number.isInteger(config[limit]) || config[limit]! < policy.minLimit || config[limit]! > policy.maxLimit) config[limit] = policy.dayLimit;
     const saved = lanes[action];
     const lane = saved && typeof saved === 'object' ? saved as Record<string, unknown> : {};
     // Deployment values override legacy preferences, even when equal to the new defaults.
     // A default introduced by a package upgrade must not accidentally resume an old pause.
     if (typeof config[enabled] !== 'boolean' || (!Object.hasOwn(explicit, enabled) &&
       config[enabled] === BOTTLE_DEFAULTS[enabled] && typeof lane.paused === 'boolean')) config[enabled] = lane.paused !== true;
-    if (typeof config[interval] !== 'number' || !Number.isFinite(config[interval]) || config[interval]! < 2 || config[interval]! > 24 ||
+    if (typeof config[interval] !== 'number' || !Number.isFinite(config[interval]) || config[interval]! < policy.minHours || config[interval]! > policy.maxHours ||
       (!Object.hasOwn(explicit, interval) && config[interval] === BOTTLE_DEFAULTS[interval] && typeof lane.intervalHours === 'number')) {
       const hours = lane.intervalHours;
-      config[interval] = typeof hours === 'number' && Number.isFinite(hours) ? Math.min(24, Math.max(2, hours)) : 2;
+      config[interval] = typeof hours === 'number' && Number.isFinite(hours) && (action !== 'remind' || (hours >= policy.minHours && hours <= policy.maxHours)) ? Math.min(policy.maxHours, Math.max(policy.minHours, hours)) : policy.interval;
     }
   }
 }
@@ -75,10 +81,13 @@ export const BOTTLE_DEFAULTS: BottleConfigSection = {
   randomWake: true,
   writeInviteEnabled: true,
   writeInviteIntervalHours: 2,
+  writeInviteDayLimit: 3,
   catchInviteEnabled: true,
   catchInviteIntervalHours: 2,
+  catchInviteDayLimit: 3,
   reminderEnabled: true,
-  reminderIntervalHours: 2,
+  reminderIntervalHours: WAKE_POLICIES.remind.interval,
+  reminderDayLimit: WAKE_POLICIES.remind.dayLimit,
   server: 'https://bottle.sqnori.com',
   port: 7796,
   lanEnabled: false,
@@ -161,21 +170,31 @@ export const BOTTLE_CONFIG_FIELDS: Record<string, ConfigProperty> = {
   },
   'worlds.bottle.randomWake': {
     type: 'boolean', title: '随机海边邀请',
-    description: '有余量且没有待办时，偶尔邀请它写信或打捞；有待办则温和提醒，可以不做。每类每天最多 3 次。下方可分别开启、暂停与调整间隔，与信箱网页共用设置；关闭总开关不会清除各类偏好。',
+    description: '有余量且没有待办时，偶尔邀请它写信或打捞；有待办则温和提醒，可以不做。写信、打捞默认每天各最多 3 次，待办提醒默认 12 次，可分别调整。下方可分别开启、暂停与调整间隔，与信箱网页共用设置；关闭总开关不会清除各类偏好。',
     'x-hot': true,
   },
-  ...Object.fromEntries(BOTTLE_WAKE_FIELDS.flatMap(([action, enabled, interval, label]) => [
+  ...Object.fromEntries(BOTTLE_WAKE_FIELDS.flatMap(([action, enabled, interval, label, limit]) => [
     [`worlds.bottle.${enabled}`, {
       type: 'boolean' as const, title: label,
       description: action === 'remind'
-        ? '信箱里有尚未处理的来信或草稿时，偶尔温和提醒；不读正文，也不代替人寄信。关闭即暂停，与网页设置同步。'
+        ? '仅在手上有尚未处理的来信时温和提醒，没有来信或只有草稿时不触发；不读正文，也不代替人寄信。关闭即暂停，与网页设置同步。'
         : '余量大于 1 且手上没有待办时，偶尔邀请它自主选择。关闭即暂停，与网页设置同步；人手动发出的邀请仍尊重暂停。',
       'x-hot': true,
     }],
     [`worlds.bottle.${interval}`, {
-      type: 'number' as const, title: `${label}最短间隔`, minimum: 2, maximum: 24,
-      description: '默认 2 小时，范围 2—24 小时。实际时刻在最短间隔的 1—2 倍内随机，最长 24 小时；每类每天最多 3 次。修改后重新安排，不立即补催。',
+      type: 'number' as const, title: `${label}最短间隔`, minimum: WAKE_POLICIES[action].minHours, maximum: WAKE_POLICIES[action].maxHours,
+      description: action === 'remind'
+        ? '默认 0.5 小时（30 分钟），实际在 30—60 分钟内随机。最短间隔可设 0.5—1 小时，实际不超过 1 小时；修改后重新安排，不立即补催。'
+        : '默认 2 小时，范围 2—24 小时。实际时刻在最短间隔的 1—2 倍内随机，最长 24 小时。修改后重新安排，不立即补催。',
+      ...(action === 'remind' ? { multipleOf: 0.01 } : {}),
       'x-suffix': '小时', 'x-hot': true,
+    }],
+    [`worlds.bottle.${limit}`, {
+      type: 'integer' as const, title: `${label}每日上限`, minimum: WAKE_POLICIES[action].minLimit, maximum: WAKE_POLICIES[action].maxLimit,
+      description: action === 'remind'
+        ? '默认 12 次，范围 3—20 次（整数）。包含自动补试；修改不会清零今日次数，没有待处理来信时不提醒。'
+        : '默认 3 次，范围 1—24 次（整数）。包含自动补试，手动邀请不占此上限；修改不会清零今日次数。',
+      'x-suffix': '次', 'x-hot': true,
     }],
   ])),
   'worlds.bottle.debug': {
@@ -209,8 +228,8 @@ export const BOTTLE_CONFIG_GROUPS: ConfigGroup[] = [
     '先选信件显示的位置，再调整桌面卡片和海啸提醒。',
     ['surface', 'cardAutoCloseSec', 'tsunamiNotice']),
   configGroup('world:bottle:invitations', '海边邀请与提醒',
-    '总开关在前，写信、打捞和待办提醒各有自己的开关与间隔；与信箱里的设置同步。',
-    ['randomWake', ...BOTTLE_WAKE_FIELDS.flatMap(([, enabled, interval]) => [enabled, interval])]),
+    '总开关在前，写信、打捞和待办提醒各有自己的开关、间隔与每日上限；与信箱里的设置同步。',
+    ['randomWake', ...BOTTLE_WAKE_FIELDS.flatMap(([, enabled, interval, , limit]) => [enabled, interval, limit])]),
   configGroup('world:bottle:sound', '桌面音效',
     '这里只影响 Windows 新来信和回信卡片。音量与淡出对两类声音共同生效，网页声音仍在各设备单独设置。',
     ['soundEnabled', 'soundVolume', 'soundFadeOutMs']),

@@ -1,0 +1,68 @@
+{
+  "date": "2026-11-03",
+  "fontCounts": {
+    "redistributable": 9,
+    "restricted": 2,
+    "unverified": 4
+  },
+  "approvedOriginalBytes": 151441326,
+  "approvedWoff2Bytes": 73161652,
+  "fontReductionPercent": 51.69,
+  "packageBefore": {
+    "size": 110828019,
+    "unpackedSize": 188042059
+  },
+  "packageAfter": {
+    "size": 79628410,
+    "unpackedSize": 82656908
+  },
+  "packageReductionPercent": 28.15,
+  "packageFontFiles": [
+    {
+      "path": "world/fonts/redistributable/LXGWWenKaiMono-Medium.woff2",
+      "size": 10790044,
+      "mode": 420
+    },
+    {
+      "path": "world/fonts/redistributable/NaikaiFont-Regular-2.woff2",
+      "size": 7479548,
+      "mode": 420
+    },
+    {
+      "path": "world/fonts/redistributable/Yozai-Regular.woff2",
+      "size": 8221224,
+      "mode": 420
+    },
+    {
+      "path": "world/fonts/redistributable/小赖字体 SC.woff2",
+      "size": 14159020,
+      "mode": 420
+    },
+    {
+      "path": "world/fonts/redistributable/清松手写体1-Regular.woff2",
+      "size": 7627900,
+      "mode": 420
+    },
+    {
+      "path": "world/fonts/redistributable/清松手写体2-Regular.woff2",
+      "size": 6858828,
+      "mode": 420
+    },
+    {
+      "path": "world/fonts/redistributable/清松手写体8.woff2",
+      "size": 4527504,
+      "mode": 420
+    },
+    {
+      "path": "world/fonts/redistributable/清松手写体9.woff2",
+      "size": 4770480,
+      "mode": 420
+    },
+    {
+      "path": "world/fonts/redistributable/随峰体Plus.woff2",
+      "size": 8727104,
+      "mode": 420
+    }
+  ],
+  "note": "Package reduction combines authorization quarantine and compression; font reduction compares the same nine fonts. Offline dry run only; not published."
+}

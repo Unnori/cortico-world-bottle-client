@@ -1,0 +1,19 @@
+{
+  "checkedAt": "2026-11-03",
+  "primarySources": {
+    "wenkai-ofl.txt": "https://raw.githubusercontent.com/lxgw/LxgwWenKai/main/OFL.txt",
+    "yozai-ofl.txt": "https://raw.githubusercontent.com/lxgw/yozai-font/master/OFL.txt",
+    "kose-ofl.txt": "https://raw.githubusercontent.com/lxgw/kose-font/master/OFL.txt",
+    "naikai-ofl.txt": "https://raw.githubusercontent.com/max32002/naikaifont/master/SIL_Open_Font_License_1.1.txt",
+    "jason-readme.txt": "https://raw.githubusercontent.com/jasonhandwriting/JasonHandwriting/master/README.md",
+    "naikai-readme.txt": "https://raw.githubusercontent.com/max32002/naikaifont/master/README.md",
+    "kose-readme.txt": "https://raw.githubusercontent.com/lxgw/kose-font/master/README.md",
+    "peakplus-official.txt": "https://cjkfonts.io/blog/ThePeakFontPlus",
+    "idfont-kanji.txt": "https://idfont.jp/infos_mb.html",
+    "idfont-guide.txt": "https://idfont.jp/info.html",
+    "idfont-free.txt": "https://idfont.jp/free-kanji/free-kana.html",
+    "idfont-official.txt": "https://idfont.jp/",
+    "ofl-conversion.txt": "https://openfontlicense.org/ofl-faq/"
+  },
+  "localEvidence": "Font name tables and original downloaded usage statement; archive-site generic disclaimers are not authors permissions."
+}

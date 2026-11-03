@@ -35,6 +35,7 @@ function Brush([string]$hex) {
     $key = $hex.Substring(1)
     if ($script:themeBrushes.ContainsKey($key)) { return $script:themeBrushes[$key] }
     $value = $script:themeColors.$key
+    if ($key -eq 'accent-text' -and $value -notmatch '^#[0-9a-fA-F]{6}$') { $value = $script:themeColors.accent }
     if (-not $value) { $value = '#25334f' }
     $brush = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString($value))
     $script:themeBrushes[$key] = $brush
@@ -66,7 +67,9 @@ function Apply-Appearance {
   $script:themeColors = $script:themeData.palettes.$mode
   foreach ($key in @($script:themeBrushes.Keys)) {
     $brush = $script:themeBrushes[$key]
-    $color = [System.Windows.Media.ColorConverter]::ConvertFromString($script:themeColors.$key)
+    $value = $script:themeColors.$key
+    if ($key -eq 'accent-text' -and $value -notmatch '^#[0-9a-fA-F]{6}$') { $value = $script:themeColors.accent }
+    $color = [System.Windows.Media.ColorConverter]::ConvertFromString($value)
     if ($brush.Color -eq $color) { continue }
     $brush.BeginAnimation([System.Windows.Media.SolidColorBrush]::ColorProperty, $null)
     if ([System.Windows.SystemParameters]::ClientAreaAnimation -and $script:win -and $script:win.IsLoaded) {
@@ -134,7 +137,7 @@ $eyebrow = New-Object System.Windows.Controls.TextBlock
 $eyebrow.Text = [string]$spec.eyebrow
 $eyebrow.FontFamily = 'Microsoft YaHei'
 $eyebrow.FontSize = 11
-$eyebrow.Foreground = Brush '@accent'
+$eyebrow.Foreground = Brush '@accent-text'
 $eyebrow.VerticalAlignment = 'Center'
 $head.Children.Add($eyebrow) | Out-Null
 

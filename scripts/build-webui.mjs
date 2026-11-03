@@ -27,6 +27,11 @@ const manifestPath = new URL('package.json', root);
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 manifest.cortico.webUiClient = `dist/${jsName}`;
 manifest.cortico.webUiStyle = `dist/${cssName}`;
+// Publish only the current hashed assets; aliases and old builds stay out of npm.
+if (Array.isArray(manifest.files)) {
+  manifest.files = manifest.files.filter(path => path !== 'dist' && !path.startsWith('dist/'));
+  manifest.files.splice(1, 0, manifest.cortico.webUiClient, manifest.cortico.webUiStyle);
+}
 const temporary = new URL('package.json.webui-tmp', root);
 writeFileSync(temporary, JSON.stringify(manifest, null, 2) + '\n');
 renameSync(temporary, manifestPath);

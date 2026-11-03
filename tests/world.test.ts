@@ -1,3 +1,4 @@
+import { WORLD_VERSION, FEEDBACK_FORM_URL } from '../world/feedback.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,6 +10,8 @@ import { BOTTLE_TOOL_DECLS } from '../world/tools.ts';
 import { SeedStore } from '../server/seeds.ts';
 import type { CatchRes } from '../shared/contract.ts';
 import { callTool, makeHarness, type Harness } from './helpers.ts';
+import { BottleClient, BottleError } from '../world/client.ts';
+import { LocalStore } from '../world/store.ts';
 import { FakeHost } from './fake-host.ts';
 
 let h: Harness;
@@ -888,7 +891,7 @@ describe('漂流瓶 World · 一起读信', () => {
 describe('扩展自带的信箱入口面板', () => {
   it('启动前不提供地址，启动后只返回真实端口，不允许面板传入任意地址', async () => {
     expect(h.world.webUi().panels).toEqual([{ id: 'mailbox', title: '信箱' }]);
-    expect(await h.world.webUi().invoke!('mailbox', 'status', [])).toMatchObject({ url: null, wake: null, links: [], lan: { running: false } });
+    expect(await h.world.webUi().invoke!('mailbox', 'status', [])).toMatchObject({ version: WORLD_VERSION, feedbackUrl: FEEDBACK_FORM_URL, url: null, wake: null, links: [], lan: { running: false } });
     const world = await started();
     const ui = world.webUi();
     expect(world.webUi('en').panels?.[0]?.title).toBe('Mailbox');
@@ -899,7 +902,7 @@ describe('扩展自带的信箱入口面板', () => {
     await expect(ui.invoke!('mailbox', 'open', [])).rejects.toThrow('Unknown mailbox action');
     await expect(ui.invoke!('other', 'status', [])).rejects.toThrow('Unknown mailbox action');
     await world.stop();
-    expect(await world.webUi().invoke!('mailbox', 'status', [])).toMatchObject({ url: null, wake: null, links: [], lan: { running: false } });
+    expect(await world.webUi().invoke!('mailbox', 'status', [])).toMatchObject({ version: WORLD_VERSION, feedbackUrl: FEEDBACK_FORM_URL, url: null, wake: null, links: [], lan: { running: false } });
   });
 });
 
@@ -940,4 +943,62 @@ it('正文可接受 120 字的任意文本形式；121 字仍拒绝，回信仍�
   expect(await callTool(world, 'bottle_write', { text: text + '哈' })).toContain('超过 120 字');
   expect(world.pageDeps().snapshot().letterDraft?.body).toBe(text);
   expect(BOTTLE_TOOL_DECLS.find(t => t.name === 'bottle_wake_choice')?.parameters.required).toEqual(['reason']);
+});
+
+
+describe('本机待处理信与海边占用保持一致', () => {
+  it('扔回请求失败时保留信和回信稿，不发出扔回通知；重试成功后才清空', async () => {
+    const id = h.throwAs('peer', '这是待回信件。');
+    const world = await started();
+    await callTool(world, 'bottle_catch');
+    await world.pageDeps().open('page');
+    await callTool(world, 'bottle_reply', { text: '回信稿需要保留。' });
+    const dismiss = vi.spyOn(BottleClient.prototype, 'dismiss').mockRejectedValueOnce(new BottleError('internal', 503, '网络中断'));
+    const result = await world.pageDeps().dismiss();
+    expect(result.ok).toBe(false);
+    expect(world.pageDeps().snapshot()).toMatchObject({ held: { letterId: id }, replyDraft: { body: '回信稿需要保留。' } });
+    expect(h.db.letterById(id)?.state).toBe('caught');
+    expect(host.last('bottle.dismissed')).toBeUndefined();
+    dismiss.mockRestore();
+    expect((await world.pageDeps().dismiss()).ok).toBe(true);
+    expect(world.pageDeps().snapshot().held).toBeNull();
+    expect(h.db.letterById(id)?.state).toBe('floating');
+  });
+
+  it('本地记录完全丢失时恢复服务端手中那封，不扣次数、不把正文与ID给模型', async () => {
+    const id = h.throwAs('peer', '只有人打开信箱才能看到的正文。');
+    const world = await started();
+    await callTool(world, 'bottle_catch');
+    const before = world.pageDeps().snapshot().quota!.catches_left;
+    await world.stop();
+    const disk = new LocalStore(h.dir); disk.load(); disk.setHeld(null); disk.forgetHistory();
+    await world.start(host);
+    const result = await callTool(world, 'bottle_catch');
+    expect(result).toContain('已找回信箱');
+    expect(result).not.toContain(id);
+    expect(result).not.toContain('只有人打开信箱才能看到的正文');
+    expect(world.pageDeps().snapshot()).toMatchObject({ held: { letterId: id }, quota: { catches_left: before } });
+  });
+
+  it('旧服务端只报 holding 时仍可从本地信册找回，不再让桌面一直空着', async () => {
+    const id = h.throwAs('peer', '历史记录仍在。');
+    const world = await started(); await callTool(world, 'bottle_catch');
+    const quota = world.pageDeps().snapshot().quota!;
+    await world.stop(); const disk = new LocalStore(h.dir); disk.load(); disk.setHeld(null); await world.start(host);
+    const catchOne = vi.spyOn(BottleClient.prototype, 'catchOne').mockResolvedValueOnce({ empty: true, reason: 'holding', quota });
+    try {
+      expect(await callTool(world, 'bottle_catch')).toContain('已找回信箱');
+      expect(world.pageDeps().snapshot().held?.letterId).toBe(id);
+    } finally { catchOne.mockRestore(); }
+  });
+
+  it('珍藏普通信会先解除服务端占用，后续仍能打捞', async () => {
+    const id = h.throwAs('peer', '留下字，放回瓶子。');
+    const world = await started(); await callTool(world, 'bottle_catch');
+    expect((await world.pageDeps().keep()).ok).toBe(true);
+    expect(world.pageDeps().snapshot().held).toBeNull();
+    expect(world.pageDeps().snapshot().received[0].outcome).toBe('kept');
+    expect(h.db.letterById(id)?.state).toBe('floating');
+    expect(await callTool(world, 'bottle_catch')).not.toContain('没处理完');
+  });
 });

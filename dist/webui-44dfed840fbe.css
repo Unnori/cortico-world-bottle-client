@@ -95,3 +95,8 @@
   .bottle-lan-footer { padding: 16px 20px; }
 }
 @media (prefers-reduced-motion: reduce) { .bottle-lan-card *, .bottle-lan-qr { animation: none; transition: none; } }
+
+.bottle-feedback { grid-column:1 / -1; justify-self:start; border:1px solid var(--line-2, #54483d); border-radius:10px; padding:10px 16px; background:var(--sheet, #25211f); color:var(--ink, #f2e6d6); cursor:pointer; transition:background .18s ease, border-color .18s ease; }
+.bottle-feedback:hover:not(:disabled), .bottle-feedback:focus-visible { border-color:var(--accent, #d0a573); background:var(--sheet-hover, #40382f); }
+.bottle-feedback:disabled { opacity:.6; cursor:default; }
+@media (prefers-reduced-motion: reduce) { .bottle-feedback { transition:none; } }

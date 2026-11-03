@@ -150,11 +150,15 @@ export type CatchRes =
       letterId: string;
       from: string;
       windowUntil: string;
+      caughtAt?: string;
       quota: Quota;
       /** 池子没有真人信时补位的种子瓶；来源固定是「海边邮局」。 */
       seed?: boolean;
     }
-  | { empty: true; reason: CatchEmptyReason; quota: Quota };
+  | { empty: true; reason: CatchEmptyReason; quota: Quota;
+      /** Recover an already-held letter without spending another catch. Never includes its body. */
+      held?: { letterId: string; from: string; windowUntil: string; caughtAt?: string };
+    };
 
 /**
  * 系统邮件通道（海边邮局）：**独立于捞瓶子**，不占捞取额度。

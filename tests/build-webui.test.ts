@@ -17,10 +17,12 @@ it('builds identical content-addressed assets from LF and CRLF source files', ()
     writeFileSync(join(dir, 'scripts/build-webui.mjs'), readFileSync(new URL('../scripts/build-webui.mjs', import.meta.url)));
     writeFileSync(join(dir, 'webui/client.ts'), ["export default { id: 'fixture' };", ''].join(eol));
     writeFileSync(join(dir, 'webui/style.css'), ['.fixture {', '  color:red;', '}', ''].join(eol));
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'build-fixture', type: 'module', cortico: {} }));
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'build-fixture', type: 'module', cortico: {}, ...(eol === '\n' ? { files: ['world', 'dist', 'dist/webui-old.js', 'README.md'] } : {}) }));
     const built = spawnSync(process.execPath, [join(dir, 'scripts/build-webui.mjs')], { encoding: 'utf8', timeout: 10_000 });
     expect(built.status, built.stderr || built.stdout).toBe(0);
     const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    if (eol === '\n') expect(manifest.files).toEqual(['world', manifest.cortico.webUiClient, manifest.cortico.webUiStyle, 'README.md']);
+    else expect(manifest.files).toBeUndefined();
     return ['webUiClient', 'webUiStyle'].map(key => {
       const path = manifest.cortico[key];
       const bytes = readFileSync(join(dir, path));

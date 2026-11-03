@@ -8,32 +8,32 @@ import { BottleWorld } from '../world/world.ts';
 import { BOTTLE_CONFIG_FIELDS, BOTTLE_CONFIG_GROUPS, BOTTLE_DEFAULTS, BOTTLE_WAKE_FIELDS, initialiseWakeSettings, initialiseSoundSettings, type BottleConfigSection } from '../world/config.ts';
 
 describe('邀请配置声明与旧设置迁移', () => {
-  it('三类邀请均提供热更新开关与 2—24 小时间隔', () => {
-    for (const [, enabled, interval] of BOTTLE_WAKE_FIELDS) {
+  it('写信打捞保留长间隔，待办提醒提供半小时起的热更新间隔', () => {
+    for (const [action, enabled, interval] of BOTTLE_WAKE_FIELDS) {
       expect(BOTTLE_CONFIG_FIELDS[`worlds.bottle.${enabled}`]).toMatchObject({ type: 'boolean', 'x-hot': true });
-      expect(BOTTLE_CONFIG_FIELDS[`worlds.bottle.${interval}`]).toMatchObject({ type: 'number', minimum: 2, maximum: 24, 'x-hot': true });
+      expect(BOTTLE_CONFIG_FIELDS[`worlds.bottle.${interval}`]).toMatchObject({ type: 'number', minimum: action === 'remind' ? 0.5 : 2, maximum: action === 'remind' ? 1 : 24, 'x-hot': true });
     }
   });
   it('旧信箱设置里的暂停和间隔会成为新增配置项的初值', () => {
     const cfg = { ...BOTTLE_DEFAULTS };
     initialiseWakeSettings(cfg, { write: { paused: true, intervalHours: 8 }, catch: { paused: false, intervalHours: 6 }, remind: { paused: true, intervalHours: 4 } });
     expect(cfg).toMatchObject({ writeInviteEnabled: false, writeInviteIntervalHours: 8,
-      catchInviteEnabled: true, catchInviteIntervalHours: 6, reminderEnabled: false, reminderIntervalHours: 4 });
+      catchInviteEnabled: true, catchInviteIntervalHours: 6, reminderEnabled: false, reminderIntervalHours: 0.5 });
   });
   it('显式配置优先；缺失或损坏的旧设置安全回到默认值', () => {
     const cfg: BottleConfigSection = { ...BOTTLE_DEFAULTS, writeInviteEnabled: true, writeInviteIntervalHours: 3 };
     initialiseWakeSettings(cfg, { write: { paused: true, intervalHours: 8 }, catch: null, remind: { intervalHours: 100 } }, { writeInviteEnabled: true, writeInviteIntervalHours: 3 });
     expect(cfg).toMatchObject({ writeInviteEnabled: true, writeInviteIntervalHours: 3,
-      catchInviteEnabled: true, catchInviteIntervalHours: 2, reminderEnabled: true, reminderIntervalHours: 24 });
+      catchInviteEnabled: true, catchInviteIntervalHours: 2, reminderEnabled: true, reminderIntervalHours: 0.5 });
   });
 });
 
 
 it('defaults 中为每个声明提供合法值，升级迁移仍尊重显式的开启和两小时', () => {
   const cfg: BottleConfigSection = { ...BOTTLE_DEFAULTS };
-  for (const [, enabled, interval] of BOTTLE_WAKE_FIELDS) {
+  for (const [action, enabled, interval] of BOTTLE_WAKE_FIELDS) {
     expect(BOTTLE_DEFAULTS[enabled]).toBe(true);
-    expect(BOTTLE_DEFAULTS[interval]).toBe(2);
+    expect(BOTTLE_DEFAULTS[interval]).toBe(action === 'remind' ? 0.5 : 2);
   }
   initialiseWakeSettings(cfg, { write: { paused: true, intervalHours: 12 } },
     { writeInviteEnabled: true, writeInviteIntervalHours: 2 });
@@ -110,4 +110,30 @@ it('migrates retired audio defaults without changing explicit custom, shared or 
   expect(config.soundReplyPack).toBe('reply/New_notifications_3.wav');
   config.soundIncomingPack='shared.wav';config.soundReplyPack='reply/custom.wav';config.soundIncomingSource='local';config.soundIncomingFile='C:/Music/custom.wav';
   const before={...config};initialiseSoundSettings(config);expect(config).toEqual(before);
+});
+
+
+it('每日上限紧邻各自间隔，提醒默认十二次且范围三至二十', () => {
+  const group = BOTTLE_CONFIG_GROUPS.find(item => item.id === 'world:bottle:invitations')!;
+  const keys = Object.keys(group.schema.properties);
+  for (const [action, , interval, , limit] of BOTTLE_WAKE_FIELDS) {
+    expect(BOTTLE_DEFAULTS[limit]).toBe(action === 'remind' ? 12 : 3);
+    expect(group.schema.properties[`worlds.bottle.${limit}`]).toMatchObject({ type: 'integer', minimum: action === 'remind' ? 3 : 1, maximum: action === 'remind' ? 20 : 24, 'x-hot': true });
+    expect(keys.indexOf(`worlds.bottle.${limit}`)).toBe(keys.indexOf(`worlds.bottle.${interval}`) + 1);
+  }
+});
+
+
+it('升级保留提醒暂停及合法次数，旧长间隔回到半小时，缺省次数十二次', () => {
+  const cfg = { ...BOTTLE_DEFAULTS, reminderIntervalHours: 4, reminderDayLimit: 20 };
+  initialiseWakeSettings(cfg, { remind: { paused: true, intervalHours: 4 } });
+  expect(cfg).toMatchObject({ reminderEnabled: false, reminderIntervalHours: 0.5, reminderDayLimit: 20 });
+  const fresh = { ...BOTTLE_DEFAULTS };
+  initialiseWakeSettings(fresh, {});
+  expect(fresh).toMatchObject({ reminderIntervalHours: 0.5, reminderDayLimit: 12 });
+  for (const limit of [2, 21, 3.5]) {
+    const broken = { ...BOTTLE_DEFAULTS, reminderDayLimit: limit };
+    initialiseWakeSettings(broken, {});
+    expect(broken.reminderDayLimit).toBe(12);
+  }
 });
