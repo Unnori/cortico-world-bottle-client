@@ -21,6 +21,7 @@ function rig(tuningOver?: Partial<Tuning>) {
     maxThrows: 8,
     ipLimit: 5,
     ipWindowMin: 60,
+    replyWindowHours: 72,
     seedSlotsMin: 3,
     seedSlotsMax: 4,
     seedDailyChance: 1,

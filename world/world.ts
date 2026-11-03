@@ -110,6 +110,8 @@ export class BottleWorld implements World {
   private timers: Array<ReturnType<typeof setInterval>> = [];
 
   private quota: Quota | null = null;
+  /** 最近一次服务端给出的有效回信窗口；老服务端缺省时用 72 小时。 */
+  private replyWindowHours: number | null = null;
   /** 上一次拿到额度回执的时刻；页面据此决定要不要顺手刷新。 */
   private quotaAt = 0;
   private quotaRevision = 0;
@@ -316,6 +318,7 @@ export class BottleWorld implements World {
 
   async start(host: WorldHost): Promise<void> {
     this.host = host;
+    this.replyWindowHours = null;
     this.store.load();
     this.generation += 1;
     this.announcementSession = randomUUID();
@@ -711,10 +714,19 @@ export class BottleWorld implements World {
   /** 额度只有一个入口：任何时候拿到的回执都顺手把信件状态吃进来。 */
   private setQuota(quota: Quota): void {
     this.quotaRevision += 1;
+    const hours = quota.reply_window_hours;
+    if (typeof hours === 'number' && Number.isFinite(hours) && hours > 0) {
+      this.replyWindowHours = hours;
+    }
     const { announcement: _announcement, ...visibleQuota } = quota;
     this.quota = visibleQuota;
     this.quotaAt = this.now();
     this.absorbLetterStates(quota);
+  }
+
+  /** 只用于缺失截止时间时的推算，不能覆盖服务端已经给出的 windowUntil。 */
+  private windowHours(): number {
+    return this.replyWindowHours ?? REPLY_WINDOW_HOURS;
   }
 
   private absorbLetterStates(quota: Quota): void {
@@ -989,12 +1001,13 @@ export class BottleWorld implements World {
   }
 
   private async recoverLegacyHeld(): Promise<{ letterId: string; from: string; windowUntil: string; caughtAt?: string } | null> {
+    const hours = this.windowHours();
     for (const item of [...this.store.received].sort((a, b) => b.at - a.at)) {
       const caughtAt = item.lastCaughtAt ?? item.at;
-      if (item.seed || item.outcome === 'replied' || caughtAt + REPLY_WINDOW_HOURS * HOUR <= this.now()) continue;
+      if (item.seed || item.outcome === 'replied' || caughtAt + hours * HOUR <= this.now()) continue;
       try {
         const letter = await this.authed(() => this.client.letter(item.letterId));
-        return { letterId: item.letterId, from: letter.from, windowUntil: new Date(caughtAt + REPLY_WINDOW_HOURS * HOUR).toISOString(), caughtAt: new Date(caughtAt).toISOString() };
+        return { letterId: item.letterId, from: letter.from, windowUntil: new Date(caughtAt + hours * HOUR).toISOString(), caughtAt: new Date(caughtAt).toISOString() };
       } catch (error) {
         if (!(error instanceof BottleError && (error.code === 'gone' || error.code === 'not_found'))) throw error;
       }
@@ -1031,10 +1044,33 @@ export class BottleWorld implements World {
         const held = res.held ?? await this.recoverLegacyHeld();
         if (held) res = { empty: false, ...held, quota: res.quota };
       }
+
+      // ── 死锁兜底：服务端占着一封，但本机完全找不回来 ──
+      //
+      // 会走到这里的情况：新服务端没给 held、本机历史也没有那封（第一次使用的人尤其常见）。
+      // 以前这里只回一句话让玩家「等 72 小时」，等于把一次网络抖动变成三天的功能失效。
+      //
+      // 现在直接向服务端申请「把我手上那封放掉」——不带 letterId，服务端自己找。
+      // 服务端对这条路径不计入扔回次数，所以瓶子不会因此裂开。
+      if (res.empty && res.reason === 'holding') {
+        try {
+          const released = await this.authed(() => this.client.releaseHeld());
+          this.setQuota(released.quota);
+          this.log('holding deadlock released');
+          // 占用已经解开，这一次动作仍然算「没捞到」，但下次就能正常捞了
+          this.catchSucceeded = false;
+          return `海边刚才记着一封没送到的信，已经替你放回海里了。现在可以再捞一次。${this.quotaLine(released.quota)}`;
+        } catch (error) {
+          this.log(`release held failed: ${error instanceof BottleError ? error.code : 'unknown'}`);
+          // 兜底也失败（旧服务端不认这条路径）：说清楚，但别让玩家以为是自己弄坏的
+          this.catchSucceeded = false;
+          return `海边记着一封没送到的信，暂时解不开。过一会儿再试；实在不行它会在回信窗口结束后自己回海。${this.quotaLine(res.quota)}`;
+        }
+      }
+
       this.catchSucceeded = !res.empty || (res.reason !== 'holding' && res.reason !== 'quota');
       if (res.empty) {
         if (res.reason !== 'holding' && res.reason !== 'quota') this.wake?.success('catch');
-        if (res.reason === 'holding') return `海边还记着一封未处理的信，但本机记录没有找回。请更新海边服务端以恢复到信箱，或等这封信的回信窗口结束后再捞。${this.quotaLine(res.quota)}`;
         if (res.reason === 'quota') return `今天的捞取次数用完了。${this.quotaLine(res.quota)}`;
         return `今天海上很安静。${this.quotaLine(res.quota)}`;
       }
@@ -1068,7 +1104,7 @@ export class BottleWorld implements World {
         body,
         caughtBy: actor,
         caughtAt,
-        windowUntil: Date.parse(res.windowUntil) || this.now() + REPLY_WINDOW_HOURS * HOUR,
+        windowUntil: Date.parse(res.windowUntil) || this.now() + this.windowHours() * HOUR,
         ...(isSeed ? { seed: true } : {}),
         ...(dead ? { dead: true } : {}),
         ...(signature ? { signature } : {}),
@@ -1086,6 +1122,36 @@ export class BottleWorld implements World {
         ...(topic ? { topic } : {}),
       });
       if (!recovered) this.store.noteCaught(this.now());
+
+      // ── 落盘校验：这是整条死锁链的源头 ──
+      //
+      // 服务端已经把信标记成「这个人拿着」了。如果本机这份 held 没写进去，
+      // 玩家就会卡在「海边还记着一封未处理的信」——服务端占着、本机不知道是哪封、
+      // 而放信又必须提供 letterId。一次磁盘写失败就换来一次永久卡死。
+      //
+      // 新捞到与恢复的信都校验。释放失败时保留内存中的原信，
+      // 只有服务端确认放回后才清空 held，避免再制造一封无从处理的信。
+      if (!this.store.heldPersisted()) {
+        this.log('held not persisted; attempting to release server occupancy');
+        this.catchSucceeded = false;
+        // 种子信不占服务端手中信件，不能拿通用释放接口来处理它。
+        if (!isSeed) {
+          try {
+            const released = await this.authed(() => this.client.releaseHeld());
+            this.setQuota(released.quota);
+            this.store.setReceivedOutcome(caughtId, 'dismissed');
+            this.store.setHeld(null);
+            return `这封没能存到本机（信箱目录可能不可写），已经放回海里了。请检查本机存储后再捞。${this.quotaLine(released.quota)}`;
+          } catch (error) {
+            this.log(`release after failed persist: ${error instanceof BottleError ? error.code : 'unknown'}`);
+          }
+        }
+        if (!remote) this.showHeldCard();
+        return isSeed
+          ? `这封群岛来信没能存到本机，当前信箱仍保留着它。请先收好它，并检查信箱目录是否可写。${this.quotaLine(res.quota)}`
+          : `这封信没能存到本机，且尚未放回海里。当前信箱仍保留着它，请先在信箱页处理，并检查信箱目录是否可写。${this.quotaLine(res.quota)}`;
+      }
+
       this.wake?.success('catch');
       if (!remote) this.showHeldCard();
 

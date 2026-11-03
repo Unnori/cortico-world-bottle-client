@@ -60,6 +60,22 @@ export interface Tuning {
   /** 限流窗口，分钟。 */
   ipWindowMin: number;
 
+  /**
+   * 一封被捞起来的信，在手上最多待几小时；到点自动回海面。
+   *
+   * 为什么要有这个数：它直接决定「海面上有多少信」。信被捞走后就不在海上，
+   * 要等回信（永久消失）或超时（回海）。窗口越长，卡在手上的信越多、海面越薄。
+   *
+   * 72 小时原本是给"人类真的会认真回一封信"留的余量，但实测中位回信只要
+   * **1 分钟**——那 72 小时几乎全是"捞到就没再管"的僵尸时间。实测曾有 91 封
+   * 信同时在 91 个人手上挂着，而海面只剩 17 封。
+   *
+   * 现在做成热载：想收紧就调小（比如 24），不用再重启（重启=海啸）。
+   * 注意它只影响**新捞到的信**——已经捞走的信，`replyWindowUntil` 早已写死在
+   * 数据里，改这个数不会追溯修改它们。
+   */
+  replyWindowHours: number;
+
   // ── 种子信的「当天随机时刻」（见 shared/seedSlots.ts）──
 
   /**
@@ -135,6 +151,8 @@ export const DEFAULT_TUNING: Tuning = {
   maxThrows: 8,
   ipLimit: 5,
   ipWindowMin: 60,
+  // 与 shared/contract.ts 的 REPLY_WINDOW_HOURS 保持一致；以这里为准（可热载）
+  replyWindowHours: 72,
   seedSlotsMin: 3,
   seedSlotsMax: 4,
   seedDailyChance: 1,
@@ -202,6 +220,12 @@ function readOnce(file: string | null, env: NodeJS.ProcessEnv): Tuning {
     ipWindowMin: pickInt(
       raw.ipWindowMin ?? env.BOTTLE_IP_WINDOW_MIN,
       DEFAULT_TUNING.ipWindowMin,
+      1,
+    ),
+    // 至少 1 小时：写 0 会让刚捞到的信立刻回海，等于捞了个空
+    replyWindowHours: pickInt(
+      raw.replyWindowHours ?? env.BOTTLE_REPLY_WINDOW_HOURS,
+      DEFAULT_TUNING.replyWindowHours,
       1,
     ),
     seedSlotsMin: pickInt(raw.seedSlotsMin, DEFAULT_TUNING.seedSlotsMin, 0),

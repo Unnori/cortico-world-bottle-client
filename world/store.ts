@@ -99,12 +99,29 @@ function readJson<T>(path: string): T | null {
   }
 }
 
+/**
+ * 上一次写盘失败的原因（`null` = 上次成功或还没写过）。
+ *
+ * 为什么要把失败暴露出来：以前这里 `catch {}` 全吞掉，注释写着"下一次动作还会再写一次"。
+ * 但「手里那封信的 letterId」只写一次——写失败就再也没有下一次了：
+ * 服务端占着信、本机不知道是哪封，玩家永久卡在「海边还记着一封未处理的信」。
+ * 所以现在至少留一个可读的状态，让上层能发现"这台机器的本机记录没写进去"。
+ */
+let lastWriteError: string | null = null;
+
+export function lastStoreWriteError(): string | null {
+  return lastWriteError;
+}
+
 function writeJson(path: string, value: unknown): void {
   try {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-  } catch {
-    // 写不进去不影响主流程；下一次动作还会再写一次
+    lastWriteError = null;
+  } catch (error) {
+    // 仍然不打断主流程（一次 UI 动作不该因为磁盘满而整条失败），
+    // 但把原因记下来，别再让它无声无息。
+    lastWriteError = error instanceof Error ? error.message : String(error);
   }
 }
 
@@ -330,6 +347,22 @@ export class LocalStore {
   setHeld(held: LocalHeld | null): void {
     this.held = held;
     this.saveLetterbook();
+  }
+
+  /**
+   * 写盘后立刻回读确认「手里那封信」真的落盘了。
+   *
+   * 用于打捞与原信恢复：记录未落盘时，重启会丢失本机的手中信件。
+   * 返回 `false` 时调用方应当尝试解除占用，并且只在服务端确认后清空 held；
+   * 释放失败则保留内存中的信，便于人继续处理。
+   */
+  heldPersisted(): boolean {
+    if (!this.held) return true;
+    const want = this.held.letterId;
+    this.saveLetterbook();
+    const disk = readJson<{ held?: { letterId?: unknown } }>(this.letterbookFile);
+    const got = disk?.held?.letterId;
+    return typeof got === 'string' && got === want;
   }
 
   addReply(reply: LocalReply): void {

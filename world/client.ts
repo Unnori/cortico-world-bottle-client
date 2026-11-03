@@ -129,6 +129,19 @@ export class BottleClient {
     return this.call<DismissRes>('POST', '/dismiss', { letterId });
   }
 
+  /**
+   * 把我手上那封放掉，**不需要知道它是哪一封**。
+   *
+   * 用来解死锁：`/catch` 已经在服务端占了一封信，但响应在回程丢了，
+   * 本机没存下 letterId。这时正常放信走不通（要 id），捞新的也走不通（被占用），
+   * 玩家就永久卡住。服务端收到不带 id 的请求时，会自己找记在这个人名下的那封。
+   *
+   * 服务端对这条路径**不计入「扔回海里」的次数**——那不是玩家选择抛弃。
+   */
+  releaseHeld(): Promise<DismissRes> {
+    return this.call<DismissRes>('POST', '/dismiss', {});
+  }
+
   mailbox(): Promise<MailboxRes> {
     return this.call<MailboxRes>('GET', '/mailbox');
   }

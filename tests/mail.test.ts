@@ -63,6 +63,7 @@ function rig(opts: { seedChannel?: 'mail' | 'catch'; tuning?: Partial<Tuning>; s
     maxThrows: 8,
     ipLimit: 5,
     ipWindowMin: 60,
+    replyWindowHours: 72,
     // 这批测试的量纲是「同一天连领 N 封」，关心每日上限和去重，不关心"几点到"。
     // 槽数给到 24（配合下面"时钟在当天最后一秒"），于是当天所有槽都到点了，
     // "一天最多能领 seedsPerDay 封" 才测得出来。

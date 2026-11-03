@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 服务端的路由。全部是纯函数式的请求/响应，HTTP 适配在 `main.ts` 里，
  * 所以测试不用起 socket。
  *
@@ -7,7 +7,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   MAX_THROWS,
-  REPLY_WINDOW_HOURS,
   type CatchRes,
   type DeadLetter,
   type DismissRes,
@@ -261,7 +260,13 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
   }
 
   function quotaFor(bot: BotRow): Quota {
-    return computeQuota(bot, poolFor(bot).length, rules);
+    // 顺手把「回信窗口」带上：客户端要用它算倒计时、也要在兜底路径里自己算窗口。
+    // 这里注入而不是每个 handle 各写一遍——额度响应有好几个出口，
+    // 漏掉任何一个都会让客户端拿到不一致的窗口。
+    return {
+      ...computeQuota(bot, poolFor(bot).length, rules),
+      reply_window_hours: currentTuning().replyWindowHours,
+    };
   }
 
   /** 让一封捞起来的信回海。扔回海里算一次；72 小时超时不算。 */
@@ -426,7 +431,9 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
       letter.state = 'caught';
       letter.catcherHash = bot.clientHash;
       letter.caughtAt = at;
-      letter.replyWindowUntil = at + REPLY_WINDOW_HOURS * HOUR;
+      // 回信窗口走热载（见 tuning.replyWindowHours）：这个数直接决定海面有多厚。
+      // 注意只影响**此刻新捞到的信**——已捞走的信窗口早就写死了，改参数不追溯。
+      letter.replyWindowUntil = at + currentTuning().replyWindowHours * HOUR;
       letter.deliveredCount += 1;
       bot.catchesUsed += 1;
       db.save();
@@ -452,7 +459,7 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
         empty: false,
         letterId: seed.id,
         from: SEED_FROM,
-        windowUntil: new Date(at + REPLY_WINDOW_HOURS * HOUR).toISOString(),
+        windowUntil: new Date(at + currentTuning().replyWindowHours * HOUR).toISOString(),
         quota: quotaFor(bot),
         seed: true,
       };
@@ -634,15 +641,42 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
     resetDaily(bot, dayIn(timeZone, at));
     if (sweep(at)) db.save();
 
-    const letterId = asObject(req.body)?.letterId;
-    const seed = typeof letterId === 'string' ? seeds?.get(letterId) : undefined;
+    const rawId = asObject(req.body)?.letterId;
+    const letterId = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
+
+    // ── 不带 letterId = 「把我手上那封放掉」──
+    //
+    // 这是给**死锁**准备的兜底出口。死锁是这样形成的：
+    //   /catch 已经在服务端把信标记成 caught，但响应在回程丢了（断网、超时、进程被杀），
+    //   客户端没有存下 letterId，于是它既不知道该放哪一封，也捞不到新的——
+    //   而正常放信又必须提供 letterId。两边各持一半信息，谁都解不开。
+    //
+    // 所以这里允许只凭身份解除占用：服务端自己找「当前记在这个人名下」的那封。
+    // 不传 id 时**一律不计入「扔回海里」的次数**——这不是玩家选择抛弃，
+    // 是一次没送达的投递，不该让瓶子因为网络问题而裂开。
+    if (!letterId) {
+      const orphan = db.letters.find(
+        (row) => row.state === 'caught' && row.catcherHash === bot.clientHash,
+      );
+      if (!orphan) {
+        // 没有占用：本来就没有死锁，回一个「无事可做」而不是错误
+        const res: DismissRes = { ok: true, quota: quotaFor(bot), throws: 0, sank: false, counted: false };
+        return ok(res);
+      }
+      toSea(orphan);
+      db.save();
+      const res: DismissRes = { ok: true, quota: quotaFor(bot), throws: orphan.throws, sank: false, counted: false };
+      return ok(res);
+    }
+
+    const seed = seeds?.get(letterId);
     if (seed) {
       // 种子是文件里的信，不会裂也不会沉；「收好」只是本地把手里的那封放下
       if (!db.hasSeedUse(seed.id, bot.clientHash)) return fail(404, 'not_found', '你还没捞到这一封。');
       const res: DismissRes = { ok: true, quota: quotaFor(bot), throws: 0, sank: false, seed: true };
       return ok(res);
     }
-    const letter = typeof letterId === 'string' ? db.letterById(letterId) : undefined;
+    const letter = db.letterById(letterId);
     if (!letter || letter.state !== 'caught' || letter.catcherHash !== bot.clientHash) {
       return fail(404, 'not_found', '没有这一封。');
     }
