@@ -36,8 +36,12 @@ it('同一来信人在手中、归档与回信使用同一字体，重启及导�
  expect(result.received[2].fontId).toBe(fontLibrary(folder).find(f=>f.name==='c.ttf')!.id);
  expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments).toMatchObject(before.assignments);
  const original=fontLibrary(folder).find(f=>f.id===first.held!.fontId)!;unlinkSync(original.path);
- expect(new LetterFonts(dir,folder).decorate(snapshot()).held!.fontId).toBeUndefined();
- expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments).toMatchObject(before.assignments);
+ const repaired=new LetterFonts(dir,folder).decorate(snapshot());
+ expect(repaired.held!.fontId).toBeTruthy();expect(repaired.held!.fontId).not.toBe(original.id);
+ expect(repaired.received[0].fontId).toBe(repaired.held!.fontId);expect(repaired.sent[0].reply!.fontId).toBe(repaired.held!.fontId);
+ expect(new LetterFonts(dir,folder).decorate(snapshot())).toEqual(repaired);
+ const untouched=createHash('sha256').update('visitor:海风').digest('hex');
+ expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments[untouched]).toBe(before.assignments[untouched]);
 });
 it('损坏字典保留原文件并回退；空字体池不制造无效映射',()=>{
  const dir=temp(),folder=fakeFonts(dir,[]);expect(new LetterFonts(dir,folder).decorate(snapshot())).toEqual(snapshot());
@@ -168,10 +172,27 @@ it('转换后的字体沿用旧名称、资源 ID 和字典值，隔离目录不
  writeFileSync(join(folder,name),Buffer.from('0001000000000000','hex'));
  expect(fontLibrary(folder)).toHaveLength(1);expect(fontLibrary(folder)[0].path).toBe(join(folder,name));
 });
-it('移出授权未确认字体时保留旧字典，不偷偷重新分配', () => {
+it('移出授权未确认字体时只替换失效绑定，并保存可用笔迹', () => {
  const dir=temp(),folder=fakeFonts(dir,['safe.ttf']);
  const key=createHash('sha256').update('visitor:灯塔').digest('hex');
  writeFileSync(join(dir,'bottle-font-map.json'),JSON.stringify({version:1,assignments:{[key]:'unverified.ttf'}}));
- expect(new LetterFonts(dir,folder).decorate(snapshot()).held!.fontId).toBeUndefined();
- expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments[key]).toBe('unverified.ttf');
+ expect(new LetterFonts(dir,folder).decorate(snapshot()).held!.fontId).toBe(fontLibrary(folder)[0].id);
+ expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments[key]).toBe('safe.ttf');
+});
+
+it('真实 HTTP 只接受有限的公开缓存摘要，LAN 未配对不能读取或改绑',async()=>{
+ const dir=temp(),d=deps(dir),calls:(readonly string[]|undefined)[]=[];
+ const original=d.snapshot;d.snapshot=ids=>{calls.push(ids);return original(ids);};
+ const server=await startPageServer(d,{port:19503});servers.push(server);
+ const digest='a'.repeat(64),another='b'.repeat(64);
+ expect((await fetch(server.url+'draft',{headers:{'x-bottle-cached-fonts':digest+',bad,'+digest+','+another}})).status).toBe(200);
+ expect(calls.at(-1)).toEqual([digest,another]);
+ expect((await fetch(server.url+'draft',{headers:{'x-bottle-cached-fonts':Array(34).fill(digest).join(',')}})).status).toBe(200);
+ expect(calls.at(-1)).toEqual([]);
+ const lan=await startLanServer(d,{port:0,pairing:new LanPairing('font-repair-test')});servers.push(lan);
+ const base='http://127.0.0.1:'+lan.port,before=calls.length;
+ expect((await fetch(base+'/draft',{headers:{'x-bottle-cached-fonts':digest}})).status).toBe(401);expect(calls).toHaveLength(before);
+ const paired=await fetch(base+'/pair',{method:'POST',headers:{'x-bottle':'1',origin:base,'content-type':'application/json'},body:JSON.stringify({token:'font-repair-test'})});
+ const cookie=paired.headers.get('set-cookie')!.split(';')[0];
+ expect((await fetch(base+'/draft',{headers:{cookie,'x-bottle-cached-fonts':digest}})).status).toBe(200);expect(calls.at(-1)).toEqual([digest]);
 });

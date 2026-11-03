@@ -916,7 +916,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     refreshHostTheme(false);
     refreshAnnouncement();
     var sequence = ++refreshSequence;
-    fetch('/draft').then(function (res) { return res.json(); }).then(function (snapshot) {
+    fontSnapshotHeaders().then(function (headers) { return fetch('/draft', { headers: headers }); }).then(function (res) { return res.json(); }).then(function (snapshot) {
       if (sequence !== refreshSequence) return;
       if (window.bottleSound) window.bottleSound.snapshot(snapshot);
       state = snapshot;

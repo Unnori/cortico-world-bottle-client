@@ -48,7 +48,7 @@ export function fontAsset(id: string, dir = FONT_DIR): { bytes: Buffer; mime: st
     return { bytes: readFileSync(file.path), mime: file.mime }; } catch { return null; }
 }
 
-/** No reassignment on import/removal. Shared by loopback and LAN page dependencies. */
+/** Preserve valid assignments; repair removed fonts once. Shared by loopback and LAN. */
 export class LetterFonts {
   private readonly file: string;
   private assignments: Record<string, string> = Object.create(null);
@@ -56,7 +56,7 @@ export class LetterFonts {
   private readonly remote?:RemoteFontCatalog;
   constructor(dataDir: string, private readonly directory = FONT_DIR, remote?:RemoteFontCatalog) { this.file = join(dataDir, 'bottle-font-map.json'); this.remote = remote ?? (directory === FONT_DIR ? new RemoteFontCatalog(dataDir) : undefined); }
   refresh():Promise<void> { return this.remote?.refresh() ?? Promise.resolve(); }
-  decorate(snapshot: PageSnapshot): PageSnapshot {
+  decorate(snapshot: PageSnapshot, cachedFontDigests: readonly string[] = []): PageSnapshot {
     if (!this.loaded) {
       try {
         const stored = JSON.parse(readFileSync(this.file, 'utf8'));
@@ -74,6 +74,10 @@ export class LetterFonts {
     const catalog=this.remote?.current();
     const fonts:FontFile[] = catalog ? catalog.fonts.map(font=>({...font,path:'',mime:'font/woff2'})) : fontLibrary(this.directory);
     const available=fonts.filter(font=>font.enabled!==false);
+    // Cache contents belong to each browser. Only recognize digests from our current,
+    // enabled catalog; keep the repaired assignment in the shared host dictionary.
+    const cached = new Set(cachedFontDigests.slice(0, 32));
+    const downloaded = available.filter(font => font.sha256 && cached.has(font.sha256));
     if (catalog) snapshot={...snapshot,fontResources:Object.fromEntries(catalog.fonts.map(font=>[font.id,{url:font.url,sha256:font.sha256,bytes:font.bytes}])),defaultFont:writingFont(catalog)};
     if (!fonts.length) return snapshot;
     const next = { ...this.assignments }; let changed = false;
@@ -81,12 +85,19 @@ export class LetterFonts {
       const identity = seed ? 'seed:' + (signature || from) : 'visitor:' + from;
       if (!(signature || from)) return undefined;
       const key = hash(identity);
-      if (!next[key]) {
-        if (!available.length) return undefined;
+      const previous = next[key];
+      const existing = fonts.find(font => font.name === previous);
+      // A disabled font still exists and keeps its old assignments. A removed font
+      // cannot be rendered, so replace only that stale binding, never the whole map.
+      if (existing) return existing.id;
+      if (!available.length) return undefined;
+      let candidates = downloaded;
+      if (!previous || !downloaded.length) {
         const counts = available.map(font => Object.values(next).filter(name => name === font.name).length);
-        const min = Math.min(...counts), candidates = available.filter((_, index) => counts[index] === min);
-        next[key] = candidates[randomInt(candidates.length)].name; changed = true;
+        const min = Math.min(...counts);
+        candidates = available.filter((_, index) => counts[index] === min);
       }
+      next[key] = candidates[randomInt(candidates.length)].name; changed = true;
       return fonts.find(font => font.name === next[key])?.id;
     };
     const result: PageSnapshot = {

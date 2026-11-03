@@ -1192,7 +1192,7 @@ export class BottleWorld implements World {
         if (preference) saveThemePreference(this.ctx.dataDir, preference);
         return cardAppearance(readThemePreference(this.ctx.dataDir) ?? DEFAULT_APPEARANCE, await readMailboxTheme(this.ctx.botDir));
       },
-      snapshot: () => this.letterFonts!.decorate(this.snapshot()),
+      snapshot: cachedFontDigests => this.letterFonts!.decorate(this.snapshot(), cachedFontDigests),
       refresh: () => { void this.letterFonts!.refresh(); return this.refreshVisibleQuota(); },
       wakeControl: (action, command, hours, dayLimit) => this.wakeControl(action, command, hours, dayLimit),
       announcement: () => this.pageAnnouncement(),

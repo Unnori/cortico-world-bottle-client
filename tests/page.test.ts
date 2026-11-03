@@ -41,7 +41,7 @@ describe('本地信箱页', () => {
     const res = await handlePage(deps(), 'GET', '/');
     expect(res.status).toBe(200);
     expect(res.html).toContain('漂流瓶');
-    expect(res.html).toContain("fetch('/draft')");
+    expect(res.html).toContain("fetch('/draft', { headers: headers })");
     expect(res.html).not.toContain('canvas');
     expect(res.html).not.toContain('装扮');
   });

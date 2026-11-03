@@ -141,7 +141,7 @@ export interface PageDeps {
   uploadBackground?(input: unknown): string;
   theme?(): Promise<MailboxTheme>;
   appearance?(preference?: ThemePreference): Promise<CardAppearance>;
-  snapshot(): PageSnapshot;
+  snapshot(cachedFontDigests?: readonly string[]): PageSnapshot;
   announcement?(): Promise<AnnouncementSummary | null>;
   refresh?(): Promise<void>;
   wakeControl?(action: WakeAction, command: 'pause' | 'resume' | 'interval', hours?: number, dayLimit?: number): Promise<PageResult>;
@@ -170,6 +170,8 @@ export interface PageResponse {
 
 export interface PageRequestOptions {
   surface?: Surface;
+  /** Browser cache hints contain only public font digests, never letter identities. */
+  cachedFontDigests?: readonly string[];
   /** POST 的 JSON 体；只有 /forget 用得上。 */
   body?: unknown;
 }
@@ -244,7 +246,7 @@ export async function handlePage(
     try { return { status: 200, json: { announcement: await deps.announcement?.() ?? null } }; }
     catch { return { status: 503, json: { announcement: null } }; }
   }
-  if (method === 'GET' && route === '/draft') { await deps.refresh?.(); return { status: 200, json: deps.snapshot() }; }
+  if (method === 'GET' && route === '/draft') { await deps.refresh?.(); return { status: 200, json: deps.snapshot(opts.cachedFontDigests) }; }
 
   if (method === 'POST' && route === '/forget') {
     const letterId = letterIdOf(opts.body);
@@ -367,7 +369,11 @@ export function pageHandler(deps: PageDeps, log?: (line: string) => void, remote
           res.end(JSON.stringify({ ok: false, message: '请求体读不出来，这个动作没有执行。' }));
           return null;
         }
-        return handlePage(deps, method, path, { surface, body: read.value });
+        const cacheHeader = req.headers['x-bottle-cached-fonts'];
+        const cachedFontDigests = typeof cacheHeader === 'string' && cacheHeader.length <= 2079
+          ? [...new Set(cacheHeader.split(',').filter(value => /^[a-f0-9]{64}$/.test(value)))].slice(0, 32)
+          : [];
+        return handlePage(deps, method, path, { surface, body: read.value, cachedFontDigests });
       })
       .then((result) => {
         if (result === null) return; // 上面已经回过 400

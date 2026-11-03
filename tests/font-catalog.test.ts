@@ -37,3 +37,33 @@ it('拒绝外部字体地址、重复身份、错误默认与超大清单，保�
  await remote.refresh();expect(remote.current().fonts).toHaveLength(9);
  writeFileSync(join(dir,'bottle-font-catalog.json'),'{broken');expect(new RemoteFontCatalog(dir).current().fonts).toHaveLength(9);
 });
+
+it('撤下字体只修复一次，优先使用浏览器已缓存的启用笔迹，各设备沿用同一字典',()=>{
+ const dir=temp(),c=catalog(),cached=c.fonts[1],stable=c.fonts[0];
+ const oldKey=hash('visitor:老朋友'),stableKey=hash('visitor:新朋友');
+ writeFileSync(join(dir,'bottle-font-map.json'),JSON.stringify({version:1,assignments:{[oldKey]:'removed.ttf',[stableKey]:stable.name}}));
+ const fonts=new LetterFonts(dir),s=snapshot();s.sent=[{letterId:'sent',body:'信',at:'',reply:{from:'老朋友',body:'回信',at:''}}];
+ const repaired=fonts.decorate(s,[cached.sha256]);
+ expect(repaired.held?.fontId).toBe(cached.id);expect(repaired.sent[0].reply?.fontId).toBe(cached.id);
+ expect(repaired.received[0].fontId).toBe(stable.id);
+ expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments).toEqual({[oldKey]:cached.name,[stableKey]:stable.name});
+ expect(new LetterFonts(dir).decorate(s,[c.fonts[2].sha256])).toEqual(repaired);
+});
+it('缓存提示忽略未知摘要与停用字体，失效绑定仍能从启用池修复',async()=>{
+ const dir=temp(),c=catalog(),enabled=c.fonts[2];c.fonts.forEach((f:any)=>f.enabled=f.id===enabled.id);
+ const disabled=c.fonts[0];
+ writeFileSync(join(dir,'bottle-font-map.json'),JSON.stringify({version:1,assignments:{[hash('visitor:老朋友')]:'removed.ttf',[hash('visitor:新朋友')]:disabled.name}}));
+ const remote=new RemoteFontCatalog(dir,vi.fn(async()=>Response.json(c)) as any),fonts=new LetterFonts(dir,FONT_DIR,remote);
+ await fonts.refresh();const repaired=fonts.decorate(snapshot(),['0'.repeat(64),disabled.sha256]);
+ expect(repaired.held?.fontId).toBe(enabled.id);expect(repaired.received[0].fontId).toBe(disabled.id);
+});
+it('种子信按署名修复失效笔迹，空字体池保留原绑定以待恢复',()=>{
+ const dir=temp(),c=catalog(),cached=c.fonts[1],key=hash('seed:灯塔');
+ writeFileSync(join(dir,'bottle-font-map.json'),JSON.stringify({version:1,assignments:{[key]:'removed.ttf'}}));
+ const s=snapshot();s.held={...s.held!,seed:true,signature:'灯塔'};s.received=[{...s.received[0],seed:true,signature:'灯塔'}];
+ const repaired=new LetterFonts(dir).decorate(s,[cached.sha256]);expect(repaired.held?.fontId).toBe(cached.id);expect(repaired.received[0].fontId).toBe(cached.id);
+ const emptyDir=temp(),map=JSON.stringify({version:1,assignments:{[hash('visitor:老朋友')]:'removed.ttf'}});
+ writeFileSync(join(emptyDir,'bottle-font-map.json'),map);
+ expect(new LetterFonts(emptyDir,join(emptyDir,'no-fonts')).decorate(snapshot())).toEqual(snapshot());
+ expect(readFileSync(join(emptyDir,'bottle-font-map.json'),'utf8')).toBe(map);
+});

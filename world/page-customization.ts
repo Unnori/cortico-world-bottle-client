@@ -31,7 +31,11 @@ export const customizationScript = String.raw`
   var customColors = JSON.parse(document.getElementById('custom-palettes').textContent || '{}');
   var customColorRequest = 0, backgroundRequest = 0, requestedBackground;
   var letterFaces = Object.create(null), fontResources = Object.create(null), backgroundLayer = 0;
-  var fontDbPromise;
+  var fontDbPromise, cachedFontHeadersReady;
+  var cachedFontDigests = Object.create(null);
+  // Slow direct connections may take minutes for a full CJK font. Reading stays
+  // available while this background download completes.
+  var remoteFontDownloadTimeoutMs = 180000;
   function fontDatabase() {
     if (!fontDbPromise) fontDbPromise = new Promise(function (resolve) {
       var database;try{database=window.indexedDB;}catch(error){resolve(null);return;}
@@ -51,14 +55,25 @@ export const customizationScript = String.raw`
       if(!db){resolve(null);return;}
       var timer=setTimeout(function(){resolve(null);},1500);
       try {
-        var tx=db.transaction('fonts',action==='get'?'readonly':'readwrite'),store=tx.objectStore('fonts');
-        var request=action==='get'?store.get(key):action==='delete'?store.delete(key):store.put(value,key);
-        request.onsuccess=function(){if(action==='get'){clearTimeout(timer);resolve(request.result);}};
+        var tx=db.transaction('fonts',action==='get'||action==='keys'?'readonly':'readwrite'),store=tx.objectStore('fonts');
+        var request=action==='get'?store.get(key):action==='keys'?store.getAllKeys():action==='delete'?store.delete(key):store.put(value,key);
+        request.onsuccess=function(){if(action==='get'||action==='keys'){clearTimeout(timer);resolve(request.result);}};
         tx.oncomplete=function(){clearTimeout(timer);resolve(null);};
         request.onerror=function(){clearTimeout(timer);resolve(null);};
         tx.onabort=function(){clearTimeout(timer);resolve(null);};
       } catch(error){clearTimeout(timer);resolve(null);}
     });});
+  }
+  function fontSnapshotHeaders() {
+    if (!cachedFontHeadersReady) cachedFontHeadersReady = fontCache('keys').then(function(keys) {
+      (Array.isArray(keys) ? keys : []).forEach(function(url) {
+        var match = typeof url === 'string' && /^https:\/\/fontsforletters\.sqnori\.com\/fonts\/([a-f0-9]{64})\.woff2$/.exec(url);
+        if (match) cachedFontDigests[match[1]] = true;
+      });
+    });
+    return cachedFontHeadersReady.then(function() {
+      return { 'x-bottle-cached-fonts': Object.keys(cachedFontDigests).slice(0, 32).join(',') };
+    });
   }
   function validFontResource(resource) {
     return resource && /^[a-f0-9]{64}$/.test(resource.sha256||'') && Number.isSafeInteger(resource.bytes) && resource.bytes>=48 && resource.bytes<=33554432 && resource.url==='https://fontsforletters.sqnori.com/fonts/'+resource.sha256+'.woff2';
@@ -72,11 +87,11 @@ export const customizationScript = String.raw`
   async function remoteFontFace(family,resource) {
     var bytes=await fontCache('get',resource.url);
     if(bytes)try{await checkFontBytes(bytes,resource);var cached=new FontFace(family,bytes,{display:'swap'});await cached.load();return cached;}catch(error){await fontCache('delete',resource.url);}
-    var response=await fetch(resource.url,{mode:'cors',credentials:'omit',cache:'force-cache',redirect:'error',signal:AbortSignal.timeout(20000)});
+    var response=await fetch(resource.url,{mode:'cors',credentials:'omit',cache:'force-cache',redirect:'error',signal:AbortSignal.timeout(remoteFontDownloadTimeoutMs)});
     if(!response.ok)throw Error('Font unavailable');
     bytes=await response.arrayBuffer();await checkFontBytes(bytes,resource);
     var face=new FontFace(family,bytes,{display:'swap'});await face.load();
-    await fontCache('put',resource.url,bytes);return face;
+    await fontCache('put',resource.url,bytes);cachedFontDigests[resource.sha256]=true;return face;
   }
   function fontNode(node, fontId, own) {
     if (own) { node.dataset.myLetter = 'true'; fontId = myFontId || defaultMyFont.id; }
