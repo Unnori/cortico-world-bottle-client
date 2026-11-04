@@ -23,6 +23,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AnnouncementSummary, Quota } from '../shared/contract.ts';
 import type { WakeAction, WakeState } from './wake.ts';
+import { WAKE_POLICIES } from './wake-policy.ts';
 import type { SoftHint } from '../shared/hints.ts';
 
 export type Surface = 'card' | 'page' | 'remote';
@@ -90,6 +91,8 @@ export interface PageReceivedView {
 }
 
 export interface PageSnapshot {
+  stars?: PageStarView[];
+  starMemoryEnabled?: boolean;
   /** Opaque identifier regenerated on each World start; browser-local announcement dismissal uses it. */
   worldSession?: string;
   fontResources?:Record<string,FontResource>;
@@ -126,6 +129,17 @@ export interface PageSnapshot {
   localFile?: string;
 }
 
+export interface PageStarView {
+  letterId: string;
+  starredAt: number;
+  memorySelected: boolean;
+  memoryActive: boolean;
+  category: 'received' | 'seed' | 'sent' | 'reply';
+  title: string;
+  from: string;
+  at: string;
+}
+
 export interface PageResult {
   ok: boolean;
   reason?: 'tide_out';
@@ -135,6 +149,9 @@ export interface PageResult {
 }
 
 export interface PageDeps {
+  star?(letterId: string, enabled: boolean): Promise<PageResult>;
+  starMemory?(letterId: string, enabled: boolean): Promise<PageResult>;
+  starMemorySetting?(enabled: boolean): Promise<PageResult>;
   myFont?(id: string): { bytes: Buffer; mime: string } | null;
   uploadMyFont?(input: unknown): { id:string; name:string };
   background?(id: string): { bytes: Buffer; mime: string } | null;
@@ -248,6 +265,19 @@ export async function handlePage(
   }
   if (method === 'GET' && route === '/draft') { await deps.refresh?.(); return { status: 200, json: deps.snapshot(opts.cachedFontDigests) }; }
 
+  if (method === 'POST' && ['/star', '/star-memory', '/star-memory-setting'].includes(route)) {
+    const body = opts.body as Record<string, unknown> | null | undefined;
+    const value = route === '/star' ? body?.starred : body?.enabled;
+    const id = letterIdOf(body);
+    if (typeof value !== 'boolean' || (route !== '/star-memory-setting' && (!id || id.length > 256)))
+      return { status: 400, json: { ok: false, message: '请明确选择信件与开关状态。' } };
+    const action = route === '/star' ? deps.star && (() => deps.star!(id!, value))
+      : route === '/star-memory' ? deps.starMemory && (() => deps.starMemory!(id!, value))
+      : deps.starMemorySetting && (() => deps.starMemorySetting!(value));
+    if (!action) return { status: 503, json: { ok: false, message: '星笺匣暂不可用。' } };
+    return { status: 200, json: await action() };
+  }
+
   if (method === 'POST' && route === '/forget') {
     const letterId = letterIdOf(opts.body);
     if (letterId) return { status: 200, json: await deps.forget(letterId) };
@@ -262,10 +292,12 @@ export async function handlePage(
   if (method === 'POST') {
     const body = opts.body as Record<string, unknown> | null | undefined;
     if (route === '/wake') {
-      if (!deps.wakeControl || !['write', 'catch', 'remind'].includes(String(body?.action)) ||
-        !['pause', 'resume', 'interval'].includes(String(body?.command)) ||
-        (body?.command === 'interval' && (typeof body.hours !== 'number' || !Number.isFinite(body.hours) || body.hours < 2 || body.hours > 24 ||
-          (body.dayLimit !== undefined && (typeof body.dayLimit !== 'number' || !Number.isInteger(body.dayLimit) || body.dayLimit < 1 || body.dayLimit > 24)))))
+      if (!deps.wakeControl || typeof body?.action !== 'string' || !['write', 'catch', 'remind'].includes(body.action) ||
+        typeof body.command !== 'string' || !['pause', 'resume', 'interval'].includes(body.command))
+        return { status: 400, json: { ok: false, message: '请检查邀请设置。' } };
+      const policy = WAKE_POLICIES[body.action as WakeAction];
+      if (body.command === 'interval' && (typeof body.hours !== 'number' || !Number.isFinite(body.hours) || body.hours < policy.minHours || body.hours > policy.maxHours ||
+        (body.dayLimit !== undefined && (typeof body.dayLimit !== 'number' || !Number.isInteger(body.dayLimit) || body.dayLimit < policy.minLimit || body.dayLimit > policy.maxLimit))))
         return { status: 400, json: { ok: false, message: '请检查邀请设置。' } };
       return { status: 200, json: await deps.wakeControl(body!.action as WakeAction, body!.command as 'pause' | 'resume' | 'interval', body!.hours as number | undefined, body!.dayLimit as number | undefined) };
     }

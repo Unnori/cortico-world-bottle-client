@@ -46,13 +46,14 @@ describe('漂流瓶 World · 装载', () => {
     }
   });
 
-  it('六个工具，没有 bottle_send', async () => {
+  it('七个工具，没有 bottle_send，星笺重读须显式授权', async () => {
     const world = await started();
     expect(world.tools().map((tool) => tool.name).sort()).toEqual([
       'bottle_catch',
       'bottle_mailbox',
       'bottle_open_page',
       'bottle_reply',
+      'bottle_star_memory',
       'bottle_wake_choice',
       'bottle_write',
     ]);
@@ -74,11 +75,12 @@ describe('漂流瓶 World · 装载', () => {
   });
 
   // 环境段每条回复付一次费；靠加字赢注意力不如靠删字，所以钉住上限。
-  it('环境提示词保持精简（不超过 760 个非空白字符）', () => {
+  it('环境提示词保持精简（不超过 820 个非空白字符）', () => {
     const template = readFileSync(new URL('../world/ENV_PROMPT.md', import.meta.url), 'utf8');
     const chars = template.replace(/\s/g, '').length;
     // 上限从 600 放宽到 760：多了「不写编号/只用样子指代」这一条硬规矩，值得占这些字
-    expect(chars).toBeLessThanOrEqual(760);
+    // 新增可撤回星笺记忆的纯计数入口及未授权边界；这里绝不能加入信件正文。
+    expect(chars).toBeLessThanOrEqual(820);
     // 判据是「表达欲」，不是「瞒着谁」——后者是伪命题，信必定经人类审核
     expect(template).toContain('表达欲');
     // 不许拿编号、账号当名字
@@ -491,7 +493,8 @@ describe('漂流瓶 World · 收信', () => {
 
     const result = await world.pageDeps().dismiss();
     expect(result.ok).toBe(true);
-    expect(result.message).toContain('裂缝（1/8）');
+    expect(result.message).toContain('已经历 1 次归海');
+    expect(result.message).not.toMatch(/\/\d/);
     expect(world.pageDeps().snapshot().held).toBeNull();
     expect(h.db.letters.find((letter) => letter.id === held.letterId)?.state).toBe('floating');
     expect(h.db.letters.find((letter) => letter.id === held.letterId)?.throws).toBe(1);
@@ -513,6 +516,8 @@ describe('漂流瓶 World · 收信', () => {
     expect(h.db.letters[0]!.state).toBe('archived');
     expect(h.db.letters[0]!.archivedReason).toBe('sunk');
     expect(h.db.letters[0]!.throws).toBe(8);
+    expect(host.last('bottle.dismissed')?.text).toContain('沉入了海底');
+    expect(host.last('bottle.dismissed')?.text).not.toMatch(/五次|八次|\d+\s*次/);
   });
 });
 
@@ -540,10 +545,61 @@ describe('漂流瓶 World · 信箱', () => {
     expect(receipt).toContain('信箱里有 1 封');
     expect(receipt).toContain('对方回了');
     expect(receipt).not.toContain('收到你的信了');
+    const notification = host.last('bottle.mail')!;
+    expect(notification.text).toBe('刚刚写的信有回信。回信在信箱里，正文尚未授权读取。');
+    expect(notification.text).not.toContain('收到你的信了');
+    expect(notification.text).not.toContain('给你写信。');
+    expect(JSON.stringify(notification)).not.toContain(caught.letterId);
+
 
     // 页面能看到全文；模型那条路上一个字都没有
     expect(world.pageDeps().snapshot().sent[0]?.reply?.body).toBe('收到你的信了。');
   });
+});
+
+it('批量回信只补充各自的相对时间，缺失记录不猜测且不泄露正文或编号', async () => {
+  const world = await started();
+  const store = (world as any).store as LocalStore;
+  store.addSent({ letterId: 'original-one', body: 'PRIVATE original', at: h.clock.t - 3_600_000 });
+  store.addSent({ letterId: 'original-two', body: 'PRIVATE original two', at: h.clock.t - 2 * 3_600_000 });
+  const mailbox = vi.spyOn(BottleClient.prototype, 'mailbox').mockResolvedValue([
+    { letterId: 'original-one', from: 'PRIVATE name', body: 'PRIVATE reply', at: new Date(h.clock.t).toISOString() },
+    { letterId: 'original-two', from: 'PRIVATE name two', body: 'PRIVATE reply two', at: new Date(h.clock.t).toISOString() },
+    { letterId: 'original-missing', from: 'PRIVATE missing name', body: 'PRIVATE missing reply', at: new Date(h.clock.t).toISOString() },
+  ]);
+  try {
+    await (world as any).refreshMailbox();
+    const event = host.last('bottle.mail')!;
+    expect(event.text).toContain('有 3 封回信');
+    expect(event.text).toContain('1 小时前写的信有回信。');
+    expect(event.text).toContain('2 小时前写的信有回信。');
+    expect(event.text).toContain('你写的信有回信。');
+    expect(event.text).not.toMatch(/2026|没有记录/);
+    expect(JSON.stringify(event)).not.toMatch(/PRIVATE|original-/);
+    const count = host.events.filter(e => e.type === 'bottle.mail').length;
+    await (world as any).refreshMailbox();
+    expect(host.events.filter(e => e.type === 'bottle.mail')).toHaveLength(count);
+  } finally { mailbox.mockRestore(); }
+});
+
+it.each([
+  [3 * 60_000 + 45_000, '3 分钟前'],
+  [8.5 * 3_600_000, '8 小时前'],
+  [(2 * 24 + 3) * 3_600_000, '2 天前'],
+])('捡起与回信事件按实际间隔 %s 毫秒显示 %s', async (elapsed, expected) => {
+  const world = await started();
+  const store = (world as any).store as LocalStore;
+  store.addSent({ letterId: 'relative-time-original', body: 'PRIVATE text', at: h.clock.t - elapsed });
+  (world as any).absorbLetterStates({ heldByOthers: ['relative-time-original'] });
+  expect(host.last('bottle.picked')?.text).toBe(`${expected}丢出的信被人捡起来了。`);
+  const mailbox = vi.spyOn(BottleClient.prototype, 'mailbox').mockResolvedValue([
+    { letterId: 'relative-time-original', from: 'PRIVATE name', body: 'PRIVATE reply', at: new Date(h.clock.t).toISOString() },
+  ]);
+  try {
+    await (world as any).refreshMailbox();
+    expect(host.last('bottle.mail')?.text).toBe(`${expected}写的信有回信。回信在信箱里，正文尚未授权读取。`);
+    expect(JSON.stringify([host.last('bottle.picked'), host.last('bottle.mail')])).not.toMatch(/PRIVATE|relative-time-original/);
+  } finally { mailbox.mockRestore(); }
 });
 
 describe('漂流瓶 World · 本地账本', () => {
@@ -727,6 +783,9 @@ describe('漂流瓶 World · 信件状态（v0.5）', () => {
     world.pageDeps().snapshot();
     await vi.waitFor(() => expect(count()).toBeGreaterThan(0), { timeout: 1000, interval: 10 });
     const first = count();
+    expect(host.last('bottle.picked')?.text).toBe('6 分钟前丢出的信被人捡起来了。');
+    expect(host.last('bottle.picked')?.text).toContain('分钟前');
+    expect(host.last('bottle.picked')?.text).not.toContain('人类写的');
     expect(JSON.stringify(host.last('bottle.picked'))).not.toContain(mine.id);
     expect(host.last('bottle.picked')?.meta).not.toHaveProperty('letterId');
     h.clock.t += 6 * 60 * 1000;

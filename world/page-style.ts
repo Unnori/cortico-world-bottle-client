@@ -1,4 +1,6 @@
 import { stationeryStyles } from './page-stationery.ts';
+import { starStyles } from './page-stars.ts';
+import { readerStyles } from './page-reader.ts';
 import { paletteDeclarations } from './appearance.ts';
 /** 信纸、邮戳与海水色；网页布局独立于 Windows 原生卡片。 */
 export const pageStyles = `
@@ -199,20 +201,6 @@ export const pageStyles = `
   .reply-quote { border-left:2px solid var(--edge); padding:8px 14px; background:var(--soft); margin:12px 0; border-radius:0 6px 6px 0; }
   .mail-body > .reply-quote { max-width:680px; margin-inline:auto; }
   .mail-body > .mail-topic { max-width:680px; margin-inline:auto; }
-  .reader-tools { position:fixed; z-index:30; left:max(8px,env(safe-area-inset-left)); top:50%; }
-  #bottle-mailbox .reader-toggle { display:grid; justify-items:center; gap:1px; min-width:44px; padding:9px 7px; border:1px solid var(--line-strong,var(--line)); border-radius:12px; background:var(--card); color:var(--ink); box-shadow:0 4px 18px color-mix(in srgb,var(--backdrop) 18%,transparent); font-size:10px; }
-  .reader-toggle > span:first-child { font:20px Georgia,serif; }
-  .reader-panel { position:absolute; left:calc(100% + 10px); top:0; width:232px; max-width:calc(100vw - 80px); padding:18px; border:1px solid var(--line); border-radius:16px; background:var(--card); color:var(--ink); box-shadow:0 8px 32px color-mix(in srgb,var(--backdrop) 28%,transparent); }
-  .reader-panel[hidden] { display:none; }
-  .reader-heading,.reader-footer,.reader-scale { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-  .reader-heading { font-size:13px; font-weight:600; }
-  #reader-size-value { font-size:12px; font-variant-numeric:tabular-nums; color:var(--accent-text,var(--accent)); }
-  #bottle-mailbox #reader-size { display:block; width:100%; height:32px; margin:14px 0 0; padding:0; accent-color:var(--accent); cursor:ew-resize; }
-  .reader-scale { color:var(--muted); font-size:10px; }
-  .reader-footer { margin-top:14px; }
-  .reader-footer small { font-size:11px; line-height:1.7; color:var(--muted); }
-  #bottle-mailbox #reader-reset { font-size:11px; padding:7px 10px; background:var(--soft); color:var(--ink); border:1px solid var(--line); border-radius:8px; }
-  @media(max-width:1200px) { .reader-tools { top:auto; bottom:max(16px,env(safe-area-inset-bottom)); } .reader-panel { left:0; top:auto; bottom:calc(100% + 10px); max-width:calc(100vw - 32px); } }
   .reply-quote-label { font-size:11px; color:var(--accent-text,var(--accent)); }
   .mail-foot { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding-top:14px; border-top:1px solid var(--line); }
   .mail-actions { display:flex; align-items:center; gap:10px; }
@@ -476,5 +464,7 @@ export const pageStyles = `
   .sound-row button { grid-column:4; }
   @media(max-width:560px) { .sound-row { grid-template-columns:1fr auto; } .sound-row label, .sound-row small { grid-column:1/-1; } .sound-row select { grid-column:1; } .sound-row button { grid-column:2;grid-row:2; } .sound-row input[type=file] { grid-column:1/-1; } }
   ${stationeryStyles}
+  ${starStyles}
+  ${readerStyles}
   @media(prefers-reduced-motion:reduce) { .letter-sheet,.letter-watermark,.reply-quote-label { transition:none; } }
 `;

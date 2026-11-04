@@ -22,6 +22,8 @@ export interface BottleWakeSettings {
 /** Older deployments may omit the invitation settings; constructor migration retains their preferences. */
 export interface BottleConfigSection extends Partial<BottleWakeSettings>, SoundConfig {
   enabled: boolean;
+  /** Opt-in only; a separate per-letter consent is also required. */
+  starMemoryEnabled?: boolean;
   /** 随机邀请只提供机会，Bot 可明确暂不做。 */
   randomWake?: boolean;
   /** 海在哪。改地址要重启 World。 */
@@ -97,6 +99,7 @@ export const BOTTLE_DEFAULTS: BottleConfigSection = {
   cardAutoCloseSec: 10,
   debug: false,
   tsunamiNotice: true,
+  starMemoryEnabled: false,
   soundEnabled: true, soundVolume: 70, soundFadeOutMs: 250,
   soundIncomingSource: 'pack', soundIncomingPack: DEFAULT_SOUND_PACK.incoming, soundIncomingFile: '',
   soundReplySource: 'pack', soundReplyPack: DEFAULT_SOUND_PACK.reply, soundReplyFile: '',
@@ -105,6 +108,11 @@ export const BOTTLE_DEFAULTS: BottleConfigSection = {
 
 /** Field declarations stay at the same config paths; grouping is presentation only. */
 export const BOTTLE_CONFIG_FIELDS: Record<string, ConfigProperty> = {
+  'worlds.bottle.starMemoryEnabled': {
+    type: 'boolean', title: '允许星笺记忆',
+    description: '默认关闭。开启后还需在网页的星笺匣逐封勾选，才会把完整往来交给桌宠并允许后续重读；仅星标不会读正文。关闭会清除全部逐封授权，已进入上下文或摘要的内容无法追回。不修改核心记忆。',
+    'x-hot': true,
+  },
   'worlds.bottle.server': {
     type: 'string',
     title: '服务端地址',
@@ -224,6 +232,8 @@ function configGroup(id: string, title: string, description: string, fields: rea
 }
 
 export const BOTTLE_CONFIG_GROUPS: ConfigGroup[] = [
+  configGroup('world:bottle:stars', '星笺匣与记忆',
+    '星标只表示喜欢；是否允许正文进入上下文，由总开关与网页逐封授权共同决定。', ['starMemoryEnabled']),
   configGroup('world:bottle:display', '显示与通知',
     '先选信件显示的位置，再调整桌面卡片和海啸提醒。',
     ['surface', 'cardAutoCloseSec', 'tsunamiNotice']),

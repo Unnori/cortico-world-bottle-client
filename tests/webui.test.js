@@ -121,7 +121,7 @@ it('persists pause/resume choices and displays exhausted-task failures without a
   expect(h.buttons[1].textContent).toBe('暂停邀请');
   expect(h.buttons[3].textContent).toBe('恢复邀请');
   const outcome = h.ctx.root.children[1].children.at(-1);
-  expect(outcome.textContent).toContain('Coo没有回应邀请…');
+  expect(outcome.textContent).toContain('桌宠没有回应邀请…');
   expect(outcome.textContent).not.toContain('private-task-id');
   h.buttons[1].click();
   await vi.waitFor(() => expect(h.buttons[1].textContent).toBe('恢复邀请'));

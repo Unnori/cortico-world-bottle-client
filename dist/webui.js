@@ -46,7 +46,7 @@ export async function mountMailbox(ctx) {
     const copy = ui.h('div', 'bottle-mailbox-copy');
     copy.append(ui.h('h2', null, t.title), ui.h('p', null, t.description));
     let url = null;
-    let botName = 'Coo';
+    const botName = zh ? '桌宠' : 'the companion';
     const button = ui.button(t.open, { variant: 'primary', onClick: () => {
             if (url && !ctx.signal.aborted)
                 ctx.root.ownerDocument.defaultView?.open(url, '_blank', 'noopener,noreferrer');
@@ -382,7 +382,7 @@ export async function mountMailbox(ctx) {
             const status = await ctx.invoke('status');
             if (ctx.signal.aborted)
                 return;
-            botName = status.botName || 'Coo';
+            // Extension settings deliberately use a generic label, not the pet's personal name.
             feedbackUrl = null;
             try {
                 const target = new URL(status.feedbackUrl ?? '');

@@ -29,6 +29,31 @@ async function status(): Promise<{ wake: WakeState }> {
   return await h!.world.webUi().invoke!('mailbox', 'status', []) as { wake: WakeState };
 }
 
+it.each([[0.5, 3], [0.75, 12], [1, 20]])('网页保存待办 %s 小时、每日 %s 次，重启后保留', async (hours, dayLimit) => {
+  const rig = await start();
+  const result = await handlePage(rig.world.pageDeps(), 'POST', '/wake', {
+    body: { action: 'remind', command: 'interval', hours, dayLimit },
+  });
+  expect(result.status).toBe(200);
+  expect(result.json).toMatchObject({ ok: true });
+  expect(rig.cfg).toMatchObject({ reminderIntervalHours: hours, reminderDayLimit: dayLimit });
+  await rig.world.stop(); await rig.world.start(host);
+  expect((await status()).wake.lanes.remind).toMatchObject({ intervalHours: hours, dayLimit });
+});
+
+it.each([3, 11])('服务端沉底上限为 %s 时，事件不声称固定次数', async maxThrows => {
+  h = makeHarness({ random: () => 0, rules: { sendBase: 3, sendCap: 3, catchBase: 3, catchCap: 3, poolDivisor: 5, replyCap: 3, maxThrows } });
+  await h.world.start(host);
+  await vi.waitFor(() => expect(h!.world.envPromptVars()['bottle.bottles']).not.toBe(''));
+  h.throwAs('peer', '测试随服务端设置沉底。');
+  h.db.letters[0]!.throws = maxThrows - 1;
+  await callTool(h.world, 'bottle_catch');
+  expect((await h.world.pageDeps().dismiss()).ok).toBe(true);
+  expect(h.db.letters[0]!.archivedReason).toBe('sunk');
+  expect(host.last('bottle.dismissed')?.text).toContain('沉入了海底');
+  expect(host.last('bottle.dismissed')?.text).not.toMatch(/五次|八次|\d+\s*次/);
+});
+
 describe('World 随机邀请接线', () => {
   it.each([
     [1, 3, 3, 'catch'], [0, 3, 3, 'catch'], [3, 1, 3, 'write'], [3, 3, 1, 'write'],

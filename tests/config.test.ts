@@ -69,9 +69,9 @@ it.each([false, true])('构造读取旧暂停且尊重部署显式开启=%s，�
 describe('配置页原生分组', () => {
   it('常用项靠前，音效按来信与回信拆开，连接调试放最后', () => {
     expect(BOTTLE_CONFIG_GROUPS.map(group => group.schema.title)).toEqual([
-      '显示与通知', '海边邀请与提醒', '桌面音效', '来信提示音', '回信提示音', '其他设备访问', '连接与调试',
+      '星笺匣与记忆', '显示与通知', '海边邀请与提醒', '桌面音效', '来信提示音', '回信提示音', '其他设备访问', '连接与调试',
     ]);
-    expect(Object.keys(BOTTLE_CONFIG_GROUPS[0]!.schema.properties)).toEqual([
+    expect(Object.keys(BOTTLE_CONFIG_GROUPS.find(group => group.id === 'world:bottle:display')!.schema.properties)).toEqual([
       'worlds.bottle.surface', 'worlds.bottle.cardAutoCloseSec', 'worlds.bottle.tsunamiNotice',
     ]);
     expect(Object.keys(BOTTLE_CONFIG_GROUPS.at(-1)!.schema.properties)).toEqual([

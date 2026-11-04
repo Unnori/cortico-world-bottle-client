@@ -7,6 +7,7 @@ import { FEEDBACK_FORM_URL, WORLD_VERSION } from './feedback.ts';
 import { pageSoundScript, soundSettingsHtml } from './page-sound.ts';
 import { stationeryScript } from './page-stationery.ts';
 import { readerHtml, readerScript } from './page-reader.ts';
+import { starHtml, starScript } from './page-stars.ts';
 import { pageStyles } from './page-style.ts';
 import type { MailboxTheme } from './theme.ts';
 
@@ -104,6 +105,7 @@ ${readerHtml}
         <button class="folder" data-category="seed" type="button" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-post"/></svg><span>海边邮局</span><b id="seed-count">0</b></button>
         <button class="folder" data-category="reply" type="button" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-reply"/></svg><span>收到的回信</span><b id="reply-count">0</b></button>
         <button class="folder" data-category="sent" type="button" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-send"/></svg><span>寄出的信</span><b id="sent-count">0</b></button>
+        ${starHtml}
         <p class="folder-note">有些相遇很短，<br>但一封信可以留很久。</p>
       </nav>
       <div class="mail-content">
@@ -139,7 +141,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   var toastTimer = null;
   var openedLetters = Object.create(null);
   var category = readPref('bottle-category', 'received');
-  if (['received', 'seed', 'reply', 'sent'].indexOf(category) < 0) category = 'received';
+  if (['received', 'seed', 'reply', 'sent', 'stars'].indexOf(category) < 0) category = 'received';
   var refreshSequence = 0;
   var renderedState = '';
   var arrivalKeys = new Set();
@@ -171,6 +173,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   ${customizationScript}
   ${readerScript}
   ${stationeryScript}
+  ${starScript}
   var themes = { custom: { name: '我的颜色', light: '#f0f4fb', dark: '#151d2e' }, ocean: { name: '潮蓝', light: '#f0f4fb', dark: '#151d2e' }, paper: { name: '暖纸', light: '#f6f1e6', dark: '#211e19' }, coopanion: { name: 'Coopanion', light: '#f0f4fb', dark: '#151d2e' } };
   var themePicker = document.getElementById('theme-picker');
   var themeMenu = document.getElementById('theme-menu');
@@ -468,6 +471,8 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
 
     var head = el('div', 'eyebrow', '捞到一封 · 来自 ');
     head.appendChild(el('span', 'who', s.held.from));
+    head.classList.add('star-held-heading');
+    head.appendChild(starButton(s.held.letterId));
     card.appendChild(head);
     if (!s.held.topic) card.appendChild(el('h2', 'title', '还没决定要不要回'));
     card.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.from, heading: 'h2' }));
@@ -491,6 +496,8 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   function renderDeadHeld(s, card) {
     var head = el('div', 'eyebrow', '捞到一封 · 来自 ');
     head.appendChild(el('span', 'who', s.held.from));
+    head.classList.add('star-held-heading');
+    head.appendChild(starButton(s.held.letterId));
     card.appendChild(head);
     card.appendChild(el('h2', 'title', '它的字被海带走了'));
     card.appendChild(letterSheet({ body: s.held.body || '这封的字已经不在海上了。', fontId: s.held.fontId, signature: s.held.signature || s.held.from }));
@@ -502,6 +509,8 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   function renderSeedHeld(s, card) {
     var head = el('div', 'eyebrow', '海边邮局 · 来自 ');
     head.appendChild(el('span', 'who', s.held.from));
+    head.classList.add('star-held-heading');
+    head.appendChild(starButton(s.held.letterId));
     card.appendChild(head);
     // 没有 topic 时才用来源顶替标题，免得标题位置空着
     if (!s.held.topic) card.appendChild(el('h2', 'title', '来自群岛上的某位居民'));
@@ -740,7 +749,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
 
   function readBadge(count) {
     count = Number.isSafeInteger(count) && count > 0 ? count : 0;
-    return el('span', 'mail-status ' + (count ? 'status-replied' : 'status-picked'), count ? '已读' + count + '次' : '尚未阅读');
+    return el('span', 'mail-status ' + (count ? 'status-replied' : 'status-picked'), count ? '已读' + count + '次' : '尚未共读');
   }
 
   function bookEntries() {
@@ -761,16 +770,18 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
       received: ['来客来信', '海上来客留下的信，随潮水来到你身边。'],
       seed: ['海边邮局', '邮局寄来的群岛故事。可以收好，这些信不收回信。'],
       reply: ['收到的回信', '寄往远方的心事，等到了回应。'],
-      sent: ['寄出的信', '写出的信，都在这里留了一份。']
+      sent: ['寄出的信', '写出的信，都在这里留了一份。'],
+      stars: ['星笺匣', '把想再读的通信收在一起。星标与记忆授权分别选择。']
     };
     Object.keys(folders).forEach(function (key) {
-      document.getElementById(key + '-count').textContent = String(entries.filter(function (entry) { return entry.category === key; }).length);
+      document.getElementById(key + '-count').textContent = String(key === 'stars' ? starRows().length : entries.filter(function (entry) { return entry.category === key; }).length);
     });
     document.querySelectorAll('.folder').forEach(function (button) { button.setAttribute('aria-pressed', String(button.dataset.category === category)); });
     document.getElementById('folder-title').textContent = folders[category][0];
     document.getElementById('folder-description').textContent = folders[category][1];
     var list = document.getElementById('mail-list');
     list.innerHTML = '';
+    if (category === 'stars') { renderStars(list); return; }
     entries = visibleItems(entries.filter(function (entry) { return entry.category === category; }), function (entry) { return entry.at; });
     var day = null;
     var group;
@@ -816,6 +827,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     var badges = el('span', 'mail-badges');
     if (kind === 'sent') badges.appendChild(sentStateBadge(item));
     else badges.appendChild(readBadge(isReply ? item.reply.readCount : item.readCount));
+    badges.appendChild(starButton(item.letterId));
     summary.appendChild(badges);
     var chevron = el('span', 'mail-chevron', '›');
     chevron.setAttribute('aria-hidden', 'true');
@@ -876,7 +888,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     var storageOpen = previous ? previous.open : false;
     foot.innerHTML = '';
     foot.appendChild(el('div', null, '字由' + botName() + '写，寄不寄由你。'));
-    foot.appendChild(el('div', null, '只有你点「回信」或「一起读信」，' + botName() + '才能读到那一封。'));
+    foot.appendChild(el('div', null, '你可以点「回信」「一起读信」，或在星笺匣逐封授权记忆，让' + botName() + '读到那一封。'));
     var storage = el('details');
     storage.open = storageOpen;
     storage.appendChild(el('summary', null, '本机存储与清理'));
@@ -916,7 +928,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     refreshHostTheme(false);
     refreshAnnouncement();
     var sequence = ++refreshSequence;
-    fontSnapshotHeaders().then(function (headers) { return fetch('/draft', { headers: headers }); }).then(function (res) { return res.json(); }).then(function (snapshot) {
+    return fontSnapshotHeaders().then(function (headers) { return fetch('/draft', { headers: headers }); }).then(function (res) { return res.json(); }).then(function (snapshot) {
       if (sequence !== refreshSequence) return;
       if (window.bottleSound) window.bottleSound.snapshot(snapshot);
       state = snapshot;

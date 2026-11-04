@@ -20,6 +20,30 @@ const snapshot: PageSnapshot = {
   localFile: 'C:\\data\\bottle-letterbook.json',
 };
 
+it.each([
+  ['remind', 0.49, 12], ['remind', 1.01, 12], ['remind', 2, 12],
+  ['remind', 0.5, 2], ['remind', 0.5, 21], ['remind', 0.5, 3.5],
+  ['write', 0.5, 3], ['catch', 1, 3], ['write', 25, 3],
+  ['catch', 2, 0], ['write', 2, 25], ['remind', '0.5', 12],
+  ['remind', NaN, 12], ['remind', Infinity, 12], ['remind', 0.5, '12'],
+] as const)('rejects invalid %s interval %s / limit %s before saving', async (action, hours, dayLimit) => {
+  const wakeControl = vi.fn(async () => ({ ok: true }));
+  expect((await handlePage(deps({ wakeControl }), 'POST', '/wake', {
+    body: { action, command: 'interval', hours, dayLimit },
+  })).status).toBe(400);
+  expect(wakeControl).not.toHaveBeenCalled();
+});
+
+it.each(['write', 'catch'] as const)('keeps %s invitation bounds at 2–24 hours / 1–24 per day', async action => {
+  const wakeControl = vi.fn(async () => ({ ok: true }));
+  for (const [hours, dayLimit] of [[2, 1], [24, 24]]) {
+    expect((await handlePage(deps({ wakeControl }), 'POST', '/wake', {
+      body: { action, command: 'interval', hours, dayLimit },
+    })).status).toBe(200);
+    expect(wakeControl).toHaveBeenLastCalledWith(action, 'interval', hours, dayLimit);
+  }
+});
+
 function deps(overrides: Partial<PageDeps> = {}): PageDeps {
   return {
     snapshot: () => snapshot,
@@ -329,4 +353,9 @@ it('serves a local feedback QR image and renders this installed package version'
   expect(image.status).toBe(200);
   expect(image.binary?.mime).toBe('image/png');
   expect(Buffer.from(image.binary!.bytes).subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+});
+
+ it('网页未共读标记不把单纯浏览误称为共同阅读', () => {
+  expect(pageHtml()).toContain('尚未共读');
+  expect(pageHtml()).not.toContain('尚未阅读');
 });

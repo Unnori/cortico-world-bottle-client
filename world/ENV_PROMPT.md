@@ -9,6 +9,7 @@
 上次写信：{{bottle.lastLetter | 还没有寄过信}}
 手里：{{bottle.held | 不清楚，可先看信箱}}
 信箱页：{{bottle.page | （页还没起来，先放着）}}
+{{bottle.starMemory | 星笺记忆未授权，不可读取正文。}}
 
 ## 写信
 

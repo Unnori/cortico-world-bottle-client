@@ -9,12 +9,23 @@ import { pageHtml } from '../world/page-view.ts';
 function page(snapshot: Record<string, unknown> = {}, preferences = new Map<string, string>(), reduce = false, host: MailboxTheme = { available: false }) {
   const nodes = new Map<string, any>();
   const get = (id: string): any => {
-    if (!nodes.has(id)) nodes.set(id, { id, textContent: '', value: '', disabled: false, attrs: {}, open: false, hidden: id === 'theme-menu', listeners: {},
-      contains(target: any) { return target === this || (id === 'theme-picker' && target.id?.startsWith('theme-')); },
+    if (!nodes.has(id)) nodes.set(id, { id, textContent: '', value: '', disabled: false, attrs: {}, style: {}, dataset: {}, open: false, hidden: id === 'theme-menu' || id === 'reader-panel', listeners: {},
+      contains(target: any) { return target === this || (id === 'theme-picker' && target.id?.startsWith('theme-')) || (id === 'reader-tools' && target.id?.startsWith('reader-')); },
       getAttribute(key: string) { return this.attrs[key] ?? null; },
       addEventListener(type: string, fn: (event?: unknown) => void) { this.listeners[type] = fn; },
       showModal() { this.open = true; }, close() { this.open = false; this.listeners.close?.(); }, focus: vi.fn(),
-      getBoundingClientRect() { return { left: 100, right: 500, top: 100, bottom: 500 }; },
+      getBoundingClientRect() {
+        if (id === 'reader-tools' || id === 'reader-panel') {
+          const panel = id === 'reader-panel';
+          const origin = panel ? get('reader-tools').getBoundingClientRect() : { left: 0, top: 0 };
+          const left = origin.left + (parseFloat(this.style.left) || (panel ? 54 : 8));
+          const top = origin.top + (parseFloat(this.style.top) || (panel ? 0 : 400));
+          const width = parseFloat(this.style.width) || (panel ? 232 : 44);
+          const height = panel ? Math.min(300, parseFloat(this.style.maxHeight) || Infinity) : 96;
+          return { left, right: left + width, top, bottom: top + height, width, height };
+        }
+        return { left: 100, right: 500, top: 100, bottom: 500, width: 400, height: 400 };
+      },
       setAttribute(key: string, value: string) { this.attrs[key] = value; }, removeAttribute(key: string) { delete this.attrs[key]; } });
     return nodes.get(id);
   };
@@ -30,12 +41,15 @@ function page(snapshot: Record<string, unknown> = {}, preferences = new Map<stri
   const script = pageHtml().match(/<script>([\s\S]*?)<\/script>/)![1].replace(/  refresh\(\);\s*\}\)\(\);\s*$/, '  globalThis.actions = { toast: toast, desk: updateDeskArrivals, focusDesk: focusDeskArrival, sync: refreshHostTheme, show: function(s) { state = s; renderActionState(s.letterDraft); } };\n})();');
   const listeners: Record<string, (event: any) => void> = {};
   const windowListeners: Record<string, (event: any) => void> = {};
-  const sandbox: any = { Image: class { onload: any; onerror: any; src = ''; }, document: { documentElement: { dataset: {}, style: { setProperty: vi.fn() } }, getElementById: get, querySelectorAll: () => [],
+  const getComputedStyle = (node: any) => node.id === 'reader-safe-area'
+    ? { paddingTop: '8px', paddingRight: '8px', paddingBottom: '8px', paddingLeft: '8px', borderTopWidth: '0px', borderBottomWidth: '0px' }
+    : { paddingTop: '0', paddingRight: '0', paddingBottom: '0', paddingLeft: '0', borderTopWidth: '1', borderBottomWidth: '1' };
+  const sandbox: any = { Image: class { onload: any; onerror: any; src = ''; }, document: { documentElement: { clientWidth: 1280, clientHeight: 800, dataset: {}, style: { setProperty: vi.fn() } }, getElementById: get, querySelectorAll: () => [],
       addEventListener(type: string, fn: (event: any) => void) { listeners[type] = fn; }, hidden: false },
     localStorage: { getItem: (key: string) => preferences.get(key), setItem: (key: string, value: string) => preferences.set(key, value) },
     fetch: (path: string, options?: unknown) => path === '/appearance' ? appearanceFetch(path as any, options as any) : (options === undefined ? (fetch as any)(path) : (fetch as any)(path, options)), setInterval: vi.fn(), clearTimeout, setTimeout: timeout,
-    getComputedStyle: () => ({ paddingTop: '0', paddingBottom: '0', borderTopWidth: '1', borderBottomWidth: '1' }),
-    window: { matchMedia: (query: string) => query.includes('color-scheme') ? darkMedia : ({ matches: reduce }), addEventListener(type: string, fn: (event: any) => void) { windowListeners[type] = fn; } }, Date };
+    getComputedStyle,
+    window: { innerWidth: 1280, innerHeight: 800, getComputedStyle, matchMedia: (query: string) => query.includes('color-scheme') ? darkMedia : ({ matches: reduce }), addEventListener(type: string, fn: (event: any) => void) { windowListeners[type] = fn; } }, Date };
   expect(script).toContain('globalThis.actions =');
   new Script(script).runInNewContext(sandbox);
   sandbox.actions.show(state);
@@ -357,7 +371,7 @@ it('背景透明度仅在有图片时显示，拖动预览，松手保存', asyn
 });
 
 
-it('阅读字号拖动即保存，只更新正文字号变量，重置恢复默认', () => {
+it('阅读字号拖动即保存，只更新正文字号变量', () => {
   const h = page();
   const set = h.document.documentElement.style.setProperty;
   expect(h.get('reader-size').value).toBe('26');
@@ -368,8 +382,6 @@ it('阅读字号拖动即保存，只更新正文字号变量，重置恢复默�
   expect(h.get('reader-size-value').textContent).toBe('35 px');
   expect(h.preferences.get('bottle-reading-size')).toBe('35');
   expect(page({}, h.preferences).get('reader-size').value).toBe('35');
-  h.get('reader-reset').onclick();
-  expect(h.preferences.get('bottle-reading-size')).toBe('26');
 });
 it.each([['garbage','26'],['0','26'],['','26'],['Infinity','26'],['999','40'],['12','18'],['27.6','28']])('保存的阅读字号 %s 安全恢复为 %s', (saved, expected) => {
   const h = page({}, new Map([['bottle-reading-size',saved]]));

@@ -14,6 +14,7 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
   create: (ctx) => new BottleWorld(ctx, { botName: ctx.botName || '它' }),
   describe: {
     tools: describeTools(BOTTLE_TOOL_DECLS, {
+      bottle_star_memory: { zh: '只读人逐封授权的星笺往来；取消授权立即禁止后续读取，不直接修改核心记忆。', en: 'Reads only human-authorized starred correspondence from an independent revocable library, never core Memory.' },
       bottle_write: {
         zh: '起草正文不超过 120 字的信，内容与形式自由，信题可选；仍保护隐私，寄不寄由人决定。',
         en: 'Drafts a letter of at most 120 characters into the human\'s mailbox page. Never sends it.',
@@ -36,6 +37,10 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
       },
     }),
     events: [
+      { type: 'bottle.star-memory', description: {
+        zh: '人开启总开关并逐封允许记住后，完整往来才作为外部内容投递；关闭或取消星标使未投递内容作废。',
+        en: 'Human-authorized starred correspondence, delivered as external content only after global and per-letter consent are rechecked. Revocation invalidates pending disclosure.',
+      } },
       {
         type: 'bottle.request',
         description: {
@@ -67,8 +72,8 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
       {
         type: 'bottle.mail',
         description: {
-          zh: '有新的回信漂回来了，只有数量。',
-          en: 'New answers drifted back; count only.',
+          zh: '有新的回信漂回来了，带数量与原信投海距今多久，不含正文。',
+          en: 'New answers drifted back; count and relative sending times only, without letter text.',
         },
       },
       {
@@ -95,8 +100,8 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
       {
         type: 'bottle.picked',
         description: {
-          zh: '我写的信被人捡起来了。只播报第一次（这个状态会来回抖），而且不带任何化名。',
-          en: 'Someone picked up a letter I wrote. Announced once only (the state flaps), and it carries no pseudonym.',
+          zh: '我写的信被人捡起来了，带原信投海距今多久。只播报第一次（这个状态会来回抖），而且不带任何化名。',
+          en: 'Someone picked up a letter I wrote; includes how long ago it was sent. Announced once only (the state flaps), and it carries no pseudonym.',
         },
       },
       {
