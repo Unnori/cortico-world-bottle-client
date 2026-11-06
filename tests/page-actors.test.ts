@@ -122,10 +122,10 @@ it('no_idea 在网页显示为自主暂不做，不再显示未完成或失败',
 });
 
 
-it('默认潮蓝，三个主题可切换并记住偏好，只读宿主配色', () => {
+it('默认潮蓝，四个主题可切换并记住偏好，只读宿主配色', () => {
   const h = page();
   expect(h.document.documentElement.dataset.theme).toBe('ocean');
-  for (const theme of ['paper', 'coopanion', 'ocean']) {
+  for (const theme of ['paper', 'epistle', 'coopanion', 'ocean']) {
     h.get('theme-toggle').onclick();
     expect(h.get('theme-menu').hidden).toBe(false);
     h.get('theme-' + theme).onclick();
@@ -194,7 +194,7 @@ it('主题预读发生在样式之前，主题文字入口、信封元素和减�
 
 it('三套配色均支持系统明暗变化，手动选择后不受系统变化影响且可恢复自动', () => {
   const h = page();
-  for (const theme of ['ocean', 'paper', 'coopanion']) {
+  for (const theme of ['ocean', 'paper', 'epistle', 'coopanion']) {
     h.get('theme-' + theme).onclick(); h.get('mode-system').onclick();
     h.darkMedia.matches = true; h.darkMedia.listener();
     expect(h.document.documentElement.dataset.appearance).toBe('dark');

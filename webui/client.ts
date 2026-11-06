@@ -268,6 +268,47 @@ export async function mountMailbox(ctx: WebUiPanelContext): Promise<void> {
       if (!ctx.signal.aborted) { resetButton.textContent = zh ? '重置配对' : 'Reset pairing'; renderLan(); }
     }
   }
+  // Keep backup controls after invitations and pairing, using the existing World RPC.
+  const archive = ui.h('footer', 'bottle-archive');
+  const archiveActions = ui.h('div', 'bottle-archive-actions');
+  const exportButton = ui.h('button', 'bottle-archive-button', zh ? '导出信册' : 'Export letterbook');
+  const importButton = ui.h('button', 'bottle-archive-button', zh ? '导入信册' : 'Import letterbook');
+  exportButton.type = importButton.type = 'button';
+  const archiveFile = ui.h('input'); archiveFile.type = 'file'; archiveFile.accept = 'application/json,.json'; archiveFile.hidden = true;
+  const archiveResult = ui.h('p', 'bottle-archive-result'); archiveResult.setAttribute('role', 'status');
+  const busyArchive = (busy: boolean): void => { exportButton.disabled = importButton.disabled = busy; };
+  exportButton.onclick = async () => {
+    if (ctx.signal.aborted || exportButton.disabled) return;
+    busyArchive(true);
+    try {
+      const data = await ctx.invoke('archiveExport');
+      if (ctx.signal.aborted) return;
+      const href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' }));
+      const cleanup = ctx.own({ dispose: () => URL.revokeObjectURL(href) });
+      const link = ui.h('a'); link.href = href;
+      link.download = (zh ? '漂流瓶信册-明文请勿转发-' : 'letterbook-plaintext-do-not-share-') + new Date().toISOString().slice(0, 10) + '.json';
+      archive.append(link); link.click(); link.remove();
+      ctx.timeout(() => cleanup.dispose(), 1000);
+      archiveResult.textContent = zh ? '明文备份已导出，请妥善保管。' : 'Plaintext backup exported. Keep it safe.';
+    } catch { if (!ctx.signal.aborted) archiveResult.textContent = zh ? '未能导出，请稍后再试。' : 'Export failed. Please try again.'; }
+    finally { if (!ctx.signal.aborted) busyArchive(false); }
+  };
+  importButton.onclick = () => { if (!ctx.signal.aborted) archiveFile.click(); };
+  archiveFile.onchange = async () => {
+    const file = archiveFile.files?.[0]; if (!file || ctx.signal.aborted || importButton.disabled) return;
+    busyArchive(true);
+    try {
+      if (file.size > 32 * 1024 * 1024) { archiveResult.textContent = zh ? '信册文件不能超过 32 MiB。' : 'The file must be under 32 MiB.'; return; }
+      const data: unknown = JSON.parse(await file.text());
+      if (ctx.signal.aborted) return;
+      const result = await ctx.invoke<{ ok: boolean; message: string }>('archiveImport', [data]);
+      if (!ctx.signal.aborted) archiveResult.textContent = result.message;
+    } catch { if (!ctx.signal.aborted) archiveResult.textContent = zh ? '未能导入，请检查信册文件后重试。' : 'Import failed. Check your letterbook file and retry.'; }
+    finally { archiveFile.value = ''; if (!ctx.signal.aborted) busyArchive(false); }
+  };
+  archiveActions.append(exportButton, importButton);
+  archive.append(archiveActions, ui.h('p', null, zh ? '备份含信件正文，是明文文件，请妥善保管，别随意转发。导入会合并信册，本机已有记录优先。' : 'Backups contain plaintext letters. Keep them private. Import merges records; local entries take priority.'), archiveFile, archiveResult);
+  ctx.root.append(archive);
   let pending = false;
   const refresh = async (): Promise<void> => {
     if (pending || ctx.signal.aborted) return;

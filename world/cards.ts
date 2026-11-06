@@ -143,7 +143,7 @@ export function replyDraftCard(input: {
     version: 1,
     base: base(input.base),
     eyebrow: '漂流瓶 · 回信写好了',
-    from: '等你决定',
+    from: input.draft.autoSendAt ? '已安排自动寄出，可在信箱查看倒计时' : input.draft.autoSendKey ? '确认自动寄出时间中' : '等你决定',
     ...(input.held
       ? { quote: { label: `原来那一封（来自 ${input.held.from}）`, body: input.held.body } }
       : {}),
@@ -171,13 +171,13 @@ export function replyArrivedCard(input: { base: string; reply: LocalReply; more:
 }
 
 /** 人类点了回信、Coo 还没写完：占位，等回信草稿把它替换掉。 */
-export function waitingCard(baseUrl: string): CardSpec {
+export function waitingCard(baseUrl: string, botName = '桌宠', intent: 'read' | 'reply' = 'reply'): CardSpec {
   return {
     version: 1,
     base: base(baseUrl),
-    eyebrow: '漂流瓶 · 它正在读',
-    body: '读完就会把回信放到这里。',
-    meta: '要是它没动笔，收起卡片再点一次「回信」',
+    eyebrow: `漂流瓶 · ${botName}${intent === 'reply' ? '正在写回信' : '正在读信'}`,
+    body: intent === 'reply' ? '写好后，回信草稿就会放到这里。' : '一起读读这封信，聊聊读后的感受。',
+    meta: intent === 'reply' ? '若这轮没能写好，可在信箱里再次点「写回信」' : '共读之后，可以在信箱里选择是否写回信',
     actions: [{ id: 'close', label: '收起', tone: 'ghost' }],
   };
 }

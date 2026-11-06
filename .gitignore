@@ -7,3 +7,6 @@ node_modules/
 
 # 本地字体审计原件与隔离文件，不提交、不分发。
 /font-library/
+
+# 本地一次性备份，不进仓库也不进包。
+/.backup/

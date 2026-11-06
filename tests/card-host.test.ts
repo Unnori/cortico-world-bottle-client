@@ -41,7 +41,7 @@ describe('卡片宿主', () => {
       body: string;
       base: string;
     };
-    expect(written.body).toContain('读完就会');
+    expect(written.body).toContain('写好后，回信草稿就会放到这里。');
     expect(written.base).toBe('http://127.0.0.1:7796');
 
     expect(calls).toHaveLength(1);
@@ -96,7 +96,7 @@ it('卡片时长默认十秒，下张卡片读取热更新，零秒禁用自动�
   host.show(waitingCard('http://127.0.0.1:7796/'));
   expect(durations).toEqual(['10000', '30000', '0']);
   const data = JSON.parse(readFileSync(join(dir, 'bottle-card.json'), 'utf8'));
-  expect(data.body).toContain('读完就会');
+  expect(data.body).toContain('写好后，回信草稿就会放到这里。');
 });
 
 it('卡片规格带上保存的明暗与配色，启动前也有正确的深色回退', () => {

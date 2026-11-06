@@ -80,8 +80,12 @@ describe('原生卡片规格', () => {
   });
 
   it('等待卡片只给「收起」', () => {
-    const card = waitingCard(base);
-    expect(card.eyebrow).toContain('它正在读');
+    const card = waitingCard(base, '小鱼');
+    expect(card.eyebrow).toContain('小鱼正在写回信');
+    expect(card.body).toContain('回信草稿');
+    const reading = waitingCard(base, '小鱼', 'read');
+    expect(reading.eyebrow).toContain('小鱼正在读信');
+    expect(reading.body).not.toContain('回信草稿');
     expect(card.actions.map((a) => a.id)).toEqual(['close']);
   });
 

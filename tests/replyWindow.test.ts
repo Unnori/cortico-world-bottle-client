@@ -91,7 +91,7 @@ describe('A. 改参数立刻影响新捞到的信', () => {
     seedLetter(h);
     const res = h.catchAs(me);
     if (res.empty) throw new Error('应该捞到');
-    const span = Date.parse(res.windowUntil) - h.clock.t;
+    const span = Date.parse(res.windowUntil!) - h.clock.t;
     expect(span).toBe(72 * HOUR);
   });
 
@@ -101,7 +101,7 @@ describe('A. 改参数立刻影响新捞到的信', () => {
     seedLetter(h);
     const res = h.catchAs(me);
     if (res.empty) throw new Error('应该捞到');
-    const span = Date.parse(res.windowUntil) - h.clock.t;
+    const span = Date.parse(res.windowUntil!) - h.clock.t;
     expect(span).toBe(24 * HOUR);
   });
 
@@ -111,7 +111,7 @@ describe('A. 改参数立刻影响新捞到的信', () => {
     seedLetter(h);
     const res = h.catchAs(me);
     if (res.empty) throw new Error('应该捞到');
-    expect(Date.parse(res.windowUntil) - h.clock.t).toBe(1 * HOUR);
+    expect(Date.parse(res.windowUntil!) - h.clock.t).toBe(1 * HOUR);
   });
 });
 

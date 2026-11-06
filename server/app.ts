@@ -7,15 +7,20 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   MAX_THROWS,
+  NOTE_BODY_MAX,
+  NOTE_TTL_MS,
+  REPLY_AUTO_SEND_MS,
   type CatchRes,
   type DeadLetter,
   type DismissRes,
   type ErrorCode,
   type MailboxItem,
+  type NoteRes,
   type Quota,
+  type ReceivedNote,
   type TideOutRes,
 } from '../shared/contract.ts';
-import { checkBody, checkTitle } from '../shared/text.ts';
+import { checkBody, checkNote, checkTitle } from '../shared/text.ts';
 import { seaStateAt } from '../shared/tide.ts';
 import { dayStartMs, seedDayPlan, slotsArrived } from '../shared/seedSlots.ts';
 import { type Db, type BotRow, type LetterRow } from './db.ts';
@@ -266,11 +271,13 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
     return {
       ...computeQuota(bot, poolFor(bot).length, rules),
       reply_window_hours: currentTuning().replyWindowHours,
+      reply_draft_hold: true,
     };
   }
 
   /** 让一封捞起来的信回海。扔回海里算一次；72 小时超时不算。 */
   function toSea(letter: LetterRow): void {
+    delete letter.replyDraftKey;delete letter.replyDraftDueAt;
     // 正文没了的信不能回海：`poolFor` 要求 body 非空，所以它谁都捞不到，
     // 却会一直算在「漂着」里，把那个数字撑得虚高——这就是僵尸信。收掉它。
     if (!letter.body) {
@@ -291,6 +298,7 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
 
   /** 裂开沉底：不再出现在任何人的海里。 */
   function sink(letter: LetterRow): void {
+    delete letter.replyDraftKey;delete letter.replyDraftDueAt;
     letter.state = 'archived';
     letter.archivedReason = 'sunk';
     letter.catcherHash = null;
@@ -300,9 +308,9 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
 
   /** 72 小时到点的信回海。惰性执行：每次请求顺手扫一遍，不另起定时器。 */
   function sweep(at: number): boolean {
-    let changed = false;
+    let changed = db.pruneNotes(at);
     for (const letter of db.letters) {
-      if (letter.state === 'caught' && letter.replyWindowUntil !== null && letter.replyWindowUntil <= at) {
+      if (letter.state === 'caught' && !letter.replyDraftKey && letter.replyWindowUntil !== null && letter.replyWindowUntil <= at) {
         toSea(letter);
         changed = true;
       }
@@ -417,7 +425,7 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
     if (held) {
       const res: CatchRes = { empty: true, reason: 'holding', quota,
         held: { letterId: held.id, from: pseudonymOf(held.authorHash),
-          windowUntil: new Date(held.replyWindowUntil!).toISOString(), caughtAt: new Date(held.caughtAt!).toISOString() } };
+          windowUntil: held.replyWindowUntil === null ? null : new Date(held.replyWindowUntil).toISOString(), caughtAt: new Date(held.caughtAt!).toISOString() } };
       return ok(res);
     }
     if (quota.catches_left <= 0) {
@@ -608,7 +616,11 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
     const letterId = typeof payload?.letterId === 'string' ? payload.letterId : '';
     // 回信是信**永久离开海面**的唯一大额出口，所以它必须有闸（§6 收支平衡）。
     // 不设的话每人每天能消灭 10 封、只补 5 封，海会一直很薄，漂流就退化成即时通讯。
-    if (bot.repliesMade >= (rules.replyCap ?? DEFAULT_RULES.replyCap ?? 3)) {
+    const draftKey=typeof payload?.draftKey==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(payload.draftKey)?payload.draftKey:'';
+    const reserved=db.letterById(letterId),prior=db.replyFor(letterId);
+    const replyId=draftKey?'r_'+sha256('reply:'+letterId+':'+draftKey).slice(0,32):'';
+    if(reserved?.catcherHash===bot.clientHash&&reserved.state==='replied'&&prior&&replyId===prior.id)return ok({ok:true,quota:quotaFor(bot)});
+    if (bot.repliesMade >= (rules.replyCap ?? DEFAULT_RULES.replyCap ?? 3) && !(reserved?.catcherHash===bot.clientHash&&draftKey&&reserved.replyDraftKey===draftKey)) {
       return fail(
         429,
         'no_reply',
@@ -629,10 +641,14 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
     const parsed = checkBody(payload?.body);
     if (!parsed.ok) return fail(400, 'bad_request', bodyProblem(parsed.reason, parsed.chars));
 
-    db.replies.push({ id: newId('r'), letterId: letter.id, body: parsed.body, createdAt: at });
+    if(letter.replyDraftKey&&letter.replyDraftKey!==draftKey)return fail(409,'conflict','已有另一份确认待寄的回信稿，请刷新信箱。');
+    const reply={ id: replyId||newId('r'), letterId: letter.id, body: parsed.body, createdAt: at };
+    const oldKey=letter.replyDraftKey,oldDue=letter.replyDraftDueAt;
+    db.replies.push(reply);
     letter.state = 'replied';
+    delete letter.replyDraftKey;delete letter.replyDraftDueAt;
     bot.repliesMade += 1;
-    db.save();
+    if(!db.save()){db.replies=db.replies.filter(n=>n!==reply);letter.state='caught';if(oldKey)letter.replyDraftKey=oldKey;if(oldDue)letter.replyDraftDueAt=oldDue;bot.repliesMade--;return fail(503,'internal','回信还没有保存成功，草稿仍应保留。');}
     return ok({ ok: true, quota: quotaFor(bot) });
   }
 
@@ -719,6 +735,118 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
   }
 
   /**
+   * 写一张小纸条：一次相遇的第三拍，也是终点。
+   *
+   * 三条约束全在这里判定，客户端不需要自己防：
+   *
+   *   ① 原作者收到回信后，才能给回信的那位留纸条
+   *   ② 写一张消耗一次打捞额度 —— 用一次新的相遇，换一次把话说完
+   *   ③ 七天内一封只留一张，使用限期无正文收条防网络重试重复扣费
+   */
+  function handleNote(req: ApiRequest, bot: BotRow): ApiResponse {
+    const at = now();
+    if (resetDaily(bot, dayIn(timeZone, at)) || db.pruneNotes(at)) db.save();
+    const payload = asObject(req.body);
+    const id = typeof payload?.letterId === 'string' ? payload.letterId : '';
+    const letter = db.letterById(id), reply = db.replyFor(id);
+    if (!letter || letter.state !== 'replied' || letter.authorHash !== bot.clientHash || !letter.catcherHash)
+      return fail(404, 'not_found', '只能给回过你这封信的人留纸条。');
+    if (!reply) return fail(409, 'no_reply_yet', '先把回信寄出去，再留纸条。');
+    // A -> B after the reply. Receipts contain no body and expire after seven days.
+    if (db.noteReceipts.some(n => n.letterId === id && n.fromHash === bot.clientHash))
+      return ok({ ok: true, quota: quotaFor(bot), repeated: true } satisfies NoteRes);
+    const parsed = checkNote(payload?.body);
+    if (!parsed.ok) return fail(400, 'bad_request', '纸条须为 1—40 字。');
+    if (quotaFor(bot).catches_left <= 0) return fail(429, 'no_catch', '今天的打捞机会用完了，回信已经寄出，不受影响。');
+    const row = { id: newId('n'), letterId: id, fromHash: bot.clientHash, toHash: letter.catcherHash,
+      body: parsed.body, createdAt: at, deliverAt: null, expiresAt: at + NOTE_TTL_MS };
+    db.notes.push(row);
+    db.noteReceipts.push({ id: row.id, letterId: id, fromHash: bot.clientHash, expiresAt: row.expiresAt });
+    bot.catchesUsed++;
+    if (!db.save()) {
+      db.notes = db.notes.filter(n => n !== row); db.noteReceipts = db.noteReceipts.filter(n => n.id !== row.id); bot.catchesUsed--;
+      return fail(503, 'internal', '纸条尚未收下，没有扣机会，请稍后重试。');
+    }
+    return ok({ ok: true, quota: quotaFor(bot) } satisfies NoteRes);
+  }
+  function handleNotes(_req: ApiRequest, bot: BotRow): ApiResponse {
+    const at = now(); db.pruneNotes(at);
+    const rows = db.notesFor(bot.clientHash);
+    const previous = rows.map(n => n.deliverAt);
+    rows.forEach(n => { n.deliverAt ??= at; });
+    if (!db.save()) { rows.forEach((n,i) => { n.deliverAt = previous[i]!; }); return fail(503, 'internal', '暂时无法取纸条。'); }
+    return ok(rows.map(n => ({ id: n.id, letterId: n.letterId, from: pseudonymOf(n.fromHash), body: n.body,
+      at: new Date(n.createdAt).toISOString(), expiresAt: new Date(n.expiresAt).toISOString() })) satisfies ReceivedNote[]);
+  }
+  function handleNoteAck(req: ApiRequest, bot: BotRow): ApiResponse {
+    db.pruneNotes(now());
+    const payload = asObject(req.body), id = typeof payload?.id === 'string' ? payload.id : '';
+    if (!id) return fail(400, 'bad_request', '缺少纸条编号。');
+    const row = db.notes.find(n => n.id === id);
+    if (row && row.toHash !== bot.clientHash) return fail(404, 'not_found', '没有这张纸条。');
+    if (!row) return ok({ ok: true }); // idempotent acknowledgement, reveals no existence.
+    if (row.deliverAt === null) return fail(409, 'conflict', '请先打开纸条。');
+    db.notes = db.notes.filter(n => n !== row);
+    if (!db.save()) { db.notes.push(row); return fail(503, 'internal', '尚未确认收下，稍后重试。'); }
+    return ok({ ok: true });
+  }
+  function handleRepost(req: ApiRequest, bot: BotRow): ApiResponse {
+    const at = now(); resetDaily(bot, dayIn(timeZone, at));
+    const payload = asObject(req.body), id = typeof payload?.letterId === 'string' ? payload.letterId : '';
+    const old = db.letterById(id);
+    if (!old || old.authorHash !== bot.clientHash) return fail(404, 'not_found', '找不到你寄出的这封信。');
+    if (old.state !== 'archived' || old.archivedReason !== 'tsunami') return fail(409, 'conflict', '只有随海啸远去的信可以重投。');
+    // Derive a stable NEW id: retry/restart cannot charge twice. No new persistent linking field.
+    const newLetterId = 'l_' + sha256('repost:' + id).slice(0,32);
+    if (db.letterById(newLetterId)) return ok({ ok: true, letterId: newLetterId, repeated: true, quota: quotaFor(bot) });
+    const tide = currentTuning().tideOut;
+    if (tide.blockThrow) return ok({ ok: false, reason: 'tide_out', text: tide.text || '海面退潮，先等一等。', quota: quotaFor(bot), until: tide.until || null });
+    const body = checkBody(old.body || payload?.body);
+    if (!body.ok) return fail(410, 'gone', '这封已经找不回来了。本机也没有完整原文。');
+    const heading = payload?.topic === undefined ? null : checkTitle(payload.topic);
+    if (heading && !heading.ok) return fail(400, 'bad_request', '原信标题格式不正确。');
+    if (quotaFor(bot).catches_left <= 0) return fail(429, 'no_catch', '重投需要一次打捞机会。');
+    const row: LetterRow = { id: newLetterId, authorHash: bot.clientHash, body: body.body,
+      ...(old.topic || heading?.title ? { topic: old.topic || heading!.title } : {}), createdAt: at, state: 'floating',
+      catcherHash: null, caughtAt: null, replyWindowUntil: null, deliveredCount: 0, throws: 0 };
+    db.letters.push(row); bot.catchesUsed++;
+    if (!db.save()) { db.letters = db.letters.filter(n => n !== row); bot.catchesUsed--; return fail(503, 'internal', '没有重投成功，也没有扣机会。'); }
+    return ok({ ok: true, letterId: row.id, quota: quotaFor(bot) });
+  }
+  function handleReplyDraft(req:ApiRequest,bot:BotRow):ApiResponse{
+    const at=now();resetDaily(bot,dayIn(timeZone,at));if(sweep(at))db.save();
+    const payload=asObject(req.body),id=typeof payload?.letterId==='string'?payload.letterId:'',key=typeof payload?.draftKey==='string'?payload.draftKey:'';
+    if(!/^[A-Za-z0-9_-]{1,128}$/.test(key))return fail(400,'bad_request','回信稿凭据不完整。');
+    const letter=db.letterById(id);if(!letter||letter.catcherHash!==bot.clientHash||letter.state!=='caught')return fail(404,'not_found','这封信已经不在手里。');
+    const oldKey=letter.replyDraftKey,oldDue=letter.replyDraftDueAt;
+    if(payload?.cancel===true){
+      if(letter.replyDraftKey!==key)return ok({ok:true,sendAt:null,quota:quotaFor(bot)});
+      delete letter.replyDraftKey;delete letter.replyDraftDueAt;
+    }else{
+      if(letter.replyDraftKey===key)return ok({ok:true,sendAt:new Date(letter.replyDraftDueAt!).toISOString(),quota:quotaFor(bot)});
+      if((quotaFor(bot).replies_left??1)<=0)return fail(429,'no_reply','今天的回信额度用完了。');
+      letter.replyDraftKey=key;letter.replyDraftDueAt=at+REPLY_AUTO_SEND_MS;
+    }
+    if(!db.save()){if(oldKey)letter.replyDraftKey=oldKey;else delete letter.replyDraftKey;if(oldDue)letter.replyDraftDueAt=oldDue;else delete letter.replyDraftDueAt;return fail(503,'internal','回信稿保护还没有保存成功。');}
+    return ok({ok:true,sendAt:letter.replyDraftDueAt?new Date(letter.replyDraftDueAt).toISOString():null,quota:quotaFor(bot)});
+  }
+
+  function handleReadOrKeep(req: ApiRequest, bot: BotRow, keep: boolean): ApiResponse {
+    const payload = asObject(req.body), id = typeof payload?.letterId === 'string' ? payload.letterId : '';
+    const letter = db.letterById(id);
+    if (!letter || letter.catcherHash !== bot.clientHash) return fail(404, 'not_found', '这封信不在你手中。');
+    if (keep && letter.state === 'archived' && letter.archivedReason === 'kept') return ok({ ok: true, quota: quotaFor(bot) });
+    if (letter.state !== 'caught') return fail(409, 'conflict', '这封信已经处理。');
+    if(!keep)return ok({ok:true,quota:quotaFor(bot)}); // Reading does not extend the original deadline.
+    if(letter.replyDraftKey)return fail(409,'conflict','这封信已有待寄回信，请先处理回信稿。');
+    const oldDeadline = letter.replyWindowUntil;
+    letter.replyWindowUntil = null; // Only explicit keep archives the letter; reading alone never changes this deadline.
+    if (keep) { letter.state = 'archived'; letter.archivedReason = 'kept'; }
+    if (!db.save()) { letter.replyWindowUntil = oldDeadline; if (keep) { letter.state = 'caught'; delete letter.archivedReason; } return fail(503, 'internal', '还没有保存成功。'); }
+    return ok({ ok: true, quota: quotaFor(bot) });
+  }
+
+  /**
    * 运维探针，不需要 token。
    *
    * **只报「进程活着」和「种子热载」，一个业务数字都不报。**
@@ -764,7 +892,7 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
         }
         continue;
       }
-      if (!letter.body) {
+      if (!letter.body && !letter.replyDraftKey) {
         deadLetters.push({ id: letter.id, why: 'empty' });
         continue;
       }
@@ -822,6 +950,7 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
 
   return {
     handle(req: ApiRequest): ApiResponse {
+      if (db.pruneNotes(now())) db.save();
       const path = req.path.replace(/\/+$/, '') || '/';
       // 每次请求前刷一下参数（内部有 5 秒 mtime 缓存，不会真去 stat 每个请求）
       refreshRules();
@@ -838,9 +967,16 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
       if (req.method === 'POST' && path === '/throw') return handleThrow(req, bot);
       if (req.method === 'POST' && path === '/catch') return handleCatch(req, bot);
       if (req.method === 'POST' && path === '/reply') return handleReply(req, bot);
+      if (req.method === 'POST' && path === '/reply/draft') return handleReplyDraft(req, bot);
       if (req.method === 'POST' && path === '/dismiss') return handleDismiss(req, bot);
       if (req.method === 'POST' && path === '/mail/take') return handleMailTake(req, bot);
       if (req.method === 'GET' && path === '/mailbox') return handleMailbox(req, bot);
+      if (req.method === 'POST' && path === '/note/ack') return handleNoteAck(req, bot);
+      if (req.method === 'POST' && path === '/repost') return handleRepost(req, bot);
+      if (req.method === 'POST' && path === '/read') return handleReadOrKeep(req, bot, false);
+      if (req.method === 'POST' && path === '/keep') return handleReadOrKeep(req, bot, true);
+      if (req.method === 'POST' && path === '/note') return handleNote(req, bot);
+      if (req.method === 'GET' && path === '/notes') return handleNotes(req, bot);
       if (req.method === 'GET' && path === '/quota') return handleQuota(req, bot);
       if (req.method === 'GET') {
         const found = /^\/letter\/([A-Za-z0-9_-]{1,64})$/.exec(path);

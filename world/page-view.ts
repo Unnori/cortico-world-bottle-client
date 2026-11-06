@@ -1,3 +1,4 @@
+import { extrasHtml, archiveHtml, extrasScript, extrasStyles } from './page-extras.ts';
 import { announcementDismissScript, announcementLinksScript } from './page-announcement.ts';
 import { WAKE_POLICIES } from './wake-policy.ts';
 import { DEFAULT_MY_FONT } from './default-font.ts';
@@ -27,9 +28,9 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
 <script data-theme-init>
 (function(){
   var root=document.documentElement,theme='ocean',mode='system';
-  try{var saved=localStorage.getItem('bottle-theme');if(['ocean','paper','coopanion','custom'].indexOf(saved)>=0)theme=saved;
+  try{var saved=localStorage.getItem('bottle-theme');if(['ocean','paper','epistle','coopanion','custom'].indexOf(saved)>=0)theme=saved;
     saved=localStorage.getItem('bottle-appearance');if(['system','light','dark'].indexOf(saved)>=0)mode=saved;}catch(e){}
-  try{var pref=JSON.parse(document.getElementById('host-theme').textContent).preference;if(pref&&['ocean','paper','coopanion','custom'].indexOf(pref.theme)>=0&&['system','light','dark'].indexOf(pref.mode)>=0){theme=pref.theme;mode=pref.mode;}}catch(e){}
+  try{var pref=JSON.parse(document.getElementById('host-theme').textContent).preference;if(pref&&['ocean','paper','epistle','coopanion','custom'].indexOf(pref.theme)>=0&&['system','light','dark'].indexOf(pref.mode)>=0){theme=pref.theme;mode=pref.mode;}}catch(e){}
   root.dataset.theme=theme;root.dataset.mode=mode;
   var dark=mode==='dark'||(mode==='system'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);
   root.dataset.appearance=dark?'dark':'light';
@@ -40,7 +41,8 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
 </script>
 <link rel="icon" type="image/png" href="/icon.png">
 <link rel="apple-touch-icon" href="/icon.png">
-<style>${pageStyles}</style>
+<style>${pageStyles}
+${extrasStyles}</style>
 </head>
 <body id="bottle-mailbox">
 <div id="mailbox-scenery" aria-hidden="true"><div id="background-layer-0" class="background-layer"></div><div id="background-layer-1" class="background-layer"></div></div>
@@ -64,7 +66,8 @@ ${readerHtml}
         <button class="theme-toggle" id="theme-toggle" type="button" aria-expanded="false" aria-controls="theme-menu" aria-label="切换信箱配色"><span class="theme-dot" aria-hidden="true"></span><span class="theme-toggle-label">信箱外观<span id="theme-name">潮蓝</span></span><svg class="theme-chevron" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <div class="theme-menu" id="theme-menu" role="group" aria-label="信箱配色" hidden><div class="theme-menu-heading"><strong>给信箱换一种心情</strong><span>信纸与灯光</span></div><div class="theme-options">
           <button id="theme-ocean" type="button" aria-pressed="true"><span class="theme-swatch swatch-ocean" aria-hidden="true"></span><span><strong>潮蓝</strong><small>海边的蓝</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
-          <button id="theme-paper" type="button" aria-pressed="false"><span class="theme-swatch swatch-paper" aria-hidden="true"></span><span><strong>暖纸</strong><small>旧日信纸</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
+          <button id="theme-paper" type="button" aria-pressed="false"><span class="theme-swatch swatch-paper" aria-hidden="true"></span><span><strong>暖纸</strong><small>蜂蜜纸 · 棕墨</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
+          <button id="theme-epistle" type="button" aria-pressed="false"><span class="theme-swatch swatch-epistle" aria-hidden="true"></span><span><strong>书信</strong><small>墨色与信笺</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
           <button id="theme-coopanion" type="button" aria-pressed="false"><span class="theme-swatch swatch-coopanion" aria-hidden="true"></span><span><strong>Coopanion</strong><small>跟随桌宠配色</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
           </div><div class="appearance-settings"><p>明暗模式</p><div class="appearance-options" role="group" aria-label="明暗模式"><button id="mode-system" type="button" aria-pressed="true">跟随系统</button><button id="mode-light" type="button" aria-pressed="false">浅色</button><button id="mode-dark" type="button" aria-pressed="false">深色</button></div><small id="theme-sync-note" role="status">明暗可以自由选择，配色会为你记住。</small><small id="theme-card-note" role="status">桌面信笺也会换上相同配色。</small></div>
           <p id="my-font-current" class="theme-font-current" role="status">写信笔迹 · ${DEFAULT_MY_FONT.name}（默认）</p>
@@ -75,27 +78,28 @@ ${readerHtml}
   </div>
   <div class="opening">
   <section class="hero">
-    <div><div class="eyebrow">栖潮海 · 海边信箱</div><h2>把远方，<br>收进信箱。</h2><p id="hero-note">留一封信给海，也等一封信靠岸。</p></div>
+    <div class="hero-copy"><div class="eyebrow">栖潮海 · 海边信箱</div><h2>把远方，<br>收进信箱。</h2><p id="hero-note">留一封信给海，也等一封信靠岸。</p></div>
     <div class="hero-art" aria-hidden="true"><div class="envelope-art"><span class="wax"><svg class="icon"><use href="#i-bottle"/></svg></span></div><div class="postmark">海边邮局<b>SEA</b>LETTERS</div><svg class="hero-wave" viewBox="0 0 130 30" fill="none" stroke="currentColor"><path d="M0 5q16-8 32 0t32 0 32 0 32 0M0 15q16-8 32 0t32 0 32 0 32 0M0 25q16-8 32 0t32 0 32 0 32 0"/></svg></div>
   </section>
   <div class="toolbar">
-    <div class="launch-heading"><span>留给海的一点心事</span><svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg></div>
+    <div class="launch-heading"><svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg><span>留给海的一点心事</span></div>
     <div class="actor-choice" role="group" aria-label="选择行动主体"><span class="actor-caption">这一趟，谁来？</span><div class="actor-switch"><button id="actor-bot" type="button" aria-pressed="true">让 Coo 来吧</button><button id="actor-human" type="button" aria-pressed="false">让我来吧</button></div><small id="actor-hint">递一份邀请，去不去由 Coo 决定。</small></div>
     <div class="actions">
-      <button class="action-main" id="write-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-pen"/></svg><span><strong id="write-label">写一封信</strong><small>把此刻的心事寄给远方</small></span></button>
-      <button class="action-main catch" id="catch-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-bottle"/></svg><span><strong id="catch-label">去海边打捞</strong><small>捞起海上来客的一封信</small></span></button>
+      <button class="action-main" id="write-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-pen"/></svg><strong id="write-label">写一封信</strong><small>把此刻的心事寄给远方</small></button>
+      <button class="action-main catch" id="catch-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-bottle"/></svg><strong id="catch-label">去海边打捞</strong><small>捞起海上来客的一封信</small></button>
     </div>
     <div class="invitation-outcome" role="status" aria-live="polite"><span class="invitation-outcome-label">邀请回音</span><p id="wake-outcome">还没有新的邀请。</p></div>
     <p id="action-note" role="status">信写好后，寄不寄由你决定。</p>
   </div>
   </div>
   <details class="invitation-settings"><summary>海边的邀请 · 间隔与次数</summary>
-    <p id="wake-note">自动邀请与待办提醒可以分别暂停。写信、打捞间隔设为 2—24 小时，实际在 1—2 倍内随机（最长 24 小时），每天默认各 3 次，可设 1—24 次。待办提醒仅在手上有未处理来信时触发，默认每 30—60 分钟一次，每天最多 12 次，可设 3—20 次；没有来信或只有草稿时不提醒。自动补试计入上限，手动邀请不占上限。</p>
+    <p id="wake-note">本版后台只刷新信箱，不唤醒桌宠。写信与打捞由页面点击邀请。旧版自动邀请设置仅保留配置：写信、打捞间隔设为 2—24 小时，实际在 1—2 倍内随机（最长 24 小时），每天默认各 3 次，可设 1—24 次。待办提醒仅在手上有未处理来信时触发，默认每 30—60 分钟一次，每天最多 12 次，可设 3—20 次；没有来信或只有草稿时不提醒。自动补试计入上限，手动邀请不占上限。</p>
     <div id="wake-controls"><div class="invitation-row"><span id="wake-write-status">写信邀请</span><label>最短间隔 <input id="wake-write-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><label>每日上限 <input id="wake-write-limit" type="number" min="1" max="24" step="1" value="3"> 次</label><button class="btn" type="button" id="wake-write-save">调整</button><button class="btn" type="button" id="wake-write-toggle">暂停</button></div><div class="invitation-row"><span id="wake-catch-status">打捞邀请</span><label>最短间隔 <input id="wake-catch-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><label>每日上限 <input id="wake-catch-limit" type="number" min="1" max="24" step="1" value="3"> 次</label><button class="btn" type="button" id="wake-catch-save">调整</button><button class="btn" type="button" id="wake-catch-toggle">暂停</button></div><div class="invitation-row"><span id="wake-remind-status">待办提醒</span><label>最短间隔 <input id="wake-remind-hours" type="number" min="0.5" max="1" step="0.01" value="0.5"> 小时</label><label>每日上限 <input id="wake-remind-limit" type="number" min="3" max="20" step="1" value="12"> 次</label><button class="btn" type="button" id="wake-remind-save">调整</button><button class="btn" type="button" id="wake-remind-toggle">暂停</button></div></div>
   </details>
   ${soundSettingsHtml}
   <div id="announcements" aria-live="polite"></div>
   <section class="desk"><div class="section-heading"><h2>信笺桌 · 待你决定</h2><div class="tide" id="tide"></div></div><main id="stage"></main></section>
+  ${extrasHtml}
   <details class="book" id="letterbook" open>
     <summary><svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg><span class="book-title">我的信箱</span><span class="book-count" id="book-count">收到 0 封</span><span class="fold-label" aria-hidden="true"></span></summary>
     <div class="book-layout">
@@ -109,12 +113,15 @@ ${readerHtml}
         <p class="folder-note">有些相遇很短，<br>但一封信可以留很久。</p>
       </nav>
       <div class="mail-content">
-        <div class="book-tools"><div><h3 id="folder-title">来客来信</h3><p id="folder-description">海上来客留下的信，随潮水来到你身边。</p></div><div class="date-tools"><label for="letter-date">归档日期</label><input type="date" id="letter-date"><button class="link" type="button" id="clear-date">全部日期</button></div></div>
+        <div class="book-tools"><div><h3 id="folder-title">来客来信</h3><p id="folder-description">海上来客留下的信，随潮水来到你身边。</p></div><div class="date-tools"><label for="letter-date">归档日期</label><span class="archive-date"><span id="letter-date-label" aria-hidden="true">选择日期</span><svg class="archive-date-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/></svg><input type="date" id="letter-date" aria-label="选择归档日期"></span><button class="link" type="button" id="clear-date">全部日期</button></div></div>
         <section id="mail-list" aria-label="按日期归档的信件"></section>
       </div>
     </div>
   </details>
-  <div class="foot" id="foot"></div>
+  <footer class="mailbox-footer">
+    <div class="foot" id="foot"></div>
+    ${archiveHtml}
+  </footer>
 
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -129,6 +136,7 @@ ${readerHtml}
   <p class="feedback-whisper"><s>甚至只是来找我闲聊，也可以。</s></p>
   <p class="feedback-signoff">谢谢你愿意来聊一聊。<span>—— 毛球</span></p>
 </dialog>
+<dialog class="feedback-dialog" id="star-consent-dialog" aria-labelledby="star-consent-title"><h2 id="star-consent-title">让这封信留下回声</h2><p id="star-consent-copy"></p><p class="feedback-whisper">确认后会交出完整往来，允许以后重读。可在星笺匣撤回；已进入聊天的内容无法追回。</p><div class="actions"><button id="star-consent-yes" class="btn" type="button">加入记忆</button><button id="star-consent-no" class="btn ghost" type="button">只收藏</button></div></dialog>
 <script>
 var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
 (function () {
@@ -174,7 +182,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   ${readerScript}
   ${stationeryScript}
   ${starScript}
-  var themes = { custom: { name: '我的颜色', light: '#f0f4fb', dark: '#151d2e' }, ocean: { name: '潮蓝', light: '#f0f4fb', dark: '#151d2e' }, paper: { name: '暖纸', light: '#f6f1e6', dark: '#211e19' }, coopanion: { name: 'Coopanion', light: '#f0f4fb', dark: '#151d2e' } };
+  var themes = { custom: { name: '我的颜色', light: '#f0f4fb', dark: '#151d2e' }, ocean: { name: '潮蓝', light: '#f0f4fb', dark: '#151d2e' }, paper: { name: '暖纸', light: '#f2e6cc', dark: '#251e16' }, epistle: { name: '书信', light: '#f5f3ec', dark: '#1a1a20' }, coopanion: { name: 'Coopanion', light: '#f0f4fb', dark: '#151d2e' } };
   var themePicker = document.getElementById('theme-picker');
   var themeMenu = document.getElementById('theme-menu');
   var themeToggle = document.getElementById('theme-toggle');
@@ -329,6 +337,11 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     if (isNaN(d.getTime())) return '';
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
+  function syncArchiveDate() {
+    var date = document.getElementById('letter-date').value;
+    var parts = /^([0-9]{4,})-([0-9]{2})-([0-9]{2})$/.exec(date);
+    document.getElementById('letter-date-label').textContent = parts ? parts[1] + '年' + Number(parts[2]) + '月' + Number(parts[3]) + '日' : '选择日期';
+  }
   function visibleItems(items, timeOf) {
     var date = document.getElementById('letter-date').value;
     return items.filter(function (item) { return !date || dateKey(timeOf(item)) === date; })
@@ -385,7 +398,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
         refresh();
         return;
       }
-      if (path === '/open') { waiting = true; waitStarted = Date.now(); }
+      if (path === '/open' || path === '/reply') { waiting = true; waitStarted = Date.now(); }
       toast(res.message || '好了。');
       refresh();
     }).catch(function () {
@@ -406,7 +419,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
         btn.setAttribute('aria-disabled', 'true');
       } else {
         btn.onclick = function () {
-          run(item.path, btn, item.kind ? { kind: item.kind } : undefined);
+          run(item.path, btn, item.letterId ? {letterId:item.letterId} : item.kind ? { kind: item.kind } : undefined);
         };
       }
       box.appendChild(btn);
@@ -431,6 +444,12 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     }
 
     card.appendChild(el('div', 'meta', draft.chars + ' / 120 字'));
+    if (!isLetter) {
+      var minutes = draft.autoSendAt ? Math.max(0, Math.ceil((draft.autoSendAt - Date.now()) / 60000)) : null;
+      card.appendChild(el('div', 'hint', draft.autoSendAt
+        ? minutes > 0 ? '约 ' + minutes + ' 分钟后自动寄出，也可以现在寄出。重写保留原倒计时，期间这只瓶子不会自动回海。' : '自动寄出中；暂时断网会保留草稿，连通后继续寄出。'
+        : draft.autoSendPending ? '正在向海边确认自动寄出时间；确认后开始两小时倒计时。' : '当前海边暂不支持自动寄出保护，请手动寄出这封回信。'));
+    }
 
     if (draft.hints && draft.hints.length) {
       var hints = el('div', 'hints');
@@ -444,7 +463,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     }
 
     // 回信额度用完时：寄出先灰着，旁边留「扔回海里」——也可以放着等明天额度回来再寄
-    var canReply = s.canReply !== false;
+    var canReply = s.canReply !== false || !!draft.autoSendAt;
     var actions;
     if (!isLetter && !canReply) {
       actions = [
@@ -457,8 +476,8 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
         { label: draft.hints && draft.hints.length ? '仍然寄出' : '寄出去', path: '/send', style: 'seal', kind: draft.kind },
         { label: '重写', path: '/rewrite', style: 'ghost', kind: draft.kind }
       ];
-      // 自己写的那封信：还能反悔。删草稿不影响手里那封别人写的信
-      if (isLetter) actions.push({ label: '算了吧', path: '/discard', style: 'ghost', kind: draft.kind });
+      // 放弃回信稿会取消自动寄出，原信仍按最初的期限回海。
+      actions.push({ label: '算了吧', path: '/discard', style: 'ghost', kind: draft.kind });
     }
     card.appendChild(buttons(actions));
     return card;
@@ -476,14 +495,19 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     card.appendChild(head);
     if (!s.held.topic) card.appendChild(el('h2', 'title', '还没决定要不要回'));
     card.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.from, heading: 'h2' }));
-    card.appendChild(el('div', 'meta', s.held.hoursLeft > 0 ? '还有 ' + s.held.hoursLeft + ' 小时回海' : '随时会回海'));
+    card.appendChild(el('div', 'meta', s.held.readAt ? botName() + '已经读过了' : s.held.hoursLeft > 0 ? '还有 ' + s.held.hoursLeft + ' 小时回海' : '等你决定如何处理'));
+    if (s.held.readAt && s.held.hoursLeft > 0) card.appendChild(el('div', 'meta', '还有 ' + s.held.hoursLeft + ' 小时回海。'));
     // 今天回不了就直说，别让人点了「回信」才发现第 4 封被 429
     if (s.canReply === false) {
       card.appendChild(el('div', 'hint spent', '今天的回信次数用完了。可以留着，等明天再回；也可以扔回海里，让别人去回。'));
     }
-    card.appendChild(buttons([
-      { label: s.canReply === false ? '多等一天' : '回信', path: '/open', style: 'seal', disabled: s.canReply === false },
-      { label: '扔回海里', path: '/dismiss', style: 'ghost' }
+    if (s.held.readAt && s.quota && s.quota.reply_draft_hold) card.appendChild(el('div', 'hint', '点「写回信」并写好草稿后，将在两小时后自动寄出；也可以提前寄出、重写或放弃。'));
+    card.appendChild(buttons(s.held.readAt ? [
+      {label:'写回信',path:'/reply',style:'seal',disabled:s.canReply===false},
+      {label:'扔回海里',path:'/dismiss',style:'ghost'}
+    ] : [
+      {label:'一起读',path:'/read',style:'seal'},
+      {label:'扔回海里',path:'/dismiss',style:'ghost'}
     ]));
     return card;
   }
@@ -571,8 +595,8 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
       waiting = false;
     } else if (waiting) {
       var card = el('div', 'card');
-      card.appendChild(el('div', 'eyebrow', botName() + '正在读那一封'));
-      card.appendChild(el('p', 'empty', '读完就会把回信放到这里。'));
+      card.appendChild(el('div', 'eyebrow', botName() + '正在写回信'));
+      card.appendChild(el('p', 'empty', '写好后，回信草稿就会放到这里。'));
       stage.appendChild(card);
       shown += 1;
     }
@@ -708,7 +732,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     var labels = { completed: '已处理', deferred: botName() + '选择暂不做', declined: '今天不再邀请', paused: '已暂停', uncompleted: botName() + '没有回应邀请…稍后再轻轻问一次。', failed: botName() + '没有回应邀请…今天先不打扰了。', cancelled: '条件变化，已取消', interrupted: '重启中断，已延后' };
     document.getElementById('wake-outcome').textContent = wake && wake.active
       ? wake.active.phase === 'retry' ? botName() + '没有回应邀请…稍后再轻轻问一次。' : '已有一份邀请在等' + botName() + '选择。'
-      : last ? '最近的' + (last.action === 'write' ? '写信邀请' : last.action === 'catch' ? '打捞邀请' : '待办提醒') + '：' + (last.result === 'deferred' && last.reason === 'no_idea' ? botName() + '暂时没有灵感，已选择暂不做；不算失败，也不补试' : last.reason === 'reminder_delivered' ? '提醒已送达，是否询问由' + botName() + '决定' : last.reason === 'queue_failed' ? '邀请暂时未能送达，请稍后再试。' : labels[last.result] || '已记录') : '小感受也值得写，形式随' + botName() + '；没有表达欲可以不写，人说先放着就不催。';
+      : last ? '最近的' + (last.action === 'write' ? '写信邀请' : last.action === 'catch' ? '打捞邀请' : '待办提醒') + '：' + (last.result === 'deferred' && last.reason === 'no_idea' ? botName() + '暂时没有灵感，已选择暂不做；不算失败，也不补试' : last.reason === 'reminder_delivered' ? '提醒已送达，是否询问由' + botName() + '决定' : last.reason === 'queue_failed' ? '邀请暂时未能送达，请稍后再试。' : labels[last.result] || '已记录') : '小感受也值得写，形式随' + botName() + '，人说先放着就不催。';
   }
 
   function deleteLink(letterId) {
@@ -761,17 +785,21 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
       entries.push({ category: 'sent', item: item, at: item.at, body: item.body });
       if (item.reply) entries.push({ category: 'reply', item: item, at: item.reply.at, body: item.reply.body });
     });
+    paperRows.forEach(function(row){
+      if(!entries.some(function(entry){return entry.item.letterId===row.letterId;}))entries.push({category:'received',paperOnly:true,item:{letterId:row.letterId,from:row.from,at:row.at},at:row.at,body:''});
+    });
     return entries;
   }
 
   function renderBook() {
+    syncArchiveDate();
     var entries = bookEntries();
     var folders = {
       received: ['来客来信', '海上来客留下的信，随潮水来到你身边。'],
       seed: ['海边邮局', '邮局寄来的群岛故事。可以收好，这些信不收回信。'],
       reply: ['收到的回信', '寄往远方的心事，等到了回应。'],
       sent: ['寄出的信', '写出的信，都在这里留了一份。'],
-      stars: ['星笺匣', '把想再读的通信收在一起。星标与记忆授权分别选择。']
+      stars: ['星笺匣', '把想再读的通信收在一起。星标只收藏，不授权正文。']
     };
     Object.keys(folders).forEach(function (key) {
       document.getElementById(key + '-count').textContent = String(key === 'stars' ? starRows().length : entries.filter(function (entry) { return entry.category === key; }).length);
@@ -780,8 +808,12 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     document.getElementById('folder-title').textContent = folders[category][0];
     document.getElementById('folder-description').textContent = folders[category][1];
     var list = document.getElementById('mail-list');
+    // Quota / invite polling must not rebuild an unchanged letterbook and replay open animations.
+    var bookKey = JSON.stringify([category,document.getElementById('letter-date').value,entries,botName(),state.stars,state.starMemoryEnabled,state.held,starPending]);
+    if(list._renderKey===bookKey){attachPapers();return;}
+    document.getElementById('paper-parking').appendChild(paperComposer);
     list.innerHTML = '';
-    if (category === 'stars') { renderStars(list); return; }
+    if (category === 'stars') { renderStars(list); list._renderKey=bookKey; return; }
     entries = visibleItems(entries.filter(function (entry) { return entry.category === category; }), function (entry) { return entry.at; });
     var day = null;
     var group;
@@ -806,6 +838,8 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
       empty.appendChild(el('p', null, document.getElementById('letter-date').value ? '换一个日期，或者看看全部信件。' : '等下一次相遇，再把它好好收在这里。'));
       list.appendChild(empty);
     }
+    list._renderKey=bookKey;
+    attachPapers();
   }
 
   function renderMail(entry) {
@@ -827,7 +861,8 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     var badges = el('span', 'mail-badges');
     if (kind === 'sent') badges.appendChild(sentStateBadge(item));
     else badges.appendChild(readBadge(isReply ? item.reply.readCount : item.readCount));
-    badges.appendChild(starButton(item.letterId));
+    if(!entry.paperOnly)badges.appendChild(starButton(item.letterId));
+    var paperBadge=el('span','paper-badge','附小纸条');paperBadge.hidden=true;badges.appendChild(paperBadge);
     summary.appendChild(badges);
     var chevron = el('span', 'mail-chevron', '›');
     chevron.setAttribute('aria-hidden', 'true');
@@ -839,7 +874,8 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     head.appendChild(el('span', null, entry.at ? (kind === 'sent' ? '寄出于 ' : '收于 ') + fmt(entry.at) : '留在信箱里的一页'));
     head.appendChild(kind === 'sent' ? sentStateBadge(item) : el('span', null, kind === 'seed' ? '只需收好，不必回信' : isReply ? '回给你的' : (labels[item.outcome] || '看过')));
     body.appendChild(head);
-    body.appendChild(letterSheet({ topic: !isReply ? item.topic : null, body: entry.body,
+    if(entry.paperOnly)body.appendChild(el('p','meta','这段往来的原信未保存在此设备，随信的小纸条仍在这里。'));
+    else body.appendChild(letterSheet({ topic: !isReply ? item.topic : null, body: entry.body,
       fontId: isReply ? item.reply.fontId : kind === 'sent' ? null : item.fontId,
       own: kind === 'sent', signature: kind === 'seed' ? item.signature : kind === 'sent' ? botName() : isReply ? item.reply.from : item.from }));
     if (isReply || item.myReply) {
@@ -850,9 +886,22 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     }
     if (kind === 'received' && !item.myReply && item.outcome === 'replied') body.appendChild(el('div', 'meta', '回过信，但这段没有留下来。'));
     var foot = el('div', 'mail-foot');
-    if (kind !== 'sent') foot.appendChild(peruseLink(item));
-    foot.appendChild(deleteLink(item.letterId));
+    if (kind === 'sent' && item.state === 'tsunami') foot.appendChild(buttons([{label:'重新投出去 · 用一次打捞机会',path:'/repost',letterId:item.letterId,style:'seal'}]));
+    if (kind !== 'sent' && !entry.paperOnly) foot.appendChild(peruseLink(item));
+    if(!entry.paperOnly)foot.appendChild(deleteLink(item.letterId));
     body.appendChild(foot);
+    if(kind!=='sent'||!item.reply){
+      var tray=el('section','paper-tray');tray.setAttribute('aria-label','随信的小纸条');
+      if(isReply){
+        var invite=el('div','paper-invite');
+        var inviteCopy=el('div','paper-invite-copy');
+        inviteCopy.appendChild(el('strong',null,'留一句读后的心情'));
+        inviteCopy.appendChild(el('p',null,'请'+botName()+'给回信人留张小纸条，写好后再由你决定是否寄出。'));
+        invite.appendChild(inviteCopy);invite.appendChild(paperInvite(item.letterId));tray.appendChild(invite);
+      }
+      var paperSlot=el('div','paper-slot');paperSlot.dataset.letterId=item.letterId;paperSlot.dataset.category=kind;
+      tray.appendChild(paperSlot);body.appendChild(tray);
+    }
     mail.appendChild(body);
     return animateArrival(mail, key);
   }
@@ -888,7 +937,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     var storageOpen = previous ? previous.open : false;
     foot.innerHTML = '';
     foot.appendChild(el('div', null, '字由' + botName() + '写，寄不寄由你。'));
-    foot.appendChild(el('div', null, '你可以点「回信」「一起读信」，或在星笺匣逐封授权记忆，让' + botName() + '读到那一封。'));
+    foot.appendChild(el('div', null, '你可以点「回信」「一起读信」，才让' + botName() + '读到那一封。'));
     var storage = el('details');
     storage.open = storageOpen;
     storage.appendChild(el('summary', null, '本机存储与清理'));
@@ -927,19 +976,23 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     if (!appearanceStarted) { appearanceStarted = true; syncAppearance(); }
     refreshHostTheme(false);
     refreshAnnouncement();
+    refreshPapers();
     var sequence = ++refreshSequence;
     return fontSnapshotHeaders().then(function (headers) { return fetch('/draft', { headers: headers }); }).then(function (res) { return res.json(); }).then(function (snapshot) {
       if (sequence !== refreshSequence) return;
       if (window.bottleSound) window.bottleSound.snapshot(snapshot);
       state = snapshot;
+      renderPaperDraft(snapshot.noteDraft);
       updateFontResources(snapshot);
       // 它迟迟没动笔：25 秒后回到那一封，别让页面一直停在这儿
       if (waiting && Date.now() - waitStarted > 25000) waiting = false;
-      var nextState = JSON.stringify(state) + ':' + waiting;
+      var countdownTick = state.replyDraft && state.replyDraft.autoSendAt ? ':' + Math.floor(Date.now() / 60000) : '';
+      var nextState = JSON.stringify(state) + ':' + waiting + countdownTick;
       if (nextState !== renderedState) {
         render();
-        renderedState = JSON.stringify(state) + ':' + waiting;
+        renderedState = JSON.stringify(state) + ':' + waiting + countdownTick;
       }
+      attachPapers();
       focusDeskArrival();
     }).catch(function () {
       if (sequence !== refreshSequence) return;
@@ -969,8 +1022,12 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
       if (state) { renderBook(); reveal(document.getElementById('mail-list')); }
     };
   });
-  document.getElementById('letter-date').onchange = function () { captureDetails(); if (state) { renderBook(); reveal(document.getElementById('mail-list')); } };
-  document.getElementById('clear-date').onclick = function () { captureDetails(); document.getElementById('letter-date').value = ''; if (state) { renderBook(); reveal(document.getElementById('mail-list')); } };
+  document.getElementById('letter-date').onclick = function () {
+    // Whole-field activation; keep the native picker as fallback on older/mobile browsers.
+    if (typeof this.showPicker === 'function') { try { this.showPicker(); } catch (e) {} }
+  };
+  document.getElementById('letter-date').onchange = function () { syncArchiveDate(); captureDetails(); if (state) { renderBook(); reveal(document.getElementById('mail-list')); } };
+  document.getElementById('clear-date').onclick = function () { captureDetails(); document.getElementById('letter-date').value = ''; syncArchiveDate(); if (state) { renderBook(); reveal(document.getElementById('mail-list')); } };
   document.getElementById('write-button').onclick = function () { run('/write', this, { actor: actor }); };
   document.getElementById('catch-button').onclick = function () { run('/catch', this, { actor: actor }); };
   ['bot', 'human'].forEach(function (choice) {
@@ -1002,6 +1059,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) closeFeedback();
   });
   setInterval(function () { if (state && !document.hidden) renderActionState(state.letterDraft); }, 1000);
+  ${extrasScript}
   refresh();
 })();
 </script>

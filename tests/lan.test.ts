@@ -44,8 +44,8 @@ it('generates strong random tokens and validates only the configured origin form
 it('protects all mailbox routes before pairing; a bare root leads to the pairing page',async()=>{
   const {base,post,d}=await start();
   const root=await fetch(base+'/',{redirect:'manual'}); expect(root.status).toBe(303);expect(root.headers.get('location')).toBe('/pair');
-  for(const path of ['/draft','/theme','/appearance','/announcement','/icon.png','/sounds','/sounds/incoming%2FNew_notifications_1.wav','/unknown']) expect((await fetch(base+path)).status).toBe(401);
-  for(const path of ['/write','/catch','/send','/dismiss','/peruse','/forget','/wake','/open']) expect((await post(path,{})).status).toBe(401);
+  for(const path of ['/draft','/notes','/archive/export','/theme','/appearance','/announcement','/icon.png','/sounds','/sounds/incoming%2FNew_notifications_1.wav','/unknown']) expect((await fetch(base+path)).status).toBe(401);
+  for(const path of ['/write','/catch','/send','/dismiss','/peruse','/forget','/wake','/open','/read','/reply','/note','/note/request','/note/discard','/note/ack','/repost','/archive/import']) expect((await post(path,{})).status).toBe(401);
   expect(d.request).not.toHaveBeenCalled();expect(d.send).not.toHaveBeenCalled();
   const html=await (await fetch(base+'/pair')).text(); expect(html).not.toContain(token);expect(html).toContain('history.replaceState');
   expect((await post('/pair',{token:'wrong'})).status).toBe(401);

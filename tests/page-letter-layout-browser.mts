@@ -84,7 +84,7 @@ try {
   console.log('PASS: isolated sound menus, shared root options, both new defaults, and real WAV decoding');
   for (const width of [1040, 390]) {
     await evaluate(`document.getElementById('mailbox').style.width='${width}px'; true`);
-    for (const palette of ['ocean', 'paper', 'coopanion']) {
+    for (const palette of ['ocean', 'paper', 'epistle', 'coopanion']) {
       for (const mode of ['light', 'dark']) {
         await inMailbox(`document.getElementById('theme-${palette}').click(); document.getElementById('mode-${mode}').click(); true`);
         for (const category of ['reply', 'received', 'sent']) {
@@ -93,7 +93,7 @@ try {
             var mail=document.querySelector('.mail'),body=mail.querySelector('.mail-body'),style=getComputedStyle(body),box=body.getBoundingClientRect();
             var inside=Array.from(body.querySelectorAll('.head,.letter-sheet,.letter-title,.letter,.letter-signature,.reply-quote,.mail-foot')).every(n=>{var r=n.getBoundingClientRect();return r.left>=box.left+parseFloat(style.paddingLeft)-1&&r.right<=box.right-parseFloat(style.paddingRight)+1;});
             var letter=body.querySelector('.letter'),subject=mail.querySelector('.mail-subject').getBoundingClientRect(),badges=mail.querySelector('.mail-badges').getBoundingClientRect();
-            return {badgeTexts:Array.from(mail.querySelectorAll('.mail-badges .mail-status')).map(n=>n.textContent),together:!!mail.querySelector('.read-together'),subjectWidth:subject.width,badgesBelow:badges.top>=subject.bottom,paddingLeft:parseFloat(style.paddingLeft),paddingRight:parseFloat(style.paddingRight),paddingBottom:parseFloat(style.paddingBottom),border:style.borderTopStyle,inside,overflow:document.documentElement.scrollWidth>innerWidth,whiteSpace:getComputedStyle(letter).whiteSpace,text:letter.textContent,footer:body.querySelector('.mail-foot').getBoundingClientRect().bottom<=box.bottom-parseFloat(style.paddingBottom)+1};
+            return {badgeTexts:Array.from(mail.querySelectorAll('.mail-badges .mail-status')).map(n=>n.textContent),together:!!mail.querySelector('.read-together'),subjectWidth:subject.width,badgesBelow:badges.top>=subject.bottom,paddingLeft:parseFloat(style.paddingLeft),paddingRight:parseFloat(style.paddingRight),paddingBottom:parseFloat(style.paddingBottom),border:style.borderTopStyle,separator:getComputedStyle(mail.querySelector('summary')).borderBottomStyle,inside,overflow:document.documentElement.scrollWidth>innerWidth,whiteSpace:getComputedStyle(letter).whiteSpace,text:letter.textContent,footer:body.querySelector('.mail-foot').getBoundingClientRect().bottom<=box.bottom-parseFloat(style.paddingBottom)+1};
           })()`);
           const label = `${width}px ${palette}/${mode} ${category}`;
           if(category==='sent'){
@@ -102,10 +102,11 @@ try {
           }else{
             assert.deepEqual(metrics.badgeTexts,[category==='reply'?'已读1次':'已读2次'],label+': incoming reading count remains');
           }
-          assert.equal(metrics.paddingLeft, width > 560 ? 24 : 10, label + ': inset');
+          assert.equal(metrics.paddingLeft, width > 560 ? Math.min(24,Math.max(12,width*.02)) : 10, label + ': responsive inset');
           assert.equal(metrics.paddingRight, metrics.paddingLeft, label + ': equal insets');
-          assert.equal(metrics.paddingBottom, width > 560 ? 22 : 18, label + ': footer spacing');
-          assert.equal(metrics.border, 'dashed', label + ': body separator');
+          assert.equal(metrics.paddingBottom, 24, label + ': footer spacing');
+          assert.equal(metrics.border, 'none', label + ': avoid duplicate separator');
+          assert.equal(metrics.separator, 'dashed', label + ': envelope separator');
           assert.equal(metrics.inside, true, label + ': letter, quote and controls stay inside');
           assert.equal(metrics.footer, true, label + ': footer stays inside');
           assert.equal(metrics.overflow, false, label + ': no horizontal overflow');
@@ -124,7 +125,7 @@ try {
         assert.equal(extras.inset,true,`${width} ${palette}/${mode}: sound select within viewport`);
         assert.ok(extras.optionCount>=4,'pack/local/silent sources');
         assert.ok(extras.badges.some((b:any)=>b.text==='已读2次'),'read count visible');
-        assert.ok(extras.badges.some((b:any)=>b.text==='尚未阅读'),'unread badge visible');
+        assert.ok(extras.badges.some((b:any)=>b.text==='尚未共读'),'unread badge visible');
         assert.notEqual(extras.badges[0].color,extras.badges[1].color,'green and yellow statuses differ');
         assert.ok(extras.badges.every((b:any)=>b.box.left>=0&&b.box.right<=width),'badges stay within viewport');
         assert.notEqual(extras.color,extras.background,'sound control text is legible');

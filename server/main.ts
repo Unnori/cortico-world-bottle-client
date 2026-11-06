@@ -283,6 +283,8 @@ export function createBottleServer(opts: BottleServerOptions): BottleServer {
     })();
   });
 
+  const noteSweep = setInterval(() => { if (db.pruneNotes(Date.now())) db.save(); }, 60_000);
+  noteSweep.unref(); server.once('close', () => clearInterval(noteSweep));
   return {
     api,
     db,

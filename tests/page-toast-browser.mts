@@ -40,7 +40,7 @@ try {
   // its deliberately visibility-gated refresh runs in the proxy's background tab.
   await evaluate("Object.defineProperty(document,'hidden',{value:false,configurable:true}); document.dispatchEvent(new Event('visibilitychange')); true");
   await until("document.getElementById('hero-note').textContent.includes('小满')");
-  for (const palette of ['ocean', 'paper', 'coopanion']) {
+  for (const palette of ['ocean', 'paper', 'epistle', 'coopanion']) {
     for (const mode of ['light', 'dark']) {
       await evaluate(`document.getElementById('theme-${palette}').click(); document.getElementById('mode-${mode}').click(); true`);
       await sleep(400);

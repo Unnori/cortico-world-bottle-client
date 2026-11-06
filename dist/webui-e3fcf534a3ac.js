@@ -1,3 +1,10 @@
+// This standalone browser bundle cannot import runtime modules. Bounds mirror wake-policy.ts;
+// webui.test.js verifies the controls against that shared scheduler policy.
+const WAKE_POLICIES = {
+    write: { interval: 2, minHours: 2, maxHours: 24, dayLimit: 3, minLimit: 1, maxLimit: 24 },
+    catch: { interval: 2, minHours: 2, maxHours: 24, dayLimit: 3, minLimit: 1, maxLimit: 24 },
+    remind: { interval: 0.5, minHours: 0.5, maxHours: 1, dayLimit: 12, minLimit: 3, maxLimit: 20 },
+};
 /** Only HTTP(S) mailbox roots supplied by this World may be opened. */
 export function mailboxUrl(value) {
     if (typeof value !== 'string')
@@ -39,7 +46,7 @@ export async function mountMailbox(ctx) {
     const copy = ui.h('div', 'bottle-mailbox-copy');
     copy.append(ui.h('h2', null, t.title), ui.h('p', null, t.description));
     let url = null;
-    let botName = 'Coo';
+    const botName = zh ? '桌宠' : 'the companion';
     const button = ui.button(t.open, { variant: 'primary', onClick: () => {
             if (url && !ctx.signal.aborted)
                 ctx.root.ownerDocument.defaultView?.open(url, '_blank', 'noopener,noreferrer');
@@ -61,6 +68,7 @@ export async function mountMailbox(ctx) {
     const invitations = ui.h('section', 'bottle-wake-controls');
     invitations.append(ui.h('h3', null, zh ? '海边的邀请' : 'Seaside invitations'));
     const controls = ['write', 'catch', 'remind'].map(action => {
+        const policy = WAKE_POLICIES[action];
         const row = ui.h('div', 'bottle-wake-row');
         const label = ui.h('span');
         const toggle = ui.button(zh ? '稍等' : 'Loading', { onClick: () => { void changeWake(action); } });
@@ -68,28 +76,28 @@ export async function mountMailbox(ctx) {
         const hoursLabel = ui.h('label', 'bottle-wake-interval', zh ? '最短间隔（小时）' : 'Minimum interval (hours)');
         const hours = ui.h('input');
         hours.type = 'number';
-        hours.min = '2';
-        hours.max = '24';
-        hours.step = '1';
-        hours.value = '2';
+        hours.min = String(policy.minHours);
+        hours.max = String(policy.maxHours);
+        hours.step = action === 'remind' ? '0.01' : '1';
+        hours.value = String(policy.interval);
         hoursLabel.append(hours);
         const limitLabel = ui.h('label', 'bottle-wake-interval', zh ? '每日上限（次）' : 'Daily limit');
         const limit = ui.h('input');
         limit.type = 'number';
-        limit.min = '1';
-        limit.max = '24';
+        limit.min = String(policy.minLimit);
+        limit.max = String(policy.maxLimit);
         limit.step = '1';
-        limit.value = '3';
+        limit.value = String(policy.dayLimit);
         limitLabel.append(limit);
         const save = ui.button(zh ? '调整' : 'Apply', { onClick: () => {
                 const value = Number(hours.value);
-                if (!Number.isFinite(value) || value < 2 || value > 24) {
-                    outcome.textContent = zh ? '请填写 2—24 小时。' : 'Enter 2–24 hours.';
+                if (!Number.isFinite(value) || value < policy.minHours || value > policy.maxHours) {
+                    outcome.textContent = zh ? `请填写 ${policy.minHours}—${policy.maxHours} 小时。` : `Enter ${policy.minHours}–${policy.maxHours} hours.`;
                     return;
                 }
                 const dayLimit = Number(limit.value);
-                if (!Number.isInteger(dayLimit) || dayLimit < 1 || dayLimit > 24) {
-                    outcome.textContent = zh ? '每日上限请填 1—24 次（整数）。' : 'Enter an integer from 1 to 24.';
+                if (!Number.isInteger(dayLimit) || dayLimit < policy.minLimit || dayLimit > policy.maxLimit) {
+                    outcome.textContent = zh ? `每日上限请填 ${policy.minLimit}—${policy.maxLimit} 次（整数）。` : `Enter an integer from ${policy.minLimit} to ${policy.maxLimit}.`;
                     return;
                 }
                 void changeWake(action, value, dayLimit);
@@ -98,7 +106,7 @@ export async function mountMailbox(ctx) {
         invitations.append(row);
         return { action, label, toggle, hours, limit, save };
     });
-    invitations.append(ui.h('p', 'bottle-wake-outcome', zh ? '实际时刻在最短间隔的 1—2 倍内随机，最长 24 小时；每日上限分别可调，默认每类 3 次，包含自动补试；手动邀请不占上限。配置页顶栏为快照，信箱页签每 5 秒同步。' : 'Random timing: 1–2× the minimum, capped at 24 hours; configurable daily limits, default 3 per type including retries; manual invitations are separate. Header snapshots sync every 5 seconds on this tab.'));
+    invitations.append(ui.h('p', 'bottle-wake-outcome', zh ? '写信、打捞默认每天各 3 次，间隔 2—24 小时并随机延长；待办提醒默认每天 12 次（可设 3—20 次），仅有待处理来信时每 30—60 分钟轻声提醒。包含自动补试，手动邀请不占上限。配置页顶栏为快照，信箱页签每 5 秒同步。' : 'Writing/catching default to 3/day, with a randomized 2–24 hour minimum. Reminders default to 12/day (3–20), every 30–60 minutes only while holding incoming mail. Retries count; manual invitations are separate. Header snapshots sync every 5 seconds on this tab.'));
     const outcome = ui.h('p', 'bottle-wake-outcome');
     invitations.append(outcome);
     ctx.root.append(invitations);
@@ -132,14 +140,14 @@ export async function mountMailbox(ctx) {
         controls.forEach(({ action, label, toggle, hours, limit, save }) => {
             const lane = wake?.lanes[action];
             const name = action === 'write' ? (zh ? '写信邀请' : 'Writing') : action === 'catch' ? (zh ? '打捞邀请' : 'Catching') : (zh ? '待办提醒' : 'Reminders');
-            label.textContent = name + (lane ? (zh ? ' · 今天邀请 ' + lane.count + '/' + (lane.dayLimit ?? 3) + ' 次' : ' · ' + lane.count + ' today') : '');
+            label.textContent = name + (lane ? (zh ? ' · 今天邀请 ' + lane.count + '/' + (lane.dayLimit ?? WAKE_POLICIES[action].dayLimit) + ' 次' : ' · ' + lane.count + ' today') : '');
             toggle.textContent = lane?.paused || lane?.declined || lane?.failed ? (zh ? '恢复邀请' : 'Resume') : (zh ? '暂停邀请' : 'Pause');
             toggle.disabled = !lane || changing;
             save.disabled = !lane || changing;
             if (ctx.root.ownerDocument.activeElement !== limit)
-                limit.value = String(lane?.dayLimit ?? 3);
+                limit.value = String(lane?.dayLimit ?? WAKE_POLICIES[action].dayLimit);
             if (ctx.root.ownerDocument.activeElement !== hours)
-                hours.value = String(lane?.intervalHours ?? 2);
+                hours.value = String(lane?.intervalHours ?? WAKE_POLICIES[action].interval);
         });
         const last = wake?.history.at(-1);
         const labels = zh ? {
@@ -365,6 +373,79 @@ export async function mountMailbox(ctx) {
             }
         }
     }
+    // Keep backup controls after invitations and pairing, using the existing World RPC.
+    const archive = ui.h('footer', 'bottle-archive');
+    const archiveActions = ui.h('div', 'bottle-archive-actions');
+    const exportButton = ui.h('button', 'bottle-archive-button', zh ? '导出信册' : 'Export letterbook');
+    const importButton = ui.h('button', 'bottle-archive-button', zh ? '导入信册' : 'Import letterbook');
+    exportButton.type = importButton.type = 'button';
+    const archiveFile = ui.h('input');
+    archiveFile.type = 'file';
+    archiveFile.accept = 'application/json,.json';
+    archiveFile.hidden = true;
+    const archiveResult = ui.h('p', 'bottle-archive-result');
+    archiveResult.setAttribute('role', 'status');
+    const busyArchive = (busy) => { exportButton.disabled = importButton.disabled = busy; };
+    exportButton.onclick = async () => {
+        if (ctx.signal.aborted || exportButton.disabled)
+            return;
+        busyArchive(true);
+        try {
+            const data = await ctx.invoke('archiveExport');
+            if (ctx.signal.aborted)
+                return;
+            const href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' }));
+            const cleanup = ctx.own({ dispose: () => URL.revokeObjectURL(href) });
+            const link = ui.h('a');
+            link.href = href;
+            link.download = (zh ? '漂流瓶信册-明文请勿转发-' : 'letterbook-plaintext-do-not-share-') + new Date().toISOString().slice(0, 10) + '.json';
+            archive.append(link);
+            link.click();
+            link.remove();
+            ctx.timeout(() => cleanup.dispose(), 1000);
+            archiveResult.textContent = zh ? '明文备份已导出，请妥善保管。' : 'Plaintext backup exported. Keep it safe.';
+        }
+        catch {
+            if (!ctx.signal.aborted)
+                archiveResult.textContent = zh ? '未能导出，请稍后再试。' : 'Export failed. Please try again.';
+        }
+        finally {
+            if (!ctx.signal.aborted)
+                busyArchive(false);
+        }
+    };
+    importButton.onclick = () => { if (!ctx.signal.aborted)
+        archiveFile.click(); };
+    archiveFile.onchange = async () => {
+        const file = archiveFile.files?.[0];
+        if (!file || ctx.signal.aborted || importButton.disabled)
+            return;
+        busyArchive(true);
+        try {
+            if (file.size > 32 * 1024 * 1024) {
+                archiveResult.textContent = zh ? '信册文件不能超过 32 MiB。' : 'The file must be under 32 MiB.';
+                return;
+            }
+            const data = JSON.parse(await file.text());
+            if (ctx.signal.aborted)
+                return;
+            const result = await ctx.invoke('archiveImport', [data]);
+            if (!ctx.signal.aborted)
+                archiveResult.textContent = result.message;
+        }
+        catch {
+            if (!ctx.signal.aborted)
+                archiveResult.textContent = zh ? '未能导入，请检查信册文件后重试。' : 'Import failed. Check your letterbook file and retry.';
+        }
+        finally {
+            archiveFile.value = '';
+            if (!ctx.signal.aborted)
+                busyArchive(false);
+        }
+    };
+    archiveActions.append(exportButton, importButton);
+    archive.append(archiveActions, ui.h('p', null, zh ? '备份含信件正文，是明文文件，请妥善保管，别随意转发。导入会合并信册，本机已有记录优先。' : 'Backups contain plaintext letters. Keep them private. Import merges records; local entries take priority.'), archiveFile, archiveResult);
+    ctx.root.append(archive);
     let pending = false;
     const refresh = async () => {
         if (pending || ctx.signal.aborted)
@@ -374,7 +455,7 @@ export async function mountMailbox(ctx) {
             const status = await ctx.invoke('status');
             if (ctx.signal.aborted)
                 return;
-            botName = status.botName || 'Coo';
+            // Extension settings deliberately use a generic label, not the pet's personal name.
             feedbackUrl = null;
             try {
                 const target = new URL(status.feedbackUrl ?? '');

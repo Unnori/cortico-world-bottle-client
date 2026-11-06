@@ -317,3 +317,48 @@ it('all native invitation controls mirror the shared scheduler bounds and defaul
     expect(h.ctx.invoke).not.toHaveBeenCalledWith('wake', expect.anything());
   }
 });
+
+function archiveParts(h) {
+  const footer = findClass(h.ctx.root, 'bottle-archive');
+  return { footer, buttons: footer.children[0].children, input: footer.children[2], result: footer.children[3] };
+}
+it('puts quiet backup controls last and merges via World RPC without opening the mailbox', async () => {
+  const h = context(); await mountMailbox(h.ctx);
+  const { footer, buttons, input, result } = archiveParts(h);
+  expect(h.ctx.root.children.at(-1)).toBe(footer);
+  expect(buttons.map(b => b.textContent)).toEqual(['导出信册', '导入信册']);
+  const data = { schemaVersion: 1, entries: [] };
+  input.files = [{ size: 100, text: async () => JSON.stringify(data) }];
+  h.ctx.invoke.mockResolvedValueOnce({ ok: true, message: '合并了 0 封信，本机已有记录优先。' });
+  await input.onchange();
+  expect(h.ctx.invoke).toHaveBeenCalledWith('archiveImport', [data]);
+  expect(result.textContent).toContain('本机已有记录优先');
+  expect(input.value).toBe(''); expect(h.open).not.toHaveBeenCalled();
+});
+it('rejects malformed and oversized imports before invoking World and respects unmount', async () => {
+  const h = context(); await mountMailbox(h.ctx);
+  const { input, result } = archiveParts(h); h.ctx.invoke.mockClear();
+  input.files = [{ size: 10, text: async () => '{bad' }]; await input.onchange();
+  expect(result.textContent).toContain('未能导入');
+  input.files = [{ size: 33 * 1024 * 1024 }]; await input.onchange();
+  expect(result.textContent).toContain('32 MiB');
+  h.abort.abort(); input.files = [{ size: 10, text: async () => '{}' }]; await input.onchange();
+  expect(h.ctx.invoke).not.toHaveBeenCalled();
+});
+it('exports a plainly labelled JSON and releases the download URL', async () => {
+  const h = context(); h.ctx.own = resource => resource; h.ctx.timeout = vi.fn();
+  await mountMailbox(h.ctx); const { footer, buttons, result } = archiveParts(h);
+  const old = h.ctx.ui.h;
+  h.ctx.ui.h = (...args) => { const n = old(...args); n.click = vi.fn(); n.remove = vi.fn(); return n; };
+  const data = { schemaVersion: 1, entries: [] }; h.ctx.invoke.mockResolvedValueOnce(data);
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:backup');
+  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  try {
+    await buttons[0].onclick();
+    expect(h.ctx.invoke).toHaveBeenCalledWith('archiveExport');
+    expect(JSON.parse(await create.mock.calls[0][0].text())).toEqual(data);
+    expect(footer.children.at(-1).download).toContain('明文请勿转发');
+    expect(result.textContent).toContain('明文备份已导出');
+    h.ctx.timeout.mock.calls[0][0](); expect(revoke).toHaveBeenCalledWith('blob:backup');
+  } finally { create.mockRestore(); revoke.mockRestore(); }
+});

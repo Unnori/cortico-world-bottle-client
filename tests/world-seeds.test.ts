@@ -66,7 +66,8 @@ describe('World · 种子瓶', () => {
     const world = await started();
     const receipt = await callTool(world, 'bottle_catch');
 
-    expect(receipt).toContain('来自群岛上的某位居民');
+    expect(receipt).toContain('署名是「邮差」');
+    expect(receipt).toContain('标题：「开场」');
     expect(receipt).not.toContain('一位陌生人');
     // §13.7：得说清它不回信，别让模型以为在等它写
     expect(receipt).toContain('寄不出去');

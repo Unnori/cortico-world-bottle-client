@@ -100,3 +100,14 @@
 .bottle-feedback:hover:not(:disabled), .bottle-feedback:focus-visible { border-color:var(--accent, #d0a573); background:var(--sheet-hover, #40382f); }
 .bottle-feedback:disabled { opacity:.6; cursor:default; }
 @media (prefers-reduced-motion: reduce) { .bottle-feedback { transition:none; } }
+
+/* Quiet backup footer, outside the primary mailbox and pairing cards. */
+.bottle-archive { margin-top:28px; padding:18px 4px 4px; border-top:1px solid var(--line-2, #54483d); color:var(--ink-soft, #b7aa9b); font-size:12px; }
+.bottle-archive-actions { display:flex; flex-wrap:wrap; gap:16px; }
+.bottle-archive-button { border:0; padding:4px 0; background:transparent; color:inherit; font:inherit; cursor:pointer; text-decoration:underline; text-underline-offset:4px; transition:color .18s ease; }
+.bottle-archive-button:hover { color:var(--ink, #f2e6d6); }
+.bottle-archive-button:focus-visible { outline:2px solid var(--accent, #d0a573); outline-offset:4px; }
+.bottle-archive-button:disabled { opacity:.5; cursor:wait; }
+.bottle-archive p { margin:10px 0 0; line-height:1.7; }
+.bottle-archive-result:empty { display:none; }
+@media (prefers-reduced-motion:reduce) { .bottle-archive-button { transition:none; } }

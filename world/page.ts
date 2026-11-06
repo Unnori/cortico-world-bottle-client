@@ -1,3 +1,4 @@
+import { ARCHIVE_MAX_BYTES } from './archive.ts';
 import type { DefaultFont, FontResource } from './font-catalog.ts';
 import { MY_FONT_MAX_BYTES } from './my-font.ts';
 import { fontAsset } from './fonts.ts';
@@ -29,6 +30,8 @@ import type { SoftHint } from '../shared/hints.ts';
 export type Surface = 'card' | 'page' | 'remote';
 
 export interface PageDraftView {
+  autoSendAt?:number;
+  autoSendPending?:boolean;
   at?: number;
   topic?: string;
   kind: 'letter' | 'reply';
@@ -39,6 +42,7 @@ export interface PageDraftView {
 }
 
 export interface PageHeldView {
+  readAt?: number;
   fontId?: string;
   caughtAt?: number;
   letterId: string;
@@ -91,6 +95,8 @@ export interface PageReceivedView {
 }
 
 export interface PageSnapshot {
+  noteRewriting?: boolean;
+  noteDraft?: { letterId:string; body:string; at:number } | null;
   stars?: PageStarView[];
   starMemoryEnabled?: boolean;
   /** Opaque identifier regenerated on each World start; browser-local announcement dismissal uses it. */
@@ -141,6 +147,7 @@ export interface PageStarView {
 }
 
 export interface PageResult {
+  completedReplyId?: string;
   ok: boolean;
   reason?: 'tide_out';
   message?: string;
@@ -149,6 +156,17 @@ export interface PageResult {
 }
 
 export interface PageDeps {
+  notes?(): Promise<Array<import('../shared/contract.ts').ReceivedNote & {read:boolean}>>;
+  readNote?(id:string):Promise<PageResult>;
+  ackNote?(id:string): Promise<PageResult>;
+  note?(id:string): Promise<PageResult>;
+  requestNote?(id:string,surface:Surface): Promise<PageResult>;
+  rewriteNote?(id:string,surface:Surface): Promise<PageResult>;
+  discardNote?(id:string): PageResult;
+  repost?(id:string): Promise<PageResult>;
+  exportArchive?(): import('../shared/contract.ts').LetterbookArchive;
+  importArchive?(raw:unknown): PageResult;
+
   star?(letterId: string, enabled: boolean): Promise<PageResult>;
   starMemory?(letterId: string, enabled: boolean): Promise<PageResult>;
   starMemorySetting?(enabled: boolean): Promise<PageResult>;
@@ -163,7 +181,7 @@ export interface PageDeps {
   refresh?(): Promise<void>;
   wakeControl?(action: WakeAction, command: 'pause' | 'resume' | 'interval', hours?: number, dayLimit?: number): Promise<PageResult>;
   request(action: 'write' | 'catch', actor?: 'bot' | 'human', surface?: Surface): Promise<PageResult>;
-  /** 寄哪一份由页面上的按钮决定：信稿或回信稿。 */
+  /** 信稿人工寄出；已确认的回信稿另有两小时自动寄出。 */
   send(kind?: 'letter' | 'reply'): Promise<PageResult>;
   rewrite(kind?: 'letter' | 'reply', surface?: Surface): Promise<PageResult>;
   dismiss(): Promise<PageResult>;
@@ -174,6 +192,7 @@ export interface PageDeps {
   /** 把还没寄出去的草稿扔掉（「算了吧」）；不动手里那封信。 */
   discard(kind?: 'letter' | 'reply'): Promise<PageResult>;
   open(surface: Surface): Promise<PageResult>;
+  read?(surface: Surface): Promise<PageResult>;
   /** 不带 letterId 清空历史；带了就只删那一条。 */
   forget(letterId?: string): Promise<PageResult>;
 }
@@ -263,6 +282,19 @@ export async function handlePage(
     try { return { status: 200, json: { announcement: await deps.announcement?.() ?? null } }; }
     catch { return { status: 503, json: { announcement: null } }; }
   }
+  if (method === 'GET' && route === '/notes') {
+    try { return {status:200,json:await deps.notes?.() ?? []}; } catch { return {status:503,json:{ok:false,message:'暂时取不到纸条。'}}; }
+  }
+  if (method === 'GET' && route === '/archive/export') return deps.exportArchive ? {status:200,json:deps.exportArchive()} : {status:503,json:{ok:false}};
+  if (method === 'POST' && route === '/archive/import') return {status:200,json:deps.importArchive?.(opts.body) ?? {ok:false,message:'导入暂不可用。'}};
+  if (method === 'POST' && ['/note','/note/request','/note/rewrite','/note/read','/note/discard','/note/ack','/repost'].includes(route)) {
+    const b=opts.body as Record<string,unknown>|null;
+    const id=route==='/note/ack'||route==='/note/read'?b?.id:b?.letterId;
+    if(typeof id!=='string'||!id||id.length>256||route.startsWith('/note')&&b&&'body' in b) return {status:400,json:{ok:false,message:'纸条正文只能由桌宠起草，页面不能填写或修改。'}};
+    try { const result=route==='/note'?await deps.note?.(id):route==='/note/request'?await deps.requestNote?.(id,opts.surface??'page'):route==='/note/rewrite'?await deps.rewriteNote?.(id,opts.surface??'page'):route==='/note/read'?await deps.readNote?.(id):route==='/note/discard'?deps.discardNote?.(id):route==='/note/ack'?await deps.ackNote?.(id):await deps.repost?.(id);
+      return {status:200,json:result ?? {ok:false,message:'暂不可用。'}};
+    } catch {return {status:503,json:{ok:false,message:'没有完成，请稍后重试。'}};}
+  }
   if (method === 'GET' && route === '/draft') { await deps.refresh?.(); return { status: 200, json: deps.snapshot(opts.cachedFontDigests) }; }
 
   if (method === 'POST' && ['/star', '/star-memory', '/star-memory-setting'].includes(route)) {
@@ -316,6 +348,8 @@ export async function handlePage(
       '/keep': () => deps.keep(),
       '/peruse': () => deps.peruse(letterIdOf(opts.body) ?? ''),
       '/open': () => deps.open(surface),
+      '/read': () => deps.read?.(surface) ?? Promise.resolve({ ok: false, message: '共读暂不可用。' }),
+      '/reply': () => deps.open(surface),
     };
     const action = actions[route];
     if (action) return { status: 200, json: await action() };
@@ -394,7 +428,7 @@ export function pageHandler(deps: PageDeps, log?: (line: string) => void, remote
 
     const surface: Surface = remote ? 'remote' : req.headers['x-bottle-surface'] === 'card' ? 'card' : 'page';
 
-    void readBody(req, path === '/background' ? Math.ceil(BACKGROUND_MAX_BYTES / 3) * 4 + 128 : path === '/my-font' ? Math.ceil(MY_FONT_MAX_BYTES / 3) * 4 + 2048 : 4096)
+    void readBody(req, path === '/background' ? Math.ceil(BACKGROUND_MAX_BYTES / 3) * 4 + 128 : path === '/my-font' ? Math.ceil(MY_FONT_MAX_BYTES / 3) * 4 + 2048 : path === '/archive/import' ? ARCHIVE_MAX_BYTES : 4096)
       .then((read) => {
         if (!read.ok) {
           res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });

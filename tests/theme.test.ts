@@ -61,7 +61,7 @@ it('信箱偏好保存到扩展数据，恢复精确选择，拒绝无效数据'
   expect(readThemePreference(dir)).toEqual({ theme:'paper', mode:'dark' });
 });
 it('卡片使用与网页相同的浅深色板，Coopanion 使用真实主题颜色', () => {
-  for (const theme of ['ocean','paper'] as const) {
+  for (const theme of ['ocean','paper','epistle'] as const) {
     const appearance = cardAppearance({ theme, mode:'system' }, { available:false });
     expect(appearance.palettes).toEqual(MAILBOX_PALETTES[theme]);
     for (const palette of Object.values(appearance.palettes)) for (const value of Object.values(palette)) expect(value).toMatch(/^#[0-9a-f]{6}$/i);

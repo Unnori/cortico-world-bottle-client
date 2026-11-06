@@ -52,14 +52,14 @@ function rig(overrides: Record<string, any> = {}, reduce = false) {
     return nodes.get(id)!;
   };
   const state = { botName: '小满', sent: [], received: [], held: null, stars: [], ...overrides };
-  const ctx: any = createContext({ state, category: 'received', openedLetters: Object.create(null), busy: false,
+  const ctx: any = createContext({ state, paperRows:new Map(), paperComposer:get('paper-compose'), attachPapers:vi.fn(), category: 'received', openedLetters: Object.create(null), busy: false,
     document: { getElementById: get, createElement: (tag: string) => new Node(tag), createElementNS: (_ns: string, tag: string) => new Node(tag),
       querySelectorAll: (selector: string) => selector === '#stage .letter-star' ? get('stage').querySelectorAll('.letter-star') : root.querySelectorAll(selector) },
     botName: () => state.botName, api: vi.fn(async () => ({ ok: true })), refresh: vi.fn(async () => {}), toast: vi.fn(),
     reducedMotion: () => reduce, savePref: vi.fn(), captureDetails: vi.fn(), animateArrival: (node: Node) => node,
     rememberDetails: (node: Node, key: string) => { node.dataset.foldKey = key; node.open = ctx.openedLetters[key] === true; return node; },
     icon: () => new Node('svg'), sentSourceText: () => '寄出的信', sentStateBadge: () => new Node('span'), readBadge: () => new Node('span'),
-    letterSheet: () => new Node('div'), buttons: () => new Node('div'), peruseLink: () => new Node('button'), deleteLink: () => new Node('button') });
+    letterSheet: () => new Node('div'), buttons: () => new Node('div'), paperInvite: () => new Node('button'), peruseLink: () => new Node('button'), deleteLink: () => new Node('button') });
   const script = pageHtml().match(/<script>([\s\S]*?)<\/script>/)![1];
   new Script(script.slice(script.indexOf('  function dateKey('), script.indexOf('  function api('))).runInContext(ctx);
   new Script(script.slice(script.indexOf('  function fmt('), script.indexOf('  function run('))).runInContext(ctx);
@@ -232,4 +232,47 @@ it('handles an empty or date-filtered star folder without hiding the global priv
   expect(h.get('stars-count').textContent).toBe('1');
   expect(list.textContent).toContain('这一天，没有星标通信');
   expect(list.querySelector('.star-memory-global')).toBeTruthy();
+});
+
+it('new star asks for consent; choosing only collection never enables memory',async()=>{
+  const h=rig();h.ctx.starButton('new').onclick({preventDefault(){},stopPropagation(){}});await flush();
+  expect(h.ctx.api).toHaveBeenCalledWith('/star',{letterId:'new',starred:true});
+  expect(h.get('star-consent-dialog').open).toBe(true);
+  expect(h.get('star-consent-title').textContent).toContain('小满');
+  h.get('star-consent-no').onclick!();expect(h.get('star-consent-dialog').open).toBe(false);
+  expect(h.ctx.api).not.toHaveBeenCalledWith('/star-memory',expect.anything());
+});
+it('consenting explicitly enables the master switch and authorizes only that correspondence',async()=>{
+  const h=rig();h.ctx.askStarMemory('one');await h.get('star-consent-yes').onclick!();
+  expect(h.ctx.api.mock.calls.map((a:any[])=>a[0])).toEqual(['/star-memory-setting','/star-memory']);
+  expect(h.ctx.api).toHaveBeenCalledWith('/star-memory',{letterId:'one',enabled:true});
+  expect(h.get('star-consent-dialog').open).toBe(false);
+});
+it('unstar does not open another memory consent prompt',async()=>{
+  const h=rig({stars:[row]});h.ctx.starButton(row.letterId).onclick({preventDefault(){},stopPropagation(){}});await flush();
+  expect(h.get('star-consent-dialog').open).toBe(false);expect(h.ctx.api).toHaveBeenCalledWith('/star',{letterId:row.letterId,starred:false});
+});
+
+it('keeps the same expanded letter DOM when only quota or paper rewrite state changes',()=>{
+  const h=rig({sent:[letter]});h.ctx.category='reply';h.ctx.renderBook();
+  const list=h.get('mail-list'), mail=list.querySelector('.mail');mail!.open=true;
+  h.ctx.state.quota={bottles_left:1,catches_left:2};h.ctx.state.noteRewriting=true;h.ctx.renderBook();
+  expect(list.querySelector('.mail')).toBe(mail);expect(mail!.open).toBe(true);
+  expect(h.ctx.attachPapers).toHaveBeenCalledTimes(2);
+});
+it('updates the book on letter changes and category/date selection instead of caching stale mail',()=>{
+  const h=rig({sent:[{...letter}]});h.ctx.category='reply';h.ctx.renderBook();
+  const list=h.get('mail-list'), mail=list.querySelector('.mail');
+  h.ctx.state.sent[0]={...letter,reply:{...letter.reply,readCount:2}};h.ctx.renderBook();
+  expect(list.querySelector('.mail')).not.toBe(mail);
+  h.get('letter-date').value='1999-01-01';h.ctx.renderBook();expect(list.querySelector('.mail')).toBeNull();
+  h.get('letter-date').value='';h.ctx.category='sent';h.ctx.renderBook();expect(list.querySelector('.sent')).toBeTruthy();
+});
+it('keeps paper invitations below the correspondence actions, not mixed with together-reading',()=>{
+  const h=rig({sent:[letter]});h.ctx.category='reply';h.ctx.renderBook();
+  const body=h.get('mail-list').querySelector('.mail-body')!;
+  const foot=body.querySelector('.mail-foot')!,tray=body.querySelector('.paper-tray')!;
+  expect(body.children.indexOf(tray)).toBeGreaterThan(body.children.indexOf(foot));
+  expect(foot.querySelector('.paper-invite')).toBeNull();
+  expect(tray.querySelector('.paper-invite')).toBeTruthy();expect(tray.querySelector('.paper-slot')).toBeTruthy();
 });

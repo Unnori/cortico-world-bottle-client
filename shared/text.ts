@@ -1,4 +1,4 @@
-import { BODY_MAX, TITLE_MAX } from './contract.ts';
+import { BODY_MAX, NOTE_BODY_MAX, TITLE_MAX } from './contract.ts';
 
 /**
  * 按码点数字数。`'𠮷'.length` 是 2，但人类看到的是一个字。
@@ -31,6 +31,13 @@ export function checkBody(raw: unknown): BodyCheck {
   if (chars === 0) return { ok: false, body, chars, reason: 'empty' };
   if (chars > BODY_MAX) return { ok: false, body, chars, reason: 'too_long' };
   return { ok: true, body, chars };
+}
+
+/** 小纸条使用同样的码点/空白规则，正文最多 40 字；不能拿信件的 120 字上限代替。 */
+export function checkNote(raw: unknown): BodyCheck {
+  const result = checkBody(raw);
+  if (!result.ok) return result;
+  return result.chars > NOTE_BODY_MAX ? { ...result, ok: false, reason: 'too_long' } : result;
 }
 
 /** 化名的形状：两个词加 #四位数。只用来判断「能不能直接念出来」。 */

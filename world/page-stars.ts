@@ -45,12 +45,13 @@ export const starScript = String.raw`
     return api(path, payload).then(function (result) {
       if (!result || result.ok !== true) toast(result && result.message || '没有保存成功，请再试一次。', true);
       else toast(result.message || '已保存。');
-      return refresh();
+      return refresh().then(function(){return result;});
     }).catch(function () {
       toast('信箱暂时打不开，稍后再试一次。', true);
-    }).then(function () {
+    }).then(function (result) {
       starPending = false;
       syncStarControls();
+      return result;
     });
   }
   function starButton(letterId) {
@@ -66,9 +67,25 @@ export const starScript = String.raw`
     button.onclick = function (event) {
       event.preventDefault();
       event.stopPropagation();
-      changeStar('/star', { letterId: letterId, starred: !starred });
+      var request=changeStar('/star', { letterId: letterId, starred: !starred });
+      if(request&&!starred)request.then(function(r){if(r&&r.ok===true)askStarMemory(letterId);});
     };
     return button;
+  }
+  function askStarMemory(letterId){
+    var dialog=document.getElementById('star-consent-dialog'),yes=document.getElementById('star-consent-yes');
+    document.getElementById('star-consent-title').textContent='让这封信留在'+botName()+'的记忆里？';
+    document.getElementById('star-consent-copy').textContent='星标已经收好。你也可以让'+botName()+'记住这段往来，往后的聊天里或许会想起它。';
+    function close(){if(dialog.close)dialog.close();else dialog.open=false;}
+    document.getElementById('star-consent-no').onclick=close;
+    yes.disabled=false;yes.onclick=async function(){
+      if(yes.disabled)return;yes.disabled=true;
+      try{
+        if(!state||state.starMemoryEnabled!==true){var enabled=await api('/star-memory-setting',{enabled:true});if(!enabled.ok){toast(enabled.message||'未能开启记忆。',true);return;}}
+        var result=await changeStar('/star-memory',{letterId:letterId,enabled:true});if(result&&result.ok)close();
+      }catch(e){toast('没有加入记忆，请稍后重试。',true);}finally{yes.disabled=false;}
+    };
+    if(!dialog.open){if(dialog.showModal)dialog.showModal();else dialog.open=true;if(typeof reveal==='function')reveal(dialog);}
   }
   function starTarget(row) {
     var matches = bookEntries().filter(function (entry) { return entry.item.letterId === row.letterId; });

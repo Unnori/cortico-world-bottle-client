@@ -133,10 +133,10 @@ describe('A. /catch 在 holding 时给回「是哪一封」', () => {
 
     const res = h.catchAs(me);
     if (!res.empty) throw new Error('应该是 holding');
-    expect(Number.isFinite(Date.parse(res.held!.windowUntil))).toBe(true);
+    expect(Number.isFinite(Date.parse(res.held!.windowUntil!))).toBe(true);
     expect(Number.isFinite(Date.parse(res.held!.caughtAt!))).toBe(true);
     // 窗口应该是 72 小时后
-    const span = Date.parse(res.held!.windowUntil) - Date.parse(res.held!.caughtAt!);
+    const span = Date.parse(res.held!.windowUntil!) - Date.parse(res.held!.caughtAt!);
     expect(span).toBe(72 * HOUR);
   });
 });

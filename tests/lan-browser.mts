@@ -38,6 +38,15 @@ async function until(code:string){for(let n=0;n<60;n++){if(await evaluate(code))
 try {
  tab=(await rpc('/new',`http://127.0.0.1:${port}/`)).targetId;
  await until("document.getElementById('panel')?.contentWindow.ready");
+ assert.equal(await panel("document.getElementById('root').lastElementChild.classList.contains('bottle-archive-tools')"),true);
+ assert.equal(await panel("document.querySelector('.bottle-archive-tools').open"),false);
+ await panel("window.backupBlob=null;window.backupName=null;URL.createObjectURL=function(b){window.backupBlob=b;return 'blob:fixture'};URL.revokeObjectURL=function(){};HTMLAnchorElement.prototype.click=function(){window.backupName=this.download};document.querySelector('.bottle-archive-tools').open=true;Array.from(document.querySelectorAll('.bottle-archive-tools button')).find(b=>b.textContent==='导出信册').click();true");
+ await until("!!document.getElementById('panel').contentWindow.backupBlob");
+ assert.match(await panel('window.backupName'),/明文请勿转发/);
+ assert.equal(await panel("window.backupBlob.text().then(t=>JSON.parse(t).schemaVersion)"),1);
+ await panel("(async()=>{var file=new File([await window.backupBlob.text()],'book.json',{type:'application/json'}),dt=new DataTransfer();dt.items.add(file);var input=document.querySelector('.bottle-archive-tools input');input.files=dt.files;input.dispatchEvent(new Event('change'));return true})()");
+ await until("document.getElementById('panel').contentDocument.querySelector('.bottle-archive-result').textContent.includes('合并了')");
+ await panel("document.querySelector('.bottle-archive-tools').open=false;true");
  assert.equal(await panel("document.querySelectorAll('.bottle-lan-qr img').length"),0);
  await panel("Array.from(document.querySelectorAll('button')).find(n=>n.textContent==='显示配对二维码').click();true");
  await until("document.getElementById('panel').contentDocument.querySelector('.bottle-lan-qr img')?.complete");

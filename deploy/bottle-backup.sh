@@ -25,7 +25,15 @@ mkdir -p "$DIR"
 STAMP=$(date +%Y%m%d-%H%M)
 OUT="$DIR/bottle-$STAMP.json"
 
-cp -a "$DATA" "$OUT"
+# Never copy transient paper text into long-lived backups: ack/TTL must truly erase it.
+"$NODE" -e '
+const fs = require("node:fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+data.notes = [];
+data.letters = (data.letters || []).map(({topic, ...row}) => ({...row, body: ""}));
+data.replies = (data.replies || []).map(row => ({...row, body: ""}));
+fs.writeFileSync(process.argv[2], JSON.stringify(data, null, 2) + "\n", {mode: 0o600});
+' "$DATA" "$OUT"
 
 if ! "$NODE" -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' "$OUT" 2>/dev/null; then
   echo "备份解析失败，已删除：$OUT" >&2

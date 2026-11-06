@@ -14,17 +14,16 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
   create: (ctx) => new BottleWorld(ctx, { botName: ctx.botName || '它' }),
   describe: {
     tools: describeTools(BOTTLE_TOOL_DECLS, {
-      bottle_star_memory: { zh: '只读人逐封授权的星笺往来；取消授权立即禁止后续读取，不直接修改核心记忆。', en: 'Reads only human-authorized starred correspondence from an independent revocable library, never core Memory.' },
       bottle_write: {
         zh: '起草正文不超过 120 字的信，内容与形式自由，信题可选；仍保护隐私，寄不寄由人决定。',
         en: 'Drafts a letter of at most 120 characters into the human\'s mailbox page. Never sends it.',
       },
       bottle_catch: {
-        zh: '捞一只瓶子。回执只说来自谁和剩余次数，不含正文；正文只在人类的信箱页上。',
-        en: 'Fishes one bottle. The receipt names the writer and the quota, never the text.',
+        zh: '捞一只瓶子。回执包含署名、已有标题和额度；无标题不补正文，全文仍在信箱页。',
+        en: 'Fishes a bottle; returns the signature, existing title and quota, never a body excerpt.',
       },
       bottle_reply: {
-        zh: '给人类刚点开的那一封起草回信，只需正文，信箱自动对应原信。只有人类点了回信的那一轮可用，写完仍是草稿。',
+        zh: '给人类刚点开的那一封起草回信，只需正文，信箱自动对应原信。仅人在信箱点写回信的轮次可用；有效草稿确认后两小时自动寄出，也可提前寄出或放弃（需新版海边支持）。',
         en: 'Drafts a body-only answer to the letter the human just opened; the mailbox keeps track of the target. Only available in that turn.',
       },
       bottle_wake_choice: {
@@ -37,10 +36,10 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
       },
     }),
     events: [
-      { type: 'bottle.star-memory', description: {
-        zh: '人开启总开关并逐封允许记住后，完整往来才作为外部内容投递；关闭或取消星标使未投递内容作废。',
-        en: 'Human-authorized starred correspondence, delivered as external content only after global and per-letter consent are rechecked. Revocation invalidates pending disclosure.',
-      } },
+      { type:'bottle.note-arrived', description:{zh:'收到小纸条，自动递上纸条正文，请桌宠转告人；不自动附上原信和原回信，不授权起草。',en:'A short note arrived. Its text is delivered automatically; tell the human and share a thought. Original correspondence is not attached and no drafting is authorized.'} },
+      { type:'bottle.note-reading', description:{zh:'人点击小纸条下的一起看，单次递上小纸条、原信与原回信，只读和聊感想，不起草回信或纸条。',en:'The human chose to look at a short note together with the original letter and reply. Read and share thoughts only; do not draft a reply or note.'} },
+      {type:'bottle.note-request',description:{zh:'人收到自己信件的回信后，邀请桌宠起草 40 字小纸条；人只能确认寄出或放弃。',en:'The author received a reply and invited a companion-written note draft; the human confirms sending.'}},
+      {type:'bottle.star-memory',description:{zh:'人明确允许将一段星标往来纳入可撤回的长期信件记忆；投递前重验开关。',en:'Explicit revocable permission to remember starred correspondence, rechecked at delivery.'}},
       {
         type: 'bottle.request',
         description: {
@@ -58,8 +57,8 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
       {
         type: 'bottle.reading',
         description: {
-          zh: '人类点了回信，这一封的正文被授权给模型；按外部事件推送。',
-          en: 'The human asked to reply; this letter\'s text is authorised and delivered as an external event.',
+          zh: '人点击一起读或写回信，这一封正文按对应意图单次授权，作为外部事件投递。',
+          en: 'The human clicked read together or write reply; only that letter is authorized for the chosen intent.',
         },
       },
       {

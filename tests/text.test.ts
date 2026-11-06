@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { countChars, checkBody, checkTitle, isPseudonym, isSeedSender, safePseudonym, SEED_FROM } from '../shared/text.ts';
+import { countChars, checkBody, checkNote, checkTitle, isPseudonym, isSeedSender, safePseudonym, SEED_FROM } from '../shared/text.ts';
+
+describe('小纸条判定', () => {
+  it('最多 40 个码点，不能把 120 字信件上限用于纸条', () => {
+    expect(checkNote('  ' + '🌊'.repeat(40) + '\n')).toMatchObject({ ok: true, chars: 40, body: '🌊'.repeat(40) });
+    expect(checkNote('海'.repeat(41))).toMatchObject({ ok: false, reason: 'too_long', chars: 41 });
+    expect(checkBody('海'.repeat(41)).ok).toBe(true);
+  });
+  it('拒绝空白和非字符串，保留正文原有换行', () => {
+    expect(checkNote(' \n\t ')).toMatchObject({ ok: false, reason: 'empty' });
+    expect(checkNote({ body: '不是字符串' })).toMatchObject({ ok: false, reason: 'not_string' });
+    expect(checkNote('一行\n二行')).toMatchObject({ ok: true, body: '一行\n二行' });
+  });
+});
 
 describe('字数与正文判定', () => {
   it('按码点数，emoji 和生僻字都算一个字', () => {

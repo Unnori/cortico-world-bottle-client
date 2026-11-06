@@ -1,13 +1,15 @@
 /** Shared semantic colors for the mailbox and its native desktop cards. */
 import type { MailboxTheme } from './theme.ts';
-export type ThemeChoice = 'ocean' | 'paper' | 'coopanion' | 'custom';
+export type ThemeChoice = 'ocean' | 'paper' | 'epistle' | 'coopanion' | 'custom';
 export type AppearanceMode = 'system' | 'light' | 'dark';
+/** 页面与桌面卡片共用的主题清单；顺序即菜单顺序。 */
+export const THEME_CHOICES: readonly ThemeChoice[] = ['ocean', 'paper', 'epistle', 'coopanion', 'custom'];
 export interface ThemePreference { theme: ThemeChoice; mode: AppearanceMode; customColor?: string; background?: string | null; backgroundTransparency?: number; myFont?: string | null; myFontName?: string }
 export const DEFAULT_APPEARANCE: ThemePreference = { theme: 'ocean', mode: 'system' };
 export function isThemePreference(value: unknown): value is ThemePreference {
   if (!value || typeof value !== 'object') return false;
   const pref = value as ThemePreference;
-  return ['ocean','paper','coopanion','custom'].includes(pref.theme) && ['system','light','dark'].includes(pref.mode)
+  return THEME_CHOICES.includes(pref.theme) && ['system','light','dark'].includes(pref.mode)
     && (pref.customColor === undefined || (typeof pref.customColor === 'string' && /^#[0-9a-f]{6}$/i.test(pref.customColor)))
     && (pref.backgroundTransparency === undefined || (typeof pref.backgroundTransparency === 'number' && Number.isFinite(pref.backgroundTransparency) && pref.backgroundTransparency >= 0 && pref.backgroundTransparency <= 100))
     && (pref.myFont === undefined || pref.myFont === null || (typeof pref.myFont === 'string' && /^[a-f0-9]{64}\.(ttf|otf|woff2?)$/.test(pref.myFont)))
@@ -51,18 +53,56 @@ export const MAILBOX_PALETTES = {
       "danger-text": "#f0b2ae"
     }
   },
+  "epistle": {
+    "light": {
+      "paper": "#f5f3ec",
+      "card": "#fdfbf5",
+      "ink": "#2c2a42",
+      "muted": "#6e6a80",
+      "line": "#e2dccf",
+      "accent": "#3f4a8c",
+      "seal": "#9c3b30",
+      "sea": "#2f6a60",
+      "soft": "#eeebe0",
+      "panel": "#faf8f1",
+      "on-accent": "#ffffff",
+      "warning-bg": "#fbf2df",
+      "warning-line": "#e7d5b0",
+      "warning-text": "#775623",
+      "danger-text": "#8f3a32",
+      "accent-text": "#3f4a8c"
+    },
+    "dark": {
+      "paper": "#1a1a20",
+      "card": "#23232b",
+      "ink": "#e9e6dd",
+      "muted": "#b0ab9f",
+      "line": "#3b3a45",
+      "accent": "#aab6f2",
+      "seal": "#e89a8f",
+      "sea": "#93cfc0",
+      "soft": "#2b2b33",
+      "panel": "#202027",
+      "on-accent": "#1a1c33",
+      "warning-bg": "#3a2f21",
+      "warning-line": "#6b5638",
+      "warning-text": "#edcb8e",
+      "danger-text": "#f0b2ae",
+      "accent-text": "#aab6f2"
+    }
+  },
   "paper": {
     "light": {
-      "paper": "#f6f1e6",
-      "card": "#fffdf7",
-      "ink": "#352f28",
-      "muted": "#7d7467",
-      "line": "#e3d9c8",
-      "accent": "#8a6540",
-      "seal": "#a8453c",
-      "sea": "#527981",
-      "soft": "#f4efe4",
-      "panel": "#fffaf1",
+      "paper": "#f2e6cc",
+      "card": "#fff8e8",
+      "ink": "#3d3023",
+      "muted": "#756147",
+      "line": "#d9c6a2",
+      "accent": "#885c24",
+      "seal": "#946327",
+      "sea": "#70663c",
+      "soft": "#ebddbf",
+      "panel": "#f9efd9",
       "on-accent": "#ffffff",
       "warning-bg": "#fbf2df",
       "warning-line": "#e9d9b5",
@@ -70,17 +110,17 @@ export const MAILBOX_PALETTES = {
       "danger-text": "#92483f"
     },
     "dark": {
-      "paper": "#211e19",
-      "card": "#2c2822",
-      "ink": "#f0e7d9",
-      "muted": "#c1b29c",
-      "line": "#4a4135",
-      "accent": "#dbb48b",
-      "seal": "#eba69c",
-      "sea": "#a3cacf",
-      "soft": "#362f26",
-      "panel": "#29251f",
-      "on-accent": "#34241d",
+      "paper": "#251e16",
+      "card": "#32281d",
+      "ink": "#f6e9d0",
+      "muted": "#d0b997",
+      "line": "#594832",
+      "accent": "#e6bc78",
+      "seal": "#e6bc78",
+      "sea": "#c5c18c",
+      "soft": "#403322",
+      "panel": "#2e241a",
+      "on-accent": "#302310",
       "warning-bg": "#3c3021",
       "warning-line": "#70583a",
       "warning-text": "#ebce92",
@@ -90,7 +130,7 @@ export const MAILBOX_PALETTES = {
 } as const;
 export type MailboxPalette = Record<keyof typeof MAILBOX_PALETTES.ocean.light, string> & { 'accent-text'?: string };
 export interface CardAppearance { preference: ThemePreference; palettes: Record<'light' | 'dark', MailboxPalette> }
-export function paletteDeclarations(theme: 'ocean' | 'paper', mode: 'light' | 'dark'): string {
+export function paletteDeclarations(theme: 'ocean' | 'paper' | 'epistle', mode: 'light' | 'dark'): string {
   return Object.entries(MAILBOX_PALETTES[theme][mode]).map(([key,value]) => `--${key}:${value};`).join(' ');
 }
 function mixColor(a: string, b: string, weight: number): string {
@@ -98,7 +138,9 @@ function mixColor(a: string, b: string, weight: number): string {
 }
 export function cardAppearance(preference: ThemePreference, host: MailboxTheme): CardAppearance {
   if (preference.theme === 'custom') return { preference, palettes: customPalettes(preference.customColor ?? '#4b62a0') };
-  const palettes = preference.theme === 'paper' ? MAILBOX_PALETTES.paper : MAILBOX_PALETTES.ocean;
+  const palettes = preference.theme === 'paper' ? MAILBOX_PALETTES.paper
+    : preference.theme === 'epistle' ? MAILBOX_PALETTES.epistle
+    : MAILBOX_PALETTES.ocean;
   if (preference.theme !== 'coopanion' || !host.available || !host.palettes) return { preference, palettes };
   const map = (mode: 'light' | 'dark'): MailboxPalette => {
     const p = host.palettes![mode];

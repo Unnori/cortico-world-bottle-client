@@ -76,6 +76,8 @@ export interface Quota {
    * 仅用于缺少截止时间时的推算；已有信件的 windowUntil 不随热载追溯修改。
    */
   reply_window_hours?: number;
+  /** Supports body-free pending drafts and reply priority over automatic return. */
+  reply_draft_hold?: boolean;
   /**
    * 一句话公告（热载）。
    *
@@ -107,6 +109,10 @@ export type ErrorCode =
   | 'not_found'
   /** 海边邮局的种子信不回信（§13.7）。 */
   | 'seed_no_reply'
+  /** 还没收到回信就写纸条（小纸条只能接在「信 → 回信」之后）。 */
+  | 'no_reply_yet'
+  /** 这封信已经留过纸条了。一封只能留一张，对方也不能再回。 */
+  | 'note_exists'
   | 'internal';
 
 export interface ErrorRes {
@@ -163,7 +169,8 @@ export type CatchRes =
       empty: false;
       letterId: string;
       from: string;
-      windowUntil: string;
+      /** null after an explicit read: keep holding until the human chooses an action. */
+      windowUntil: string | null;
       caughtAt?: string;
       quota: Quota;
       /** 池子没有真人信时补位的种子瓶；来源固定是「海边邮局」。 */
@@ -171,7 +178,7 @@ export type CatchRes =
     }
   | { empty: true; reason: CatchEmptyReason; quota: Quota;
       /** Recover an already-held letter without spending another catch. Never includes its body. */
-      held?: { letterId: string; from: string; windowUntil: string; caughtAt?: string };
+      held?: { letterId: string; from: string; windowUntil: string | null; caughtAt?: string };
     };
 
 /**
@@ -207,7 +214,10 @@ export interface LetterRes {
 export interface ReplyReq {
   letterId: string;
   body: string;
+  draftKey?: string;
 }
+export const REPLY_AUTO_SEND_MS = 2 * 3_600_000;
+export interface ReplyDraftRes extends OkRes { sendAt: string | null }
 
 export interface DismissReq {
   letterId: string;
@@ -246,6 +256,19 @@ export interface MailboxItem {
 
 /** `GET /mailbox` 直接回数组，和设计稿一致。 */
 export type MailboxRes = MailboxItem[];
+
+/** A 收到 B 的回信后，由 A 的 Coo 起草纸条，再由人确认寄给 B；收下或七天到期删。 */
+export const NOTE_BODY_MAX = 40;
+export const NOTE_TTL_HOURS = 168;
+export const NOTE_TTL_MS = NOTE_TTL_HOURS * 3_600_000;
+export interface NoteReq { letterId: string; body: string }
+export interface NoteRes { ok: true; quota: Quota; repeated?: boolean }
+export interface ReceivedNote { id: string; letterId: string; from: string; body: string; at: string; expiresAt: string }
+export type NotesRes = ReceivedNote[];
+export interface RepostReq { letterId: string; body?: string; topic?: string }
+export interface RepostRes { ok: true; letterId: string; quota: Quota; repeated?: boolean }
+/** 明文本机备份，不含令牌、配对数据、纸条或模型授权。 */
+export interface LetterbookArchive { schemaVersion: 1; exportedAt: string; entries: Array<{ kind: 'sent' | 'received' | 'reply' | 'star'; value: Record<string, unknown> }> }
 
 export const REPLY_WINDOW_HOURS = 72;
 /**

@@ -111,19 +111,25 @@ $shell.Margin = [System.Windows.Thickness]::new(26)
 
 $card = New-Object System.Windows.Controls.Border
 $card.Background = Brush '@card'
-$card.CornerRadius = [System.Windows.CornerRadius]::new(14)
+$card.CornerRadius = [System.Windows.CornerRadius]::new(16)
 $card.BorderBrush = Brush '@line'
 $card.BorderThickness = [System.Windows.Thickness]::new(1)
-$card.Padding = [System.Windows.Thickness]::new(24, 20, 24, 18)
+$card.Padding = [System.Windows.Thickness]::new(26, 22, 26, 20)
 $shadow = New-Object System.Windows.Media.Effects.DropShadowEffect
-$shadow.BlurRadius = 22
-$shadow.ShadowDepth = 6
+$shadow.BlurRadius = 32
+$shadow.ShadowDepth = 8
 $shadow.Direction = 270
-$shadow.Opacity = 0.17
-$shadow.Color = [System.Windows.Media.Color][System.Windows.Media.ColorConverter]::ConvertFromString('#3C2D19')
+$shadow.Opacity = 0.25
+$shadow.Color = [System.Windows.Media.Color][System.Windows.Media.ColorConverter]::ConvertFromString('#1A1A1A')
 $card.Effect = $shadow
-$slide = [System.Windows.Media.TranslateTransform]::new(0, 10)
-$card.RenderTransform = $slide
+$transformGroup = New-Object System.Windows.Media.TransformGroup
+$slide = [System.Windows.Media.TranslateTransform]::new(0, 12)
+$scale = [System.Windows.Media.ScaleTransform]::new(0.96, 0.96)
+$transformGroup.Children.Add($scale) | Out-Null
+$transformGroup.Children.Add($slide) | Out-Null
+$card.RenderTransform = $transformGroup
+$card.RenderTransformOrigin = [System.Windows.Point]::new(0.5, 0.5)
+$script:cardScale = $scale
 
 $stack = New-Object System.Windows.Controls.StackPanel
 
@@ -141,15 +147,23 @@ $eyebrow.Foreground = Brush '@accent-text'
 $eyebrow.VerticalAlignment = 'Center'
 $head.Children.Add($eyebrow) | Out-Null
 
-$close = New-Object System.Windows.Controls.TextBlock
-$close.Text = '×'
-$close.FontFamily = 'Segoe UI'
-$close.FontSize = 15
-$close.Foreground = Brush '@muted'
+$close = New-Object System.Windows.Controls.Border
+$close.Background = [System.Windows.Media.Brushes]::Transparent
+$close.CornerRadius = [System.Windows.CornerRadius]::new(12)
+$close.Width = 24
+$close.Height = 24
 $close.Cursor = 'Hand'
 $close.Margin = [System.Windows.Thickness]::new(10, -4, 0, 0)
 $close.VerticalAlignment = 'Top'
 [System.Windows.Controls.Grid]::SetColumn($close, 1)
+$closeText = New-Object System.Windows.Controls.TextBlock
+$closeText.Text = '×'
+$closeText.FontFamily = 'Segoe UI'
+$closeText.FontSize = 16
+$closeText.Foreground = Brush '@muted'
+$closeText.HorizontalAlignment = 'Center'
+$closeText.VerticalAlignment = 'Center'
+$close.Child = $closeText
 $script:brushInk = Brush '@seal'
 $script:brushInkHover = Brush '@accent'
 $script:brushGhost = Brush '#00FFFFFF'
@@ -158,8 +172,14 @@ $script:brushMuted = Brush '@muted'
 $script:brushFaint = Brush '@muted'
 
 $close.Add_MouseLeftButtonUp({ param($s, $e) $script:win.Close() })
-$close.Add_MouseEnter({ param($s, $e) $s.Foreground = $script:brushMuted })
-$close.Add_MouseLeave({ param($s, $e) $s.Foreground = $script:brushFaint })
+$close.Add_MouseEnter({ param($s, $e)
+    $s.Background = Brush '@soft'
+    $s.Child.Foreground = Brush '@accent'
+  })
+$close.Add_MouseLeave({ param($s, $e)
+    $s.Background = [System.Windows.Media.Brushes]::Transparent
+    $s.Child.Foreground = $script:brushMuted
+  })
 $head.Children.Add($close) | Out-Null
 $stack.Children.Add($head) | Out-Null
 
@@ -323,11 +343,14 @@ function New-Pill([string]$label, [string]$tone, [string]$id) {
   $pill = New-Object System.Windows.Controls.Border
   $pill.Tag = $id
   $pill.Uid = $tone
-  $pill.CornerRadius = [System.Windows.CornerRadius]::new(17)
-  $pill.Padding = [System.Windows.Thickness]::new(18, 8, 18, 8)
-  $pill.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
+  $pill.CornerRadius = [System.Windows.CornerRadius]::new(18)
+  $pill.Padding = [System.Windows.Thickness]::new(20, 9, 20, 9)
+  $pill.Margin = [System.Windows.Thickness]::new(0, 0, 10, 0)
   $pill.BorderThickness = [System.Windows.Thickness]::new(1)
   $pill.Cursor = 'Hand'
+  $pillTransform = [System.Windows.Media.ScaleTransform]::new(1, 1)
+  $pill.RenderTransform = $pillTransform
+  $pill.RenderTransformOrigin = [System.Windows.Point]::new(0.5, 0.5)
   if ($tone -eq 'primary') {
     $pill.Background = $script:brushInk
     $pill.BorderBrush = $script:brushInk
@@ -340,17 +363,30 @@ function New-Pill([string]$label, [string]$tone, [string]$id) {
   $text = New-Object System.Windows.Controls.TextBlock
   $text.Text = $label
   $text.FontFamily = 'Microsoft YaHei'
-  $text.FontSize = 13
+  $text.FontSize = 13.5
+  $text.FontWeight = 'Medium'
   $text.Foreground = Brush $fg
   $pill.Child = $text
   $pill.Add_MouseLeftButtonUp({ param($s, $e) Invoke-CardAction ([string]$s.Tag) })
   $pill.Add_MouseEnter({ param($s, $e)
       if ($script:busy) { return }
       if ($s.Uid -eq 'primary') { $s.Background = $script:brushInkHover } else { $s.Background = $script:brushGhostHover }
+      if ([System.Windows.SystemParameters]::ClientAreaAnimation) {
+        $hoverScale = [System.Windows.Media.Animation.DoubleAnimation]::new(1.0, 1.05, [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(150)))
+        $hoverScale.EasingFunction = New-Object System.Windows.Media.Animation.CubicEase
+        $s.RenderTransform.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleXProperty, $hoverScale)
+        $s.RenderTransform.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleYProperty, $hoverScale)
+      }
     })
   $pill.Add_MouseLeave({ param($s, $e)
       if ($script:busy) { return }
       if ($s.Uid -eq 'primary') { $s.Background = $script:brushInk } else { $s.Background = $script:brushGhost }
+      if ([System.Windows.SystemParameters]::ClientAreaAnimation) {
+        $leaveScale = [System.Windows.Media.Animation.DoubleAnimation]::new(1.05, 1.0, [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(150)))
+        $leaveScale.EasingFunction = New-Object System.Windows.Media.Animation.CubicEase
+        $s.RenderTransform.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleXProperty, $leaveScale)
+        $s.RenderTransform.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleYProperty, $leaveScale)
+      }
     })
   [void]$script:buttons.Add($pill)
   return $pill
@@ -379,14 +415,24 @@ $win.Add_ContentRendered({
   $script:win.Left = [Math]::Max($wa.Left + 12, $wa.Right - $script:win.ActualWidth - 20)
   $script:win.Top = [Math]::Max($wa.Top + 12, $wa.Bottom - $script:win.ActualHeight - 20)
 
-  $fade = [System.Windows.Media.Animation.DoubleAnimation]::new(0, 1, [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(180)))
+  $fade = [System.Windows.Media.Animation.DoubleAnimation]::new(0, 1, [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(300)))
+  $easeOpacity = New-Object System.Windows.Media.Animation.CubicEase
+  $easeOpacity.EasingMode = 'EaseOut'
+  $fade.EasingFunction = $easeOpacity
   $script:win.BeginAnimation([System.Windows.Window]::OpacityProperty, $fade)
 
   $ease = New-Object System.Windows.Media.Animation.CubicEase
   $ease.EasingMode = 'EaseOut'
-  $rise = [System.Windows.Media.Animation.DoubleAnimation]::new(10, 0, [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(240)))
+  $rise = [System.Windows.Media.Animation.DoubleAnimation]::new(12, 0, [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(400)))
   $rise.EasingFunction = $ease
   $slide.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, $rise)
+
+  $scaleEase = New-Object System.Windows.Media.Animation.CubicEase
+  $scaleEase.EasingMode = 'EaseOut'
+  $scaleIn = [System.Windows.Media.Animation.DoubleAnimation]::new(0.96, 1.0, [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(400)))
+  $scaleIn.EasingFunction = $scaleEase
+  $script:cardScale.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleXProperty, $scaleIn)
+  $script:cardScale.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleYProperty, $scaleIn)
 })
 
 # Poll only the local appearance endpoint. Async IO never blocks reading or button clicks.

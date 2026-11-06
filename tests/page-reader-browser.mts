@@ -54,7 +54,7 @@ try {
   const stableSizes = "['.brand h1','#write-button','.mail-subject strong','.mail-body .head','#reader-toggle'].map(s=>{const n=document.querySelector(s);return n?getComputedStyle(n).fontSize:null})";
   for (const width of [1320, 390, 320]) {
     await evaluate(`document.getElementById('mailbox').style.width='${width}px';true`);
-    for (const palette of ['ocean', 'paper', 'coopanion', 'custom']) for (const mode of ['light', 'dark']) {
+    for (const palette of ['ocean', 'paper', 'epistle', 'coopanion', 'custom']) for (const mode of ['light', 'dark']) {
       await mailbox(`document.getElementById('theme-${palette}').click();document.getElementById('mode-${mode}').click();document.getAnimations().forEach(a=>a.finish());true`);
       const before = await mailbox(stableSizes);
       await mailbox("document.getElementById('reader-toggle').click();true");

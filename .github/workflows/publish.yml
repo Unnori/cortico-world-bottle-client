@@ -64,15 +64,26 @@ jobs:
       - name: Tests
         run: pnpm test
 
-      # 包里不该出现测试、截图或依赖；这一条比本地 npm pack 更难忘记
-      - name: Check the tarball contents
+      # Build once, inspect the actual archive, and publish those exact bytes.
+      - name: Pack and verify client archive
+        id: pack
         run: |
-          npm pack --dry-run 2>&1 | tee pack.log
-          # 只检查清单行（package/...）；首行是包名，不是文件
-          if grep -E 'package/(tests/|.*node_modules|.*screenshot|.*\.tgz$)' pack.log; then
-            echo "tarball contains files that must not ship"
-            exit 1
-          fi
+          npm run prepack
+          npm pack --ignore-scripts --json > pack.json
+          archive=$(node -p "const data=JSON.parse(require('fs').readFileSync('pack.json', 'utf8')); (Array.isArray(data)?data:Object.values(data))[0].filename")
+          node scripts/check-release-package.mjs "$archive" > package-check.json
+          cat package-check.json
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
-      - name: Publish
-        run: npm publish
+      - name: Keep verified release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortico-world-bottle-${{ github.ref_name }}
+          path: |
+            ${{ steps.pack.outputs.archive }}
+            pack.json
+            package-check.json
+          if-no-files-found: error
+
+      - name: Publish verified archive via Trusted Publishing
+        run: npm publish "${{ steps.pack.outputs.archive }}" --provenance --access public

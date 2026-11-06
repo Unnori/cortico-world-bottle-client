@@ -46,11 +46,12 @@ describe('漂流瓶 World · 装载', () => {
     }
   });
 
-  it('七个工具，没有 bottle_send，星笺重读须显式授权', async () => {
+  it('八个工具，没有 bottle_send，星笺重读与纸条起草须授权', async () => {
     const world = await started();
     expect(world.tools().map((tool) => tool.name).sort()).toEqual([
       'bottle_catch',
       'bottle_mailbox',
+      'bottle_note',
       'bottle_open_page',
       'bottle_reply',
       'bottle_star_memory',
@@ -228,7 +229,7 @@ describe('漂流瓶 World · 收信', () => {
     const world = await started();
 
     const receipt = await callTool(world, 'bottle_catch');
-    expect(receipt).toContain('捞到一封，来自');
+    expect(receipt).toContain('捞到一封，署名是');
     expect(receipt).not.toContain('贝壳');
 
     const snapshot = world.pageDeps().snapshot();
@@ -1057,7 +1058,7 @@ describe('本机待处理信与海边占用保持一致', () => {
     expect((await world.pageDeps().keep()).ok).toBe(true);
     expect(world.pageDeps().snapshot().held).toBeNull();
     expect(world.pageDeps().snapshot().received[0].outcome).toBe('kept');
-    expect(h.db.letterById(id)?.state).toBe('floating');
+    expect(h.db.letterById(id)).toMatchObject({state:'archived',archivedReason:'kept'});
     expect(await callTool(world, 'bottle_catch')).not.toContain('没处理完');
   });
 });

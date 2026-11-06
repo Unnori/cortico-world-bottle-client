@@ -4,12 +4,15 @@
  *
  * 文件名都以 `bottle-` 开头：`ctx.dataDir` 是 Core 和所有 World 共用的。
  */
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 export type DraftKind = 'letter' | 'reply';
 
 export interface LocalDraft {
+  /** Reply only. Both are removed with the draft on send/discard/delete/clear. */
+  autoSendKey?: string;
+  autoSendAt?: number;
   topic?: string;
   kind: DraftKind;
   /** kind 为 reply 时，这是被回的那一封。 */
@@ -19,7 +22,9 @@ export interface LocalDraft {
 }
 
 /** 捞起来、还没决定的那一封。正文只给页面看，永远不进工具回执。 */
+/** readAt 随 held 在寄出/收好/归还/删除时清除，不传给下一位收信人。 */
 export interface LocalHeld {
+  readAt?: number;
   caughtBy?: 'bot' | 'human';
   letterId: string;
   from: string;
@@ -116,7 +121,9 @@ export function lastStoreWriteError(): string | null {
 function writeJson(path: string, value: unknown): void {
   try {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    const temporary = path + '.tmp';
+    try { writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 }); renameSync(temporary, path); }
+    finally { try { unlinkSync(temporary); } catch {} }
     lastWriteError = null;
   } catch (error) {
     // 仍然不打断主流程（一次 UI 动作不该因为磁盘满而整条失败），
@@ -212,6 +219,8 @@ export class LocalStore {
         body: value.body,
         ...(kind === 'letter' && typeof value.topic === 'string' && value.topic ? { topic: value.topic } : {}),
         at: Number(value.at ?? 0),
+        ...(kind==='reply'&&typeof value.autoSendKey==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(value.autoSendKey)?{autoSendKey:value.autoSendKey,
+          ...(typeof value.autoSendAt==='number'&&Number.isFinite(value.autoSendAt)&&value.autoSendAt>0?{autoSendAt:value.autoSendAt}:{})}:{}),
       };
     };
 
@@ -243,6 +252,7 @@ export class LocalStore {
         caughtBy: held.caughtBy === 'human' ? 'human' : 'bot',
         caughtAt: Number(held.caughtAt ?? 0),
         windowUntil: Number(held.windowUntil ?? 0),
+        ...(typeof held.readAt === 'number' && Number.isFinite(held.readAt) && held.readAt > 0 ? { readAt: held.readAt } : {}),
         ...(held.seed === true ? { seed: true } : {}),
         ...(held.dead === true ? { dead: true } : {}),
         ...(typeof held.signature === 'string' && held.signature ? { signature: held.signature } : {}),
@@ -286,6 +296,14 @@ export class LocalStore {
         ...(typeof item.signature === 'string' && item.signature ? { signature: item.signature } : {}),
         ...(typeof item.topic === 'string' && item.topic ? { topic: item.topic } : {}),
       }));
+  }
+
+  /** Imported records follow normal letter deletion/clear; no separate retained import history. */
+  commitImported(sent: SentLetter[], received: ReceivedLetter[], replies: LocalReply[]): void {
+    const old = { sent:this.sent, received:this.received, replies:this.replies };
+    this.sent=sent; this.received=received; this.replies=replies;
+    this.saveLetterbook();
+    if (lastStoreWriteError()) { Object.assign(this,old); throw Error('信册未能保存，原有信件没有改动。'); }
   }
 
   setIdentity(identity: Identity): void {
@@ -394,7 +412,7 @@ export class LocalStore {
     this.saveLetterbook();
   }
 
-  /** Count only successful, explicitly authorized hand-offs, never page expansion. */
+  /** Count shared-reading hand-offs or valid reply drafts, never failed reply attempts/page expansion. */
   noteRead(kind: 'received' | 'reply', letterId: string, at = Date.now()): void {
     const rows = kind === 'received' ? this.received : this.replies;
     const record = rows.find(item => item.letterId === letterId);

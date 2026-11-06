@@ -162,7 +162,7 @@ describe('端到端 · 两台机器', () => {
 
     // ③ B 捞到：回执只有化名与额度
     const caught = await call(b.world, 'bottle_catch');
-    expect(caught).toContain('捞到一封，来自');
+    expect(caught).toContain('捞到一封，署名是');
     expect(caught).not.toContain('风今天很大');
     expect(b.events.some((event) => event.type === 'bottle.reading')).toBe(false);
 
@@ -172,7 +172,7 @@ describe('端到端 · 两台机器', () => {
     expect(held.topic).toBe('海边小记');
     expect(a.world.pageDeps().snapshot().sent[0]?.topic).toBe('海边小记');
     expect(b.world.pageDeps().snapshot().received[0]?.topic).toBe('海边小记');
-    expect(caught).not.toContain('海边小记');
+    expect(caught).toContain('标题：「海边小记」');
     expect(JSON.stringify(b.events)).not.toContain('海边小记');
     expect(JSON.stringify(b.events)).not.toContain('风今天很大');
 
@@ -233,7 +233,7 @@ describe('端到端 · 两台机器', () => {
 
     // B 捞到并回了它
     const caught = await call(b.world, 'bottle_catch');
-    expect(caught).toContain('捞到一封，来自');
+    expect(caught).toContain('捞到一封，署名是');
     const held = b.world.pageDeps().snapshot().held!;
     expect(held.body).toBe('只寄给我自己看。');
     await b.world.pageDeps().open('page');

@@ -233,7 +233,7 @@ function configGroup(id: string, title: string, description: string, fields: rea
 
 export const BOTTLE_CONFIG_GROUPS: ConfigGroup[] = [
   configGroup('world:bottle:stars', '星笺匣与记忆',
-    '星标只表示喜欢；是否允许正文进入上下文，由总开关与网页逐封授权共同决定。', ['starMemoryEnabled']),
+    '星标表示喜欢；确认邀请后才允许正文长期重读，关闭可撤回授权。', ['starMemoryEnabled']),
   configGroup('world:bottle:display', '显示与通知',
     '先选信件显示的位置，再调整桌面卡片和海啸提醒。',
     ['surface', 'cardAutoCloseSec', 'tsunamiNotice']),
