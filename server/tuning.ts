@@ -115,6 +115,19 @@ export interface Tuning {
 
   /** 一句话公告。复用海啸那条通道（比对 id 只播一次）。 */
   announcement: Announcement | null;
+
+  /**
+   * 落地页的活动位：一句话 + 一个链接。
+   *
+   * **空字符串 = 什么都不渲染**（页面和没有这个功能时一模一样）。
+   * 因为落地页模板有永久缓存（landingHtml() 只在启动时读一次），
+   * 往模板里写死链接必须重启；放进 tuning 就能 5 秒热载。
+   *
+   * 安全：只接受 http/https、且不能带账号密码；文本会 HTML 转义。
+   * 链接无效时**整块不渲染**，宁可少一个入口，也不要在公网页上放坏链接。
+   */
+  campaignLink: string;
+  campaignText: string;
 }
 
 export interface TideOutSettings {
@@ -158,6 +171,8 @@ export const DEFAULT_TUNING: Tuning = {
   seedDailyChance: 1,
   tideOut: { until: '', blockThrow: false, blockReply: false, text: '' },
   announcement: null,
+  campaignLink: '',
+  campaignText: '',
 };
 
 export interface TuningReader {
@@ -233,6 +248,8 @@ function readOnce(file: string | null, env: NodeJS.ProcessEnv): Tuning {
     seedDailyChance: pickChance(raw.seedDailyChance, DEFAULT_TUNING.seedDailyChance),
     tideOut: readTideOut(raw.tideOut),
     announcement: readAnnouncement(raw.announcement),
+    campaignLink: pickText(raw.campaignLink),
+    campaignText: pickText(raw.campaignText),
   };
 }
 
@@ -278,6 +295,18 @@ function readAnnouncement(value: unknown): Announcement | null {
     showUntil,
     level: raw.level === 'alarm' ? 'alarm' : 'notice',
   };
+}
+
+/**
+ * 取一个可选的短文本。非字符串、或超长（>300）都当成空。
+ *
+ * 为什么限长：这两个字段会直接出现在**公网可读**的落地页上，
+ * 一个几万字的字符串会把首页撑坏，而且它多半是写错了。
+ */
+function pickText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed.length > 300 ? '' : trimmed;
 }
 
 /** 非负整数，且不低于 `min`。写坏了就退回默认，绝不把海搞挂。 */

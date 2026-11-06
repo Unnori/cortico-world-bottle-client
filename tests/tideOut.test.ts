@@ -27,6 +27,8 @@ function rig(tuningOver?: Partial<Tuning>) {
     seedDailyChance: 1,
     tideOut: { until: '', blockThrow: false, blockReply: false, text: '' },
     announcement: null,
+    campaignLink: '',
+    campaignText: '',
   };
   const tuning = { ...base, ...tuningOver };
   const clock = { t: Date.parse('2026-10-30T12:00:00+08:00') };

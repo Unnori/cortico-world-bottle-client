@@ -10,3 +10,12 @@ node_modules/
 
 # 本地一次性备份，不进仓库也不进包。
 /.backup/
+
+# 本地工作副本：一次性备份、临时脚本、推广视频工程（自带 node_modules，650 MB）。
+/backups/
+/scratch/
+/promo-video/
+
+# 重构草稿（结论已并入 docs/design/ 的正式文档）
+/REDESIGN_COMPARISON.txt
+/REDESIGN_SUMMARY.md

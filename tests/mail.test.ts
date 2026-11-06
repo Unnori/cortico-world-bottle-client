@@ -73,6 +73,8 @@ function rig(opts: { seedChannel?: 'mail' | 'catch'; tuning?: Partial<Tuning>; s
     seedDailyChance: 1,
     tideOut: { until: '', blockThrow: false, blockReply: false, text: '' },
     announcement: null,
+    campaignLink: '',
+    campaignText: '',
     ...opts.tuning,
   };
   const reader: TuningReader = { current: () => tuning };
