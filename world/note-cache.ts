@@ -4,11 +4,14 @@ import { NOTE_TTL_MS, type ReceivedNote } from '../shared/contract.ts';
 import { checkNote } from '../shared/text.ts';
 
 /** expiresAt describes server retention only; it never expires this local copy. */
-export interface LocalNote extends ReceivedNote { readAt?: number }
+export interface LocalNote extends ReceivedNote { readAt?: number; direction?: 'sent'; delivery?: 'pending' | 'sent' }
 interface ForgottenNote { id:string; letterId:string; expiresAt:string }
 
 /** Local archive: body and readAt remain until the human deletes the correspondence or
  * clears the letterbook. Server expiry is transport metadata, never a local deadline.
+ * Confirmed sending is archived before the network request; pending delivery receipts
+ * keep the exact body for idempotent confirmation after a disconnect or restart.
+ * Outgoing bodies, like incoming bodies, are deleted only with their correspondence.
  * Body-free deletion receipts prevent a failed server ACK from restoring removed notes;
  * these receipts alone expire at the server's original seven-day deadline.
  * Neither notes nor these receipts are included in letterbook exports or star memory. */
@@ -24,7 +27,7 @@ export class NoteCache {
       if(data.schemaVersion!==1)return;
       for(const value of Array.isArray(data.notes)?data.notes:[]) {
         const note=this.valid(value);if(!note)continue;
-        this.records.set(note.id,{...note,...(typeof value.readAt==='number'&&Number.isFinite(value.readAt)&&value.readAt>0?{readAt:value.readAt}:{})});
+        this.records.set(note.id,{...note,...(value.direction==='sent'?{direction:'sent' as const,delivery:value.delivery==='pending'?'pending' as const:'sent' as const}:{}),...(typeof value.readAt==='number'&&Number.isFinite(value.readAt)&&value.readAt>0?{readAt:value.readAt}:{})});
       }
       for(const value of Array.isArray(data.forgotten)?data.forgotten:[]){
         if(value&&this.id(value.id)&&this.id(value.letterId)&&typeof value.expiresAt==='string'&&Date.parse(value.expiresAt)>this.now()){
@@ -51,6 +54,28 @@ export class NoteCache {
     if(added)this.records.set(note.id,note);
     try{this.save();}catch(error){if(added)this.records.delete(note.id);throw error;}return note.id;
   }
+  outgoing(letterId:string):LocalNote|undefined {
+    const note=this.records.get('sent:'+letterId);return note?.direction==='sent'?{...note}:undefined;
+  }
+  stageOutgoing(letterId:string,body:string,from:string):LocalNote {
+    const existing=this.outgoing(letterId);if(existing)return existing;
+    const at=this.now();
+    const note:LocalNote={id:'sent:'+letterId,letterId,from,body,at:new Date(at).toISOString(),expiresAt:new Date(at+NOTE_TTL_MS).toISOString(),direction:'sent',delivery:'pending'};
+    if(!this.valid(note))throw Error('Invalid outgoing note');
+    this.writeRecord(note);return {...note};
+  }
+  confirmOutgoing(letterId:string):void {
+    const note=this.outgoing(letterId);if(!note)throw Error('Missing outgoing note');
+    this.writeRecord({...note,delivery:'sent'});
+  }
+  discardPending(letterId:string):void {
+    const note=this.outgoing(letterId);if(!note||note.delivery!=='pending')return;
+    this.records.delete(note.id);try{this.save();}catch(error){this.records.set(note.id,note);throw error;}
+  }
+  private writeRecord(note:LocalNote):void {
+    const previous=this.records.get(note.id);this.records.set(note.id,note);
+    try{this.save();}catch(error){if(previous)this.records.set(note.id,previous);else this.records.delete(note.id);throw error;}
+  }
   all():LocalNote[]{this.prune();return [...this.records.values()].map(n=>({...n})).sort((a,b)=>Date.parse(a.at)-Date.parse(b.at));}
   get(id:string):LocalNote|undefined{this.prune();const note=this.records.get(id);return note?{...note}:undefined;}
   read(id:string):void {
@@ -59,7 +84,7 @@ export class NoteCache {
   }
   forget(letterId?:string):void {
     for(const [id,note] of this.records){if(letterId&&note.letterId!==letterId)continue;
-      this.forgotten.set(id,{id,letterId:note.letterId,expiresAt:note.expiresAt});this.records.delete(id);
+      if(note.direction!=='sent')this.forgotten.set(id,{id,letterId:note.letterId,expiresAt:note.expiresAt});this.records.delete(id);
     }
     this.prune();this.save();
   }

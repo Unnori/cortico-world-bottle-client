@@ -786,7 +786,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
       if (item.reply) entries.push({ category: 'reply', item: item, at: item.reply.at, body: item.reply.body });
     });
     paperRows.forEach(function(row){
-      if(!entries.some(function(entry){return entry.item.letterId===row.letterId;}))entries.push({category:'received',paperOnly:true,item:{letterId:row.letterId,from:row.from,at:row.at},at:row.at,body:''});
+      if(!entries.some(function(entry){return entry.item.letterId===row.letterId;}))entries.push({category:row.direction==='sent'?'sent':'received',paperOnly:true,item:{letterId:row.letterId,from:row.from,at:row.at},at:row.at,body:''});
     });
     return entries;
   }

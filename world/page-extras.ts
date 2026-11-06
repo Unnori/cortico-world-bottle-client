@@ -35,7 +35,7 @@ export const extrasScript = String.raw`
       var hasDraft=slot===draftSlot&&!paperComposer.hidden;
       var hasNotes=Array.from(slot.children).some(function(node){return node!==paperComposer;});
       var tray=slot.closest('.paper-tray'), invite=tray&&tray.querySelector('.paper-invite');
-      if(invite)invite.hidden=hasDraft;
+      if(invite)invite.hidden=hasDraft||Array.from(paperRows.values()).some(function(row){return row.letterId===slot.dataset.letterId&&row.direction==='sent';});
       if(tray)tray.hidden=!hasNotes&&!hasDraft&&!invite;
       var badge=slot.closest('.mail').querySelector('.paper-badge');
       if(badge)badge.hidden=!hasNotes&&!hasDraft;
@@ -70,15 +70,19 @@ export const extrasScript = String.raw`
       paperRows.forEach(function(row,id){if(!live.has(id)){row.node.textContent='';row.node.remove();paperRows.delete(id);added=true;}});
       rows.forEach(function(row){
         if(!row||typeof row.id!=='string'||typeof row.letterId!=='string'||!row.letterId||typeof row.body!=='string'||typeof row.from!=='string'||!Number.isFinite(Date.parse(row.at))||[...row.body].length>40)return;
+        var outgoing=row.direction==='sent',pending=outgoing&&row.delivery==='pending';
         var existing=paperRows.get(row.id);
-        if(existing){if(existing.read!==row.read){existing.read=row.read===true;existing.status.textContent=existing.read?'已读':'未读';existing.status.className='paper-status '+(existing.read?'paper-read':'paper-unread');}return;}
+        if(existing){
+          if(existing.read===(row.read===true)&&existing.delivery===row.delivery&&existing.direction===row.direction)return;
+          existing.node.remove();paperRows.delete(row.id);
+        }
         var node=el('article','paper-slip');node.dataset.noteId=row.id;
-        var heading=el('div','paper-heading');heading.appendChild(el('small',null,row.from+'留下的小纸条'));
-        var status=el('span','paper-status '+(row.read?'paper-read':'paper-unread'),row.read?'已读':'未读');heading.appendChild(status);node.appendChild(heading);node.appendChild(el('p',null,row.body));
-        var together=el('button','read-together','一起看');together.type='button';
-        together.onclick=function(){if(together.disabled)return;together.disabled=true;api('/note/read',{id:row.id}).then(function(r){toast(r.message||'没有递过去，请稍后重试。',!r.ok);refreshPapers();}).catch(function(){toast('没有递过去，请稍后重试。',true);}).then(function(){together.disabled=false;});};
+        var heading=el('div','paper-heading');heading.appendChild(el('small',null,row.from+(outgoing?'寄出的小纸条':'留下的小纸条')));
+        var status=el('span','paper-status '+(pending||(!outgoing&&!row.read)?'paper-unread':'paper-read'),outgoing?(pending?'寄送待确认':'已寄出'):(row.read?'已读':'未读'));heading.appendChild(status);node.appendChild(heading);node.appendChild(el('p',null,row.body));
+        var together=el('button','read-together',pending?'确认寄送结果':'一起看');together.type='button';
+        together.onclick=function(){if(together.disabled)return;together.disabled=true;api(pending?'/note':'/note/read',pending?{letterId:row.letterId}:{id:row.id}).then(function(r){toast(r.message||'没有递过去，请稍后重试。',!r.ok);refreshPapers();refresh();}).catch(function(){toast('没有递过去，请稍后重试。',true);}).then(function(){together.disabled=false;});};
         node.appendChild(together);
-        paperRows.set(row.id,{node:node,letterId:row.letterId,from:row.from,at:row.at,read:row.read===true,status:status});added=true;
+        paperRows.set(row.id,{node:node,letterId:row.letterId,from:row.from,at:row.at,read:row.read===true,direction:row.direction,delivery:row.delivery,status:status});added=true;
       });
       if(added&&state){captureDetails();renderBook();}else attachPapers();
     }).catch(function(){}).then(function(){paperFetching=false;});

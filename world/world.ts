@@ -25,7 +25,7 @@ import type { Language } from 'cortico/core/language.ts';
 import type { EventEnvelope, RunPhase, ToolDef, World, WorldHost, WorldWebUiDecl } from 'cortico/core/types.ts';
 import { nowIso } from 'cortico/core/util.ts';
 import type { WorldContext } from 'cortico/world.ts';
-import { BODY_MAX, REPLY_WINDOW_HOURS, type AnnouncementSummary, type Quota } from '../shared/contract.ts';
+import { BODY_MAX, NOTE_TTL_MS, REPLY_WINDOW_HOURS, type AnnouncementSummary, type Quota } from '../shared/contract.ts';
 import { agoText } from '../shared/ago.ts';
 import { defaultLocalEnv, scanHints, type LocalEnv } from '../shared/hints.ts';
 import { checkBody, checkNote, checkTitle, countChars, safePseudonym } from '../shared/text.ts';
@@ -1340,7 +1340,7 @@ export class BottleWorld implements World {
       }catch{/* Old servers and temporary outages do not hide cached papers. */}
       if(generation!==this.generation||!this.host)return;
       try{
-        for(const note of this.receivedNotes.all())if(!note.readAt&&!this.queuedNotes.has(note.id)&&!this.authorizedNow())this.queueNote(note,'arrival');
+        for(const note of this.receivedNotes.all())if(note.direction!=='sent'&&!note.readAt&&!this.queuedNotes.has(note.id)&&!this.authorizedNow())this.queueNote(note,'arrival');
       }catch{this.log('note delivery could not be queued');}
     })();
     this.noteRefresh=work;void work.finally(()=>{if(this.noteRefresh===work)this.noteRefresh=null;});return work;
@@ -1382,6 +1382,7 @@ export class BottleWorld implements World {
     if(!this.host)return {ok:false,message:'还没有连上。'};
     if(this.authorizedNow()||this.perusePending)return {ok:false,message:'请等当前这轮读完，再一起看。'};
     const paper=this.receivedNotes.get(id);if(!paper)return {ok:false,message:'这张小纸条已经不在信箱里了。'};
+    if(paper.direction==='sent'&&paper.delivery==='pending')return {ok:false,message:'请先确认这张小纸条的寄送结果。'};
     try{this.queueNote(paper,'together');return {ok:true,message:`已把小纸条和原信、原回信一起递给${this.botName}。`};}
     catch{return {ok:false,message:'还没有递过去，请稍后重试。'};}
   }
@@ -1392,6 +1393,7 @@ export class BottleWorld implements World {
     if(this.phase!=='idle'||this.runningTools>0||(this.pendingRequest&&this.pendingRequest.until>this.now())||this.wake?.snapshot().active)return {ok:false,message:`${this.botName}正在处理别的事，稍后再邀请吧。`};
     if(this.noteDraft && this.now()-this.noteDraft.at>=HOUR)this.noteDraft=null;
     if(this.noteSending)return {ok:false,message:'小纸条正在寄出，请稍候。'};
+    if(this.receivedNotes.outgoing(id))return {ok:false,message:'这段往来已有小纸条，请在原信下查看或确认寄送结果。'};
     if(rewrite && this.noteDraft?.letterId!==id)return {ok:false,message:'没有可重写的小纸条，请先邀请起草。'};
     if(!rewrite && this.noteDraft)return {ok:false,message:'先寄出、重写或放弃现有的小纸条。'};
     const original=this.store.sent.find(n=>n.letterId===id),reply=this.store.replies.find(n=>n.letterId===id);
@@ -1420,11 +1422,30 @@ export class BottleWorld implements World {
   private async sendNote(id:string): Promise<PageResult> {
     if(this.noteSending)return {ok:false,message:'小纸条正在寄出，请稍候。'};
     if(this.authorizedNow()?.intent==='note')return {ok:false,message:`${this.botName}正在写小纸条，请等写好后再寄出。`};
-    const draft=this.noteDraft;
-    if(!draft||draft.letterId!==id||this.now()-draft.at>=HOUR){if(draft&&this.now()-draft.at>=HOUR)this.noteDraft=null;return {ok:false,message:'没有可寄出的小纸条，请先邀请起草。'};}
+    const archived=this.receivedNotes.outgoing(id);
+    if(archived?.delivery==='sent')return {ok:true,message:'这张小纸条已经寄出，本机记录保存在原信下方。'};
+    if(archived&&this.now()-Date.parse(archived.at)>=NOTE_TTL_MS)return {ok:false,message:'寄送结果未能确认，已超过可安全重试的期限。原文仍保存在本机，请勿重复寄送。'};
+    const draft=archived?{letterId:id,body:archived.body,at:Date.parse(archived.at)}:this.noteDraft;
+    if(!draft||draft.letterId!==id||(!archived&&this.now()-draft.at>=HOUR)){if(draft&&!archived&&this.now()-draft.at>=HOUR)this.noteDraft=null;return {ok:false,message:'没有可寄出的小纸条，请先邀请起草。'};}
     const sending={};this.noteSending=sending;
-    try{const result=await this.authed(()=>this.client.note(id,draft.body));this.setQuota(result.quota);if(this.noteDraft===draft)this.noteDraft=null;return {ok:true,message:result.repeated?'这封信已经留过纸条，没有重复投递或扣机会。':'小纸条已寄给回信的那位。'};}
-    catch(error){return {ok:false,message:error instanceof BottleError?error.message:'纸条没有寄出，草稿还在，请稍后重试。'};}
+    let staged=false,accepted=false;
+    try{
+      // Human-confirmed outgoing text is durable before the server can accept it.
+      this.receivedNotes.stageOutgoing(id,draft.body,this.botName);staged=true;
+      const result=await this.authed(()=>this.client.note(id,draft.body));accepted=true;this.setQuota(result.quota);
+      if(result.repeated&&!archived){
+        // An older client may have sent different text. Never claim this draft was sent.
+        this.receivedNotes.discardPending(id);
+        return {ok:false,message:'这封信以前已留过纸条，本稿没有重新寄出。旧版本未保存的纸条原文无法从回执找回。'};
+      }
+      this.receivedNotes.confirmOutgoing(id);
+      if(this.noteDraft?.letterId===id)this.noteDraft=null;
+      return {ok:true,message:result.repeated?'已确认寄出，纸条保存在原信下方，没有重复扣机会。':'小纸条已寄给回信的那位，本机记录保存在原信下方。'};
+    }
+    catch(error){
+      if(!staged)return {ok:false,message:'本机未能保存纸条，没有尝试寄出。草稿还在，请检查信箱目录是否可写。'};
+      return {ok:false,message:accepted?'纸条已寄出，本机寄送状态尚未保存。原文已保留，请确认寄送结果。':(error instanceof BottleError?error.message+' 原文已保留，可在原信下确认寄送结果。':'寄送结果尚未确认，原文已保留，可在原信下确认寄送结果。')};
+    }
     finally{if(this.noteSending===sending)this.noteSending=null;}
   }
 
@@ -1734,7 +1755,7 @@ export class BottleWorld implements World {
           }
         : null;
     const snapshot: PageSnapshot = {
-      noteDraft: this.noteDraft,
+      noteDraft: this.noteDraft&&!this.receivedNotes.outgoing(this.noteDraft.letterId)?this.noteDraft:null,
       noteRewriting: this.authorizedNow()?.intent==='note' && !!this.authorized?.noteRewrite,
       starMemoryEnabled: this.ctx.cfg.starMemoryEnabled === true,
       stars: this.starViews(),
@@ -1809,8 +1830,11 @@ export class BottleWorld implements World {
   }
 
   private async forgetHistory(letterId?: string): Promise<PageResult> {
+    if(this.noteSending)return {ok:false,message:'小纸条正在寄出，请稍候再删除往来。'};
     if ((!letterId || this.store.draft?.letterId === letterId) && !await this.cancelAutoReply())
       return { ok: false, message: '尚未取消待寄回信，记录仍保留，请联网后重试。' };
+    // Cancelling an auto-reply may yield while a note send starts in another tab.
+    if(this.noteSending)return {ok:false,message:'小纸条正在寄出，请稍候再删除往来。'};
     if (!letterId || this.store.draft?.letterId === letterId) { this.store.setDraft(null); this.authorized = null; }
     if(!letterId||this.noteDraft?.letterId===letterId)this.noteDraft=null;
     if((this.authorized?.intent==='note'||this.authorized?.paperToken)&&(!letterId||this.authorized.letterId===letterId))this.authorized=null;

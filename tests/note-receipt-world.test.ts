@@ -107,3 +107,11 @@ it('read papers remain attached to their original correspondence after years and
  expect((await page.readNote!(id)).ok).toBe(true);const events=await host.deliverDeferred(h.world);
  for(const text of [paper,original,answer])expect(events[0]!.text).toContain(text);
 });
+
+it('a real cache save failure never ACKs the only server copy; receiving can resume safely',async()=>{
+ const {id}=await incoming(),cache=(h.world as any).receivedNotes,client=(h.world as any).client;
+ const ack=vi.spyOn(client,'ackNote'),fail=vi.spyOn(cache,'save').mockImplementation(()=>{throw Error('disk unavailable');});
+ await(h.world as any).refreshNotes();expect(ack).not.toHaveBeenCalled();expect(h.db.notes.map(n=>n.id)).toContain(id);expect(cache.get(id)).toBeUndefined();
+ fail.mockRestore();await(h.world as any).refreshNotes();expect(ack).toHaveBeenCalledWith(id);expect(h.db.notes).toHaveLength(0);
+ await h.world.stop();host=new FakeHost();await h.world.start(host);expect(await h.world.pageDeps().notes!()).toMatchObject([{id,body:paper}]);
+});

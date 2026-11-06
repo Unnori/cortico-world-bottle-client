@@ -1,4 +1,4 @@
-import {afterEach,expect,it} from 'vitest';
+import {afterEach,expect,it,vi} from 'vitest';
 import {mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';import {join} from 'node:path';
 import {NoteCache} from '../world/note-cache.ts';import {NOTE_TTL_MS} from '../shared/contract.ts';
@@ -31,4 +31,17 @@ it('migrates older cache files even when their server expiry has already passed;
  expect(migrated.get(note.id)?.body).toBe(note.body);migrated.read(note.id);expect(migrated.get(note.id)?.readAt).toBe(clock.t);
  // Old remote packets still cannot introduce already-expired, previously unknown papers.
  expect(migrated.receive({...note,id:'late-unseen'})).toBeNull();
+});
+
+it('outgoing pending and confirmed copies survive loading; deleting the correspondence erases both directions',()=>{
+ const {cache,clock,dir,note}=rig();cache.receive(note);cache.stageOutgoing(note.letterId,'写下后也要留在信册。','Coo');
+ const pending=new NoteCache(dir,()=>clock.t);pending.load();expect(pending.outgoing(note.letterId)).toMatchObject({direction:'sent',delivery:'pending'});
+ pending.confirmOutgoing(note.letterId);clock.t+=NOTE_TTL_MS*100;const next=new NoteCache(dir,()=>clock.t);next.load();
+ expect(next.outgoing(note.letterId)).toMatchObject({body:'写下后也要留在信册。',delivery:'sent'});expect(next.all()).toHaveLength(2);next.forget(note.letterId);expect(next.all()).toEqual([]);
+ expect(readFileSync(next.file,'utf8')).not.toContain('写下后也要留在信册。');
+});
+it('a local write failure rolls back both outgoing staging and incoming receipt before acknowledgement',()=>{
+ const {cache,note}=rig();const fail=vi.spyOn(cache as any,'save').mockImplementation(()=>{throw Error('disk unavailable');});
+ expect(()=>cache.stageOutgoing(note.letterId,'不能丢。','Coo')).toThrow();expect(cache.outgoing(note.letterId)).toBeUndefined();
+ expect(()=>cache.receive(note)).toThrow();expect(cache.get(note.id)).toBeUndefined();fail.mockRestore();
 });

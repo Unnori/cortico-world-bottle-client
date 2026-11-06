@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-bottle",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "type": "module",
   "description": "桌宠起草漂流瓶与小纸条，人确认寄出；共读、回信与星笺记忆分别授权。",
   "keywords": [

@@ -156,7 +156,7 @@ export interface PageResult {
 }
 
 export interface PageDeps {
-  notes?(): Promise<Array<import('../shared/contract.ts').ReceivedNote & {read:boolean}>>;
+  notes?(): Promise<Array<import('./note-cache.ts').LocalNote & {read:boolean}>>;
   readNote?(id:string):Promise<PageResult>;
   ackNote?(id:string): Promise<PageResult>;
   note?(id:string): Promise<PageResult>;
