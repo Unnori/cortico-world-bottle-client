@@ -38,17 +38,18 @@ it('does not increment failed or concurrent handoffs',async()=>{
   expect(both.filter(item=>item.ok)).toHaveLength(1);
   expect(page.snapshot().received[0]?.readCount).toBe(1);
 });
-it('a valid reply draft counts once, and the next together-reading uses the next number',async()=>{
+it('writing a reply does not count as together-reading',async()=>{
   const id=await caught(),page=h.world.pageDeps();
   expect((await page.open('remote')).ok).toBe(true);
   expect((await page.open('remote')).ok).toBe(false);
   expect(page.snapshot().received[0]?.readCount ?? 0).toBe(0);
   await callTool(h.world,'bottle_reply',{text:'谢谢你的来信。'});
-  expect(page.snapshot().received[0]?.readCount).toBe(1);
+  expect(page.snapshot().received[0]?.readCount ?? 0).toBe(0);
   h.world.onTurnEnded();
-  await page.peruse(id);expect(host.last('bottle.peruse')?.text).toContain('第2次');
+  await page.peruse(id);expect(host.last('bottle.peruse')?.text).toContain('第1次');
+  expect(page.snapshot().received[0]?.readCount).toBe(1);
 });
-it('a failed reply turn followed by a successful retry and send counts as one reading',async()=>{
+it('a failed reply turn followed by a successful retry and send still counts no together-reading',async()=>{
   const id=await caught(),page=h.world.pageDeps();
   expect((await page.open('remote')).ok).toBe(true);
   h.world.onEventsSettled([host.last('bottle.reading')!],'delivered');
@@ -59,13 +60,13 @@ it('a failed reply turn followed by a successful retry and send counts as one re
   h.clock.t+=60_000;
   expect((await page.open('remote')).ok).toBe(true);
   await callTool(h.world,'bottle_reply',{text:'第二次成功写好回信。'});
-  expect(page.snapshot().received[0]?.readCount).toBe(1);
+  expect(page.snapshot().received[0]?.readCount ?? 0).toBe(0);
   expect((await page.send('reply')).ok).toBe(true);
-  expect(page.snapshot().received[0]).toMatchObject({letterId:id,outcome:'replied',readCount:1});
+  expect(page.snapshot().received[0]).toMatchObject({letterId:id,outcome:'replied',readCount:0});
   await h.world.stop();await h.world.start(host);
-  expect(h.world.pageDeps().snapshot().received[0]?.readCount).toBe(1);
+  expect(h.world.pageDeps().snapshot().received[0]?.readCount ?? 0).toBe(0);
   await h.world.pageDeps().peruse(id);
-  expect(host.last('bottle.peruse')?.text).toContain('第2次');
+  expect(host.last('bottle.peruse')?.text).toContain('第1次');
 });
 it('invalid reply text and reattempts in the same authorization do not inflate reading counts',async()=>{
   await caught();const page=h.world.pageDeps();
@@ -75,11 +76,11 @@ it('invalid reply text and reattempts in the same authorization do not inflate r
   expect(page.snapshot().received[0]?.readCount ?? 0).toBe(0);
   expect(page.snapshot().replyDraft).toBeNull();
   await callTool(h.world,'bottle_reply',{text:'这一句写好了。'});
-  expect(page.snapshot().received[0]?.readCount).toBe(1);
+  expect(page.snapshot().received[0]?.readCount ?? 0).toBe(0);
   await (h.world as any).doReply('不能重复提交。');
-  expect(page.snapshot().received[0]?.readCount).toBe(1);
+  expect(page.snapshot().received[0]?.readCount ?? 0).toBe(0);
 });
-it('discarded or expired reply authorizations and restart retries do not count as reading',async()=>{
+it('discarded or expired reply authorizations and restart retries do not count as together-reading',async()=>{
   await caught();const page=h.world.pageDeps();
   await page.open('remote');
   h.world.onEventsSettled([host.last('bottle.reading')!],'discarded');
@@ -90,7 +91,25 @@ it('discarded or expired reply authorizations and restart retries do not count a
   await h.world.stop();await h.world.start(host);
   await h.world.pageDeps().open('remote');
   await callTool(h.world,'bottle_reply',{text:'重试后写好。'});
-  expect(h.world.pageDeps().snapshot().received[0]?.readCount).toBe(1);
+  expect(h.world.pageDeps().snapshot().received[0]?.readCount ?? 0).toBe(0);
+});
+it('reading together and then writing a reply counts only the explicit read click',async()=>{
+  const id=await caught(),page=h.world.pageDeps();
+  expect((await page.read!('remote')).ok).toBe(true);
+  const readEvent=host.last('bottle.reading')!;
+  h.world.onEventsSettled([readEvent],'delivered');
+  expect(page.snapshot().received[0]?.readCount).toBe(1);
+  expect((Reflect.get(h.world,'store') as LocalStore).held?.readAt).toBe(h.clock.t);
+  h.world.onTurnEnded();
+  expect((await page.open('remote')).ok).toBe(true);
+  await callTool(h.world,'bottle_reply',{text:'读后，我想认真回你。'});
+  expect(page.snapshot().received[0]?.readCount).toBe(1);
+  h.world.onTurnEnded();
+  expect((await page.send('reply')).ok).toBe(true);
+  expect(page.snapshot().received[0]?.readCount).toBe(1);
+  await page.peruse(id);
+  expect(host.last('bottle.peruse')?.text).toContain('这是你们第2次读这封信。');
+  expect(page.snapshot().received[0]?.readCount).toBe(2);
 });
 it('counts only the returned reply, not the sent original',async()=>{
   const store=Reflect.get(h.world,'store') as LocalStore;

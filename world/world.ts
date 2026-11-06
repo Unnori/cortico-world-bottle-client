@@ -1290,9 +1290,7 @@ export class BottleWorld implements World {
       delete draft.autoSendKey;
       this.store.setDraft(draft);
     }
-    // A retry after a failed model turn is still the same unfinished reading.
-    // Count only once a valid reply draft exists, never when merely queuing the original.
-    this.store.noteRead('received', auth.letterId, this.now());
+    // Reading counts belong to the explicit together-reading action, not reply drafting.
     this.authorized = null;
     this.autoReplyRetryAt=0;
     await this.checkAutoReply();
