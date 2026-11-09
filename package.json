@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-bottle",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "type": "module",
   "description": "桌宠起草漂流瓶与小纸条，人确认寄出；共读、回信与星笺记忆分别授权。",
   "keywords": [
@@ -48,12 +48,12 @@
         "description": "Companion-written letters and short notes, human-confirmed sending, separate read/reply intent and revocable starred-letter memory."
       }
     },
-    "webUiClient": "dist/webui-e3fcf534a3ac.js",
+    "webUiClient": "dist/webui-63ab5d8a5fcf.js",
     "webUiStyle": "dist/webui-152172be2ee1.css"
   },
   "files": [
     "world",
-    "dist/webui-e3fcf534a3ac.js",
+    "dist/webui-63ab5d8a5fcf.js",
     "dist/webui-152172be2ee1.css",
     "shared/contract.ts",
     "shared/text.ts",

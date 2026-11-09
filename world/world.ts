@@ -496,7 +496,7 @@ export class BottleWorld implements World {
     if (!this.host || (!this.online && !(manual && this.hasRecentQuota())) || (!manual && this.ctx.cfg.randomWake === false) || this.authorizedNow() ||
       this.catching || this.sendPending || this.runningTools > 0 ||
       (this.pendingRequest && this.pendingRequest.until > this.now())) return false;
-    if (action === 'remind') return !!this.store.held;
+    if (action === 'remind') return !!(this.store.held || this.store.letterDraft || this.store.draft);
     if (this.store.letterDraft || this.store.draft || this.store.held) return false;
     const reserve = manual ? 0 : 1;
     return action === 'write' ? (this.quota?.bottles_left ?? 0) > reserve

@@ -122,8 +122,8 @@ describe('World 随机邀请接线', () => {
     rig.clock.t += 2 * HOUR;
     if (condition === 'request') await rig.world.pageDeps().request('write');
     await tick();
-    expect(host.deferred).toHaveLength(condition === 'held' ? 1 : 0);
-    if (condition === 'held') expect(host.deferred[0].meta?.action).toBe('remind');
+    expect(host.deferred).toHaveLength(condition === 'held' || condition === 'draft' ? 1 : 0);
+    if (condition === 'held' || condition === 'draft') expect(host.deferred[0].meta?.action).toBe('remind');
   });
   it('排队后新草稿出现会取消邀请，宿主暂停期间不入模型、不积压', async () => {
     const rig = await start(); await tick(); await tick(2);
@@ -213,6 +213,45 @@ describe('信箱行动主体、提醒与可调间隔', () => {
     expect((await page.request('write', 'human')).ok).toBe(true);
     expect(host.last('bottle.request')?.text).toContain('小感受也值得写');
   });
+  it.each(['letter', 'reply'] as const)('只有待寄%s草稿、没有手持来信或可用额度时也提醒，重启后仍有效', async kind => {
+    const rig = await start(0, 0, 0);
+    const store = Reflect.get(rig.world, 'store') as LocalStore;
+    const draft = { kind, body: '只留在本机的草稿正文。', at: rig.clock.t,
+      ...(kind === 'reply' ? { letterId: 'reply-draft-without-held' } : { topic: '不应递给模型的标题' }) };
+    if (kind === 'letter') store.setLetterDraft(draft); else store.setDraft(draft);
+    await rig.world.stop(); await rig.world.start(host);
+    expect(rig.world.pageDeps().snapshot().held).toBeNull();
+    await tick();
+    expect((await status()).wake.lanes.remind.nextAt).toBe(rig.clock.t + 0.5 * HOUR);
+    await tick(0.49); expect(host.deferred).toHaveLength(0);
+    await tick(0.01);
+    expect(host.deferred).toHaveLength(1);
+    expect(host.deferred[0].meta?.action).toBe('remind');
+    const [event] = await host.deliverDeferred(rig.world);
+    expect(event.text).toContain('0 封来信、1 份草稿');
+    expect(event.text).toContain('只提醒，不读信、不代寄');
+    expect(event.text).not.toContain(draft.body);
+    expect(event.text).not.toContain('不应递给模型的标题');
+    rig.world.onTurnEnded();
+    expect((await status()).wake.history.at(-1)).toMatchObject({ action: 'remind', result: 'completed' });
+    await tick(); await tick(0.5);
+    expect(host.deferred).toHaveLength(1);
+    expect(host.deferred[0].meta?.action).toBe('remind');
+  });
+  it.each(['send', 'discard'] as const)('草稿%s后取消排队提醒，没有待办时不再安排提醒', async action => {
+    const rig = await start(); const page = rig.world.pageDeps();
+    await callTool(rig.world, 'bottle_write', { title: '待寄的信', text: '只在页面里的一封。' });
+    await tick(); await tick(0.5);
+    expect(host.deferred).toHaveLength(1);
+    if (action === 'send') expect((await page.send('letter')).ok).toBe(true);
+    else expect((await page.discard('letter')).ok).toBe(true);
+    expect(page.snapshot().letterDraft).toBeNull();
+    expect(await host.deliverDeferred(rig.world)).toHaveLength(0);
+    expect((await status()).wake.history.at(-1)).toMatchObject({ action: 'remind', result: 'cancelled' });
+    await tick(); await tick(0.5);
+    expect(host.deferred).toHaveLength(0);
+    expect((await status()).wake.lanes.remind.nextAt).toBeNull();
+  });
   it('有信和草稿只安排不含正文的待办提醒，提醒送达即完成，不因没有工具调用重试', async () => {
     const rig = await start();
     rig.throwAs('peer', '不能泄露给模型的正文。'); await rig.world.pageDeps().request('catch', 'human');
@@ -228,12 +267,32 @@ describe('信箱行动主体、提醒与可调间隔', () => {
     expect((await status()).wake.active).toBeNull();
     expect((await status()).wake.history.at(-1)).toMatchObject({ action: 'remind', result: 'completed' });
   });
+  it('来信放回后还有草稿，已排队提醒仍送达且按当前数量提示', async () => {
+    const rig = await start(); const page = rig.world.pageDeps();
+    rig.throwAs('peer', '来信的私密正文。'); await page.request('catch', 'human');
+    await callTool(rig.world, 'bottle_write', { title: '留在岸边', text: '草稿的私密正文。' });
+    await tick(); await tick(0.5);
+    expect(host.deferred).toHaveLength(1);
+    expect((await page.dismiss()).ok).toBe(true);
+    const [event] = await host.deliverDeferred(rig.world);
+    expect(event.text).toContain('0 封来信、1 份草稿');
+    expect(event.text).not.toContain('私密正文');
+  });
+  it.each(['paused', 'disabled', 'busy'] as const)('只有草稿时仍尊重%s，不唤醒桌宠', async condition => {
+    const rig = await start(0, 0, 0, condition === 'disabled' ? { randomWake: false } : {});
+    await callTool(rig.world, 'bottle_write', { title: '待寄的信', text: '尚未寄出。' });
+    if (condition === 'paused') await handlePage(rig.world.pageDeps(), 'POST', '/wake', { body: { action: 'remind', command: 'pause' } });
+    if (condition === 'busy') rig.world.onRunPhase({ state: 'model', running: [], enteredAt: '' });
+    await tick(); await tick(0.5);
+    expect(host.deferred).toHaveLength(0);
+  });
   it('待办处理后取消已排队的提醒；暂停提醒不影响别的类别', async () => {
     const rig = await start(); const page = rig.world.pageDeps();
     rig.throwAs('peer', '待处理的来信。'); await page.request('catch', 'human');
     await callTool(rig.world, 'bottle_write', { title: '一份草稿', text: '还没寄。' });
     await tick(); await tick(0.5); await page.dismiss();
     expect(page.snapshot().letterDraft).not.toBeNull();
+    expect((await page.discard('letter')).ok).toBe(true);
     expect(await host.deliverDeferred(rig.world)).toHaveLength(0);
     expect((await status()).wake.history.at(-1)).toMatchObject({ action: 'remind', result: 'cancelled' });
     await handlePage(page, 'POST', '/wake', { body: { action: 'remind', command: 'pause' } });
@@ -501,9 +560,8 @@ it('未读或旧版只有阅读次数的信，不凭收信时间编造读信间�
 });
 
 
-it.each([false, true])('没有来信（只有草稿=%s）时绝不安排待办提醒', async draft => {
-  const rig = await start(1, 1, 1);
-  if (draft) await callTool(rig.world, 'bottle_write', { title: '未寄出', text: '这只是主动写信稿。' });
+it('没有来信和草稿时绝不安排待办提醒', async () => {
+  await start(1, 1, 1);
   await tick();
   for (let n = 0; n < 15; n++) await tick(0.5);
   expect(host.deferred).toHaveLength(0);

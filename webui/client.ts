@@ -91,7 +91,7 @@ export async function mountMailbox(ctx: WebUiPanelContext): Promise<void> {
     row.append(label, hoursLabel, limitLabel, save, toggle); invitations.append(row);
     return { action, label, toggle, hours, limit, save };
   });
-  invitations.append(ui.h('p', 'bottle-wake-outcome', zh ? '写信、打捞默认每天各 3 次，间隔 2—24 小时并随机延长；待办提醒默认每天 12 次（可设 3—20 次），仅有待处理来信时每 30—60 分钟轻声提醒。包含自动补试，手动邀请不占上限。配置页顶栏为快照，信箱页签每 5 秒同步。' : 'Writing/catching default to 3/day, with a randomized 2–24 hour minimum. Reminders default to 12/day (3–20), every 30–60 minutes only while holding incoming mail. Retries count; manual invitations are separate. Header snapshots sync every 5 seconds on this tab.'));
+  invitations.append(ui.h('p', 'bottle-wake-outcome', zh ? '写信、打捞默认每天各 3 次，间隔 2—24 小时并随机延长；待办提醒默认每天 12 次（可设 3—20 次），有待处理来信或待寄草稿时每 30—60 分钟轻声提醒。包含自动补试，手动邀请不占上限。配置页顶栏为快照，信箱页签每 5 秒同步。' : 'Writing/catching default to 3/day, with a randomized 2–24 hour minimum. Reminders default to 12/day (3–20), every 30–60 minutes only while incoming mail or unsent drafts remain. Retries count; manual invitations are separate. Header snapshots sync every 5 seconds on this tab.'));
   const outcome = ui.h('p', 'bottle-wake-outcome');
   invitations.append(outcome); ctx.root.append(invitations);
   let wake: WakeState | null = null;

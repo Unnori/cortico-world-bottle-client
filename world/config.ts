@@ -185,7 +185,7 @@ export const BOTTLE_CONFIG_FIELDS: Record<string, ConfigProperty> = {
     [`worlds.bottle.${enabled}`, {
       type: 'boolean' as const, title: label,
       description: action === 'remind'
-        ? '仅在手上有尚未处理的来信时温和提醒，没有来信或只有草稿时不触发；不读正文，也不代替人寄信。关闭即暂停，与网页设置同步。'
+        ? '有尚未处理的来信、待寄信稿或回信稿时温和提醒；全部处理完后停止；不读正文，也不代替人寄信。关闭即暂停，与网页设置同步。'
         : '余量大于 1 且手上没有待办时，偶尔邀请它自主选择。关闭即暂停，与网页设置同步；人手动发出的邀请仍尊重暂停。',
       'x-hot': true,
     }],
