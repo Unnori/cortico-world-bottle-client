@@ -46,16 +46,23 @@ describe('漂流瓶 World · 装载', () => {
     }
   });
 
-  it('九个工具，没有 bottle_send，星笺重读与纸条起草须授权', async () => {
+  it('固定注册工具，没有不受控的 bottle_send；无头、星笺与纸条仍须授权', async () => {
     const world = await started();
     expect(world.tools().map((tool) => tool.name).sort()).toEqual([
       'bottle_catch',
+      'bottle_discard_draft',
+      'bottle_list_drafts',
       'bottle_mailbox',
+      'bottle_manage_letter',
       'bottle_note',
       'bottle_open_page',
       'bottle_query_doodles',
+      'bottle_read_letter',
       'bottle_reply',
+      'bottle_rewrite_draft',
+      'bottle_send_draft',
       'bottle_star_memory',
+      'bottle_view_draft',
       'bottle_wake_choice',
       'bottle_write',
     ]);

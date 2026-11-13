@@ -278,10 +278,9 @@ export class BottleWorld implements World {
   }
 
   tools(): ToolDef[] {
-    // 工具表在一个 session 里是固定的（换表要等上下文交接），所以不能靠「这一轮少给几个」
-    // 来做授权隔离；隔离靠 handler：读信期间另外三个一律拒绝，只有 bottle_reply 能用。
-    // 无头模式工具只在配置开启时加入表；关闭时调用被缓存工具也必须在 handler 内拒绝。
-    return bottleTools(this.toolDeps(), this.ctx.cfg.headlessEnabled === true);
+    // 宿主缓存会话工具表，声明必须稳定，才能在热开启后立刻使用草稿工具。
+    // 是否能读/发只由 handler 的实时开关、生命周期和读信意图校验决定。
+    return bottleTools(this.toolDeps());
   }
 
   private quotaIndicators(en: boolean): Array<{ label: string; left: number | undefined }> {

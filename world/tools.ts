@@ -1,6 +1,6 @@
 /**
  * 工具。默认由人从信箱寄出；无头开关明确开启后，允许模型按人的聊天指令寄出指定版本。
- * **无头模式工具**：只在 headlessEnabled 为 true 时可用；关闭时调用必须拒绝。
+ * 工具声明固定注册，兼容宿主的会话缓存；无头能力只在实时开关开启时可用。
  *
  * 回执的规矩：写/捞/回都只说「放在了哪」，不念正文。正文的显示通道是页面，不是气泡。
  */
@@ -142,7 +142,7 @@ export const BOTTLE_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
   },
 ];
 
-/** 无头模式专用工具，只在 headlessEnabled 为 true 时加入工具表。 */
+/** 无头专用工具固定声明；是否可执行由 World handler 的实时开关判定。 */
 export const BOTTLE_HEADLESS_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
   {
     name: 'bottle_read_letter',
@@ -211,7 +211,7 @@ export const BOTTLE_HEADLESS_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>>
 
 ];
 
-export function bottleTools(deps: BottleToolDeps, headlessEnabled: boolean = false): ToolDef[] {
+export function bottleTools(deps: BottleToolDeps): ToolDef[] {
   const handlers: Record<string, ToolDef['handler']> = {
     bottle_query_doodles: () => deps.queryDoodles(),
     bottle_star_memory: args => deps.starMemory(args.index),
@@ -240,18 +240,8 @@ export function bottleTools(deps: BottleToolDeps, headlessEnabled: boolean = fal
     bottle_send_draft: (args) => deps.sendDraft(String(args.draftId ?? ''), typeof args.revision === 'number' ? args.revision : 0),
   };
 
-  const baseTools = BOTTLE_TOOL_DECLS.map((decl) => ({
+  return [...BOTTLE_TOOL_DECLS, ...BOTTLE_HEADLESS_TOOL_DECLS].map((decl) => ({
     ...decl,
     handler: handlers[decl.name] ?? (async () => `[not implemented] ${decl.name}`),
   }));
-
-  if (headlessEnabled) {
-    const headlessTools = BOTTLE_HEADLESS_TOOL_DECLS.map((decl) => ({
-      ...decl,
-      handler: handlers[decl.name] ?? (async () => `[not implemented] ${decl.name}`),
-    }));
-    return [...baseTools, ...headlessTools];
-  }
-
-  return baseTools;
 }

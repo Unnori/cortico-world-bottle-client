@@ -7,15 +7,15 @@ const draftId = (kind: 'letter' | 'reply') => (kind === 'letter' ? Reflect.get(h
 afterEach(async () => { await h?.stop(); });
 
 describe('headless mode tools', () => {
-  it('are excluded from tool table when headlessEnabled is false', async () => {
+  it('stay registered with headless off but every headless handler refuses access', async () => {
     h = makeHarness({ config: { headlessEnabled: false } });
     await h.world.start(new FakeHost());
     const tools = h.world.tools();
     const names = tools.map(t => t.name);
-    expect(names).not.toContain('bottle_read_letter');
-    expect(names).not.toContain('bottle_list_drafts');
-    expect(names).not.toContain('bottle_view_draft');
-    expect(names).not.toContain('bottle_send_draft');
+    for(const name of ['bottle_read_letter','bottle_list_drafts','bottle_view_draft','bottle_send_draft','bottle_rewrite_draft','bottle_discard_draft','bottle_manage_letter']) {
+      expect(names).toContain(name);
+      expect(await tools.find(t=>t.name===name)!.handler({letterId:'held',draftId:'missing',revision:1,text:'blocked',action:'return'},{} as any)).toContain('无头模式未开启');
+    }
   });
 
   it('are included in tool table when headlessEnabled is true', async () => {
