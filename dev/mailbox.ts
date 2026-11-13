@@ -19,6 +19,7 @@ import { readFile } from 'node:fs/promises';
 import { handlePage, type PageDeps, type PageSnapshot, type PageResult } from '../world/page.ts';
 import type { ReceivedNote } from '../shared/contract.ts';
 import type { SoftHint } from '../shared/hints.ts';
+import { checkStationery } from '../shared/stationery.ts';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -73,6 +74,21 @@ let world = blank();
 // ── 场景 ──────────────────────────────────────────────────────────────────
 
 const SCENES: Record<string, { label: string; apply(): void }> = {
+  stationery: {
+    label: '信纸排版：配色、多图与水印',
+    apply() {
+      world=blank();
+      const art=checkStationery({v:2,paper:'plain',paperColor:'#fff8ed',decorations:[
+        {doodle:'rain-cloud',color:'#638c9c',x:14,y:14,width:22,rotation:-12,opacity:.45},
+        {doodle:'paper-plane',color:'#77987c',placement:'center',size:'large',rotation:10,opacity:.12},
+        {doodle:'loose-daisy',color:'#bd7c90',x:84,y:86,width:20,rotation:20,opacity:.5,z:2},
+        {doodle:'classic-sparkle',color:'#c99d62',x:91,y:10,width:10,layer:'front',opacity:.5},
+      ]});
+      if(!art.ok||!art.value)throw Error('Invalid stationery demo');
+      const body='把云朵放在左上角，\n把花留在落款旁。\n今天的风有一点颜色。';
+      world.letterDraft={kind:'letter',topic:'风的颜色',body,chars:[...body].length,at:now(),hints:[],stationery:art.value};
+    },
+  },
   empty: {
     label: '空信箱（只有一张写好的信）',
     apply() {
@@ -293,7 +309,7 @@ function snapshot(): PageSnapshot {
     wake: world.wake,
     randomWake: true,
     cooldowns: {},
-    quota: { bottles_left: 2, catches_left: 1, replies_left: 3 },
+    quota: { bottles_left: 2, catches_left: 1, replies_left: 3, stationery: 1, stationery_layout: 2 },
     online: true,
     announcement: world.announcement,
     tideOut: world.tideOut,

@@ -1,5 +1,68 @@
 /** One sheet per letter. Text is rendered verbatim; interface labels stay outside the paper. */
 export const stationeryScript = String.raw`
+  function stationeryImage(drawing, failed) {
+    var img = new Image();
+    img.setAttribute('alt', '');
+    img.setAttribute('aria-hidden', 'true');
+    img.draggable = false;
+    img.addEventListener('error', failed, { once: true });
+    if (drawing.doodle) {
+      img.src = '/doodle/' + encodeURIComponent(drawing.doodle) + (drawing.color ? '/' + drawing.color.slice(1) : '');
+    } else if (drawing.customSvg) {
+      var url = URL.createObjectURL(new Blob([drawing.customSvg], { type: 'image/svg+xml' }));
+      img.addEventListener('load', function() { URL.revokeObjectURL(url); }, { once: true });
+      img.addEventListener('error', function() { URL.revokeObjectURL(url); }, { once: true });
+      img.src = url;
+    }
+    return img;
+  }
+
+  function applyStationery(sheet, stationery) {
+    if (!stationery) return;
+    if (stationery.paper) sheet.classList.add('paper-' + stationery.paper);
+    if (stationery.v === 2) {
+      sheet.classList.add('layout-sheet');
+      if (stationery.paperColor) {
+        sheet.style.setProperty('--letter-stock', stationery.paperColor);
+        var channels = stationery.paperColor.slice(1).match(/../g).map(function(c) {
+          var n = parseInt(c, 16) / 255;
+          return n <= .04045 ? n / 12.92 : Math.pow((n + .055) / 1.055, 2.4);
+        });
+        var ink = .2126 * channels[0] + .7152 * channels[1] + .0722 * channels[2] > .179 ? '#000000' : '#ffffff';
+        sheet.style.setProperty('--ink', ink);
+        sheet.style.setProperty('--muted', ink);
+      }
+      var layers = {};
+      (stationery.decorations || []).forEach(function(drawing) {
+        var name = drawing.layer === 'front' ? 'front' : 'behind';
+        if (!layers[name]) {
+          layers[name] = el('div', 'letter-decor letter-decor-' + name);
+          layers[name].setAttribute('aria-hidden', 'true');
+          sheet.appendChild(layers[name]);
+        }
+        var stamp = el('div', 'letter-stamp');
+        stamp.style.left = drawing.x + '%';
+        stamp.style.top = drawing.y + '%';
+        stamp.style.width = drawing.width + '%';
+        stamp.style.opacity = drawing.opacity;
+        stamp.style.zIndex = drawing.z;
+        stamp.style.transform = 'translate(-50%, -50%) rotate(' + drawing.rotation + 'deg) scale(' + (drawing.flipX ? -1 : 1) + ',' + (drawing.flipY ? -1 : 1) + ')';
+        stamp.appendChild(stationeryImage(drawing, function() { stamp.remove(); }));
+        layers[name].appendChild(stamp);
+      });
+      return;
+    }
+    if (stationery.doodle || stationery.customSvg) {
+      var decor = document.createElement('div');
+      decor.className = 'letter-decor';
+      decor.setAttribute('aria-hidden', 'true');
+      var img = stationeryImage(stationery, function() { decor.remove(); });
+      img.className = 'letter-doodle';
+      decor.appendChild(img);
+      sheet.appendChild(decor);
+    }
+  }
+
   function letterSheet(options) {
     var sheet = el('article', 'letter-sheet' + (options.own ? ' own-sheet' : ''));
     sheet.setAttribute('aria-label', options.topic || (options.own ? botName() + '写下的信' : '信笺正文'));
@@ -12,6 +75,7 @@ export const stationeryScript = String.raw`
     copy.appendChild(fontLetter(options.body, options.fontId, false, options.own));
     if (options.signature) copy.appendChild(fontNode(el('div', 'letter-signature', '—— ' + options.signature), options.fontId, options.own));
     sheet.appendChild(copy);
+    applyStationery(sheet, options.stationery);
     return sheet;
   }
 `;
@@ -24,6 +88,20 @@ export const stationeryStyles = `
   .letter-sheet::before { content:''; position:absolute; z-index:-1; inset:0; pointer-events:none; background:linear-gradient(90deg,transparent 49.7%,color-mix(in srgb,var(--ink) 2.5%,transparent) 50%,transparent 50.5%); }
   .letter-sheet::after { content:''; position:absolute; top:-1px; right:-1px; width:23px; height:23px; border-radius:0 10px 0 5px; background:linear-gradient(225deg,var(--panel) 47%,var(--edge) 49%,var(--letter-stock) 54%); opacity:.65; pointer-events:none; }
   .letter-sheet.own-sheet { --letter-stock:color-mix(in srgb,var(--card) 96%,var(--accent)); }
+  /* 纸张纹理：方格、横线、空白 */
+  .letter-sheet.paper-grid { background:repeating-linear-gradient(0deg,transparent 0 23px,color-mix(in srgb,var(--ink) 5%,transparent) 23px 24px),repeating-linear-gradient(90deg,transparent 0 23px,color-mix(in srgb,var(--ink) 5%,transparent) 23px 24px),var(--letter-stock); }
+  .letter-sheet.paper-line { background:repeating-linear-gradient(0deg,transparent 0 calc(var(--letter-size,26px) * 1.95 - 1px),color-mix(in srgb,var(--ink) 8%,transparent) calc(var(--letter-size,26px) * 1.95 - 1px) calc(var(--letter-size,26px) * 1.95)),var(--letter-stock); }
+  .letter-sheet.paper-plain { background:var(--letter-stock); }
+  /* 手账装饰图案 */
+  .letter-decor { position:absolute; inset:0; pointer-events:none; overflow:hidden; border-radius:inherit; }
+  .letter-doodle { position:absolute; bottom:12px; right:12px; width:clamp(60px,15%,120px); height:auto; opacity:.45; object-fit:contain; display:block; }
+  .letter-sheet.own-sheet .letter-doodle { opacity:.35; }
+  .layout-sheet > .letter-decor-behind { z-index:0; }
+  .layout-sheet > :is(.letter-copy,.letter-watermark) { position:relative; z-index:1; }
+  .layout-sheet > .letter-decor-front { z-index:2; opacity:.35; }
+  .layout-sheet::after { z-index:3; }
+  .letter-stamp { position:absolute; aspect-ratio:1; transform-origin:center; }
+  .letter-stamp > img { display:block; width:100%; height:100%; object-fit:contain; }
   .letter-watermark { display:flex; justify-content:center; margin:-28px 0 22px; color:color-mix(in srgb,var(--accent-text,var(--accent)) 50%,var(--muted)); }
   .letter-watermark .icon { width:34px; height:18px; stroke-width:1; }
   .letter-copy { max-width:620px; min-width:0; margin:0 auto; }

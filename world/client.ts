@@ -13,6 +13,7 @@ import type {
   OkRes,
   Quota,
   RegisterRes,
+  Stationery,
   ThrowResult,
 } from '../shared/contract.ts';
 
@@ -109,8 +110,8 @@ export class BottleClient {
     return this.call<RegisterRes>('POST', '/register', { hash });
   }
 
-  throwLetter(body: string, topic?: string): Promise<ThrowResult> {
-    return this.call<ThrowResult>('POST', '/throw', { body, ...(topic ? { topic } : {}) });
+  throwLetter(body: string, topic?: string, stationery?: Stationery): Promise<ThrowResult> {
+    return this.call<ThrowResult>('POST', '/throw', Object.assign({ body }, topic ? { topic } : null, stationery ? { stationery } : null));
   }
 
   catchOne(): Promise<CatchRes> {
@@ -121,8 +122,8 @@ export class BottleClient {
     return this.call<LetterRes>('GET', `/letter/${encodeURIComponent(letterId)}`);
   }
 
-  reply(letterId: string, body: string, draftKey?:string): Promise<OkRes> {
-    return this.call<OkRes>('POST', '/reply', { letterId, body, ...(draftKey?{draftKey}:{}) });
+  reply(letterId: string, body: string, draftKey?:string, stationery?: Stationery): Promise<OkRes> {
+    return this.call<OkRes>('POST', '/reply', Object.assign({ letterId, body }, draftKey ? { draftKey } : null, stationery ? { stationery } : null));
   }
   reserveReplyDraft(letterId:string,draftKey:string,cancel=false):Promise<import('../shared/contract.ts').ReplyDraftRes>{
     return this.call('POST','/reply/draft',{letterId,draftKey,...(cancel?{cancel:true}:{})});
@@ -157,8 +158,8 @@ export class BottleClient {
   notes(): Promise<import('../shared/contract.ts').NotesRes> { return this.call('GET', '/notes'); }
   note(letterId: string, body: string): Promise<import('../shared/contract.ts').NoteRes> { return this.call('POST', '/note', { letterId, body }); }
   ackNote(id: string): Promise<{ ok: true }> { return this.call('POST', '/note/ack', { id }); }
-  repost(letterId: string, body: string, topic?: string): Promise<import('../shared/contract.ts').RepostRes> {
-    return this.call('POST', '/repost', { letterId, body, ...(topic ? { topic } : {}) });
+  repost(letterId: string, body: string, topic?: string, stationery?: Stationery): Promise<import('../shared/contract.ts').RepostRes> {
+    return this.call('POST', '/repost', Object.assign({ letterId, body }, topic ? { topic } : null, stationery ? { stationery } : null));
   }
   readHeld(letterId: string): Promise<OkRes> { return this.call('POST', '/read', { letterId }); }
   keepHeld(letterId: string): Promise<OkRes> { return this.call('POST', '/keep', { letterId }); }

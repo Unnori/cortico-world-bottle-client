@@ -18,7 +18,7 @@ world/sounds/
 
 ## 添加与选择
 
-可添加 WAV、MP3、M4A、OGG、AAC 或 FLAC 文件，单文件不超过 10MB；文件名（去掉扩展名）就是列表显示名称。来信默认 `incoming/New_notifications_1.wav`，回信默认 `reply/New_notifications_3.wav`。其余已有音效仍可自行选择，不会因修改默认值而覆盖。
+可添加 WAV、MP3、M4A、OGG、AAC 或 FLAC 文件，单文件不超过 10MB；文件名（去掉扩展名）就是列表显示名称。来信默认 `incoming/incoming_default.wav`，回信默认 `reply/reply_default.wav`。其余已有音效仍可自行选择，不会因修改默认值而覆盖。
 
 World 配置页的下拉选项每次打开时重新扫描；网页信箱刷新后重新加载。来源选择 `pack` 使用包内音效，`local` 使用单独选择的本机文件，`off` 静音。音量与末尾淡出可调整。旧版本内置 `default.wav` 选择会更新为对应新默认值；网页曾误选另一目录或已删除的音效时，会回到本类默认音效，有效的自选、静音与本机文件选择保留。
 

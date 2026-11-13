@@ -22,12 +22,12 @@ it('counts successful reading handoffs and persists across a World restart',asyn
   const id=await caught(),page=h.world.pageDeps();
   expect(page.snapshot().received[0]?.readCount ?? 0).toBe(0);
   expect((await page.peruse(id)).ok).toBe(true);
-  expect(host.last('bottle.peruse')?.text).toContain('这是你们第1次读这封信。');
+  expect(host.last('bottle.peruse')?.text).toContain('You are reading this letter together for time 1.');
   expect(page.snapshot().received[0]?.readCount).toBe(1);
   await h.world.stop();await h.world.start(host);
   expect(h.world.pageDeps().snapshot().received[0]?.readCount).toBe(1);
   await h.world.pageDeps().peruse(id);
-  expect(host.last('bottle.peruse')?.text).toContain('这是你们第2次读这封信。');
+  expect(host.last('bottle.peruse')?.text).toContain('You are reading this letter together for time 2.');
   expect(h.world.pageDeps().snapshot().received[0]?.readCount).toBe(2);
 });
 it('does not increment failed or concurrent handoffs',async()=>{
@@ -46,7 +46,7 @@ it('writing a reply does not count as together-reading',async()=>{
   await callTool(h.world,'bottle_reply',{text:'谢谢你的来信。'});
   expect(page.snapshot().received[0]?.readCount ?? 0).toBe(0);
   h.world.onTurnEnded();
-  await page.peruse(id);expect(host.last('bottle.peruse')?.text).toContain('第1次');
+  await page.peruse(id);expect(host.last('bottle.peruse')?.text).toContain('time 1');
   expect(page.snapshot().received[0]?.readCount).toBe(1);
 });
 it('a failed reply turn followed by a successful retry and send still counts no together-reading',async()=>{
@@ -66,7 +66,7 @@ it('a failed reply turn followed by a successful retry and send still counts no 
   await h.world.stop();await h.world.start(host);
   expect(h.world.pageDeps().snapshot().received[0]?.readCount ?? 0).toBe(0);
   await h.world.pageDeps().peruse(id);
-  expect(host.last('bottle.peruse')?.text).toContain('第1次');
+  expect(host.last('bottle.peruse')?.text).toContain('time 1');
 });
 it('invalid reply text and reattempts in the same authorization do not inflate reading counts',async()=>{
   await caught();const page=h.world.pageDeps();
@@ -108,7 +108,7 @@ it('reading together and then writing a reply counts only the explicit read clic
   expect((await page.send('reply')).ok).toBe(true);
   expect(page.snapshot().received[0]?.readCount).toBe(1);
   await page.peruse(id);
-  expect(host.last('bottle.peruse')?.text).toContain('这是你们第2次读这封信。');
+  expect(host.last('bottle.peruse')?.text).toContain('You are reading this letter together for time 2.');
   expect(page.snapshot().received[0]?.readCount).toBe(2);
 });
 it('counts only the returned reply, not the sent original',async()=>{
@@ -118,9 +118,9 @@ it('counts only the returned reply, not the sent original',async()=>{
   await h.world.pageDeps().peruse('mine');
   const sent=h.world.pageDeps().snapshot().sent[0]!;
   expect(sent).not.toHaveProperty('readCount');expect(sent.reply?.readCount).toBe(1);
-  expect(host.last('bottle.peruse')?.text).toContain('第1次');
+  expect(host.last('bottle.peruse')?.text).toContain('time 1');
   h.world.onEventsSettled([host.last('bottle.peruse')!],'delivered');h.world.onTurnEnded();
-  await h.world.pageDeps().peruse('mine');expect(host.last('bottle.peruse')?.text).toContain('第2次');
+  await h.world.pageDeps().peruse('mine');expect(host.last('bottle.peruse')?.text).toContain('time 2');
   expect(h.world.pageDeps().snapshot().sent[0]).not.toHaveProperty('readCount');
   expect(store.sent[0]).not.toHaveProperty('readCount');
 });

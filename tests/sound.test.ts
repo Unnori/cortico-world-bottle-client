@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { soundLibrary, soundOptions, packSound, cardSound, DEFAULT_SOUND_PACK } from '../world/sound.ts';
+import { soundLibrary, soundOptions, packSound, cardSound, DEFAULT_SOUND_PACK, LEGACY_SOUND_ALIASES, soundPackChoice } from '../world/sound.ts';
 import { BOTTLE } from '../world/definition.ts';
 import { LocalStore, readingCount } from '../world/store.ts';
 import { handlePage, type PageDeps } from '../world/page.ts';
@@ -46,7 +46,8 @@ it('normalizes legacy or malformed counts and persists separate record counters'
   const next=new LocalStore(dir);next.load();expect(next.received[0]?.readCount).toBe(1);expect(next.replies[0]?.readCount).toBe(2);expect(next.sent[0]).not.toHaveProperty('readCount');
 });
 it.skipIf(process.platform!=='win32')('parses both native scripts and verifies fade math without launching a window or audio',()=>{
-  const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',`
+  // Match the native card launcher; do not depend on the caller's PowerShell policy.
+  const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',`
     $ErrorActionPreference='Stop'
     foreach($file in @('world/card-host.ps1','world/card-sound.ps1')) {
       $tokens=$null; $errors=$null
@@ -88,4 +89,18 @@ it('framework dynamic menus follow the same directory rules as the mailbox',asyn
     expect(choices.some(choice=>choice.value.startsWith(other))).toBe(false);
   }
   expect(await BOTTLE.configOptions!('bottle-sound-unknown', 'zh')).toEqual([]);
+});
+
+
+it('migrates every retired built-in ID and serves matching WAV bytes to old pages',async()=>{
+  for(const [old,current] of Object.entries(LEGACY_SOUND_ALIASES)) {
+    const kind=old.startsWith('incoming/')?'incoming':'reply';
+    expect(soundPackChoice(old,kind)).toBe(current);
+    const card=cardSound(kind==='incoming'?{soundIncomingPack:old}:{soundReplyPack:old},kind);
+    expect(card?.path.replaceAll('\\','/')).toContain(current);
+    const response=await handlePage({} as PageDeps,'GET','/sounds/'+encodeURIComponent(old));
+    expect(response.status).toBe(200);
+    expect(response.binary?.bytes).toEqual(packSound(current)?.bytes);
+    expect(Buffer.from(response.binary!.bytes).subarray(0,4).toString()).toBe('RIFF');
+  }
 });

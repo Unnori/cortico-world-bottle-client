@@ -1,0 +1,448 @@
+{
+  "version": 1,
+  "collection": "SVG Doodles",
+  "creator": "Michael Andreuzza",
+  "website": "https://svgdoodles.com/",
+  "creatorWebsite": "https://michaelandreuzza.com/",
+  "license": "CC-BY-3.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+  "licenseDeclaration": "https://peerlist.io/mike_andreuzza/project/svg-doodles",
+  "retrievedAt": "2026-11-13",
+  "assets": [
+    {
+      "id": "paper-plane",
+      "sourceUrl": "https://svgdoodles.com/doodles/paper-plane.svg",
+      "originalTitle": "Paper Plane",
+      "legacyId": "232",
+      "originalSha256": "5e47119f192a699c29299c101463d6df12306c91048038af59ebbccbf5fba026",
+      "sha256": "9cb79097f287cad3c63472ec1e6763a86c8d499a9987a1218b82e00f286050f8",
+      "bytes": 343,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "paper-plane.svg",
+      "name": "小纸飞机"
+    },
+    {
+      "id": "rain-cloud",
+      "sourceUrl": "https://svgdoodles.com/doodles/rain-cloud.svg",
+      "originalTitle": "Rain Cloud",
+      "legacyId": "230",
+      "originalSha256": "57e1689c0889a34dd6cba53694e10b9e978823a8e54397cb44b0aa3db554a1fd",
+      "sha256": "b28508f230943e9b3aaeb31777caf48365091003d449a6dcf8015a254758363d",
+      "bytes": 412,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "rain-cloud.svg",
+      "name": "雨云"
+    },
+    {
+      "id": "rainbow-arcs",
+      "sourceUrl": "https://svgdoodles.com/doodles/rainbow-arcs.svg",
+      "originalTitle": "Rainbow Arcs",
+      "legacyId": "229",
+      "originalSha256": "673cc2d493c42ac8869449531bb3bbfa71593dd6f0fe2a9b1dcd46b671bc127f",
+      "sha256": "74296e00f4f3497b866853f50b5ba3024dc01f609da3f600d69c0fa0c6e33c46",
+      "bytes": 306,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "rainbow-arcs.svg",
+      "name": "彩虹弧线"
+    },
+    {
+      "id": "loose-daisy",
+      "sourceUrl": "https://svgdoodles.com/doodles/loose-daisy.svg",
+      "originalTitle": "Loose Daisy",
+      "legacyId": "234",
+      "originalSha256": "15be48d544d6d2e0ff52576fe202d351aa38ad5dea8b03fb6ce09a3c99239493",
+      "sha256": "3ccfc61ecea5589f317077964076e52882eb77219c96998e71b4f892cf250641",
+      "bytes": 572,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "loose-daisy.svg",
+      "name": "随手小雏菊"
+    },
+    {
+      "id": "geometric-lotus-flower",
+      "sourceUrl": "https://svgdoodles.com/doodles/geometric-lotus-flower.svg",
+      "originalTitle": "Geometric Lotus Flower",
+      "legacyId": "49",
+      "originalSha256": "bce8632ee30489011f32a2560f3da4d57c9342ddd82ef7189c82f1db5e377630",
+      "sha256": "07d2519121145d29f3f9640fcbc6b9cb6c95769d17d77f1c04bfdd892c0dce8d",
+      "bytes": 5002,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "geometric-lotus-flower.svg",
+      "name": "几何莲花"
+    },
+    {
+      "id": "hand-drawn-heart",
+      "sourceUrl": "https://svgdoodles.com/doodles/hand-drawn-heart.svg",
+      "originalTitle": "Hand-Drawn Heart",
+      "legacyId": "94",
+      "originalSha256": "58791bc196fd9e147bcdf68dc81ee94062c30f185083e44514a53bf6b7f85e8f",
+      "sha256": "7b47c3ea5bd3706c89645857fd4dfea49741988667627e819222e90072e6a3bc",
+      "bytes": 484,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "hand-drawn-heart.svg",
+      "name": "手绘爱心"
+    },
+    {
+      "id": "hand-drawn-smiley",
+      "sourceUrl": "https://svgdoodles.com/doodles/hand-drawn-smiley.svg",
+      "originalTitle": "Hand Drawn Smiley",
+      "legacyId": "228",
+      "originalSha256": "d4d585d1259f2278a292d56cd0f84c42e876d1d390b9ca5086a082667930a816",
+      "sha256": "6ee9a58b01cc7be83f8a4948be7b5dd9f412d101aa555f8af3cfbe1554668a5e",
+      "bytes": 345,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "hand-drawn-smiley.svg",
+      "name": "手绘笑脸"
+    },
+    {
+      "id": "double-music-note",
+      "sourceUrl": "https://svgdoodles.com/doodles/double-music-note.svg",
+      "originalTitle": "Double Music Note",
+      "legacyId": "235",
+      "originalSha256": "4082c948ee67be3b7ca9093ffae16df2de3c8461027a7f2ae416928f79eacf01",
+      "sha256": "f6e1df3eb6947448d729e3ad95cc14392a41080e280b08664cb8b6bea1d3ff37",
+      "bytes": 390,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "double-music-note.svg",
+      "name": "两个音符"
+    },
+    {
+      "id": "saturn-sparkle",
+      "sourceUrl": "https://svgdoodles.com/doodles/saturn-sparkle.svg",
+      "originalTitle": "Saturn Sparkle",
+      "legacyId": "125",
+      "originalSha256": "e71c441a18e2573152f13216428d92052c50be5bea5557b84e4ced4a36805497",
+      "sha256": "390bca3a0d3ce058e00122a08e4866a2807b2aa745229265cb7ee4b9cf9b8c3e",
+      "bytes": 757,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "saturn-sparkle.svg",
+      "name": "星光小轨道"
+    },
+    {
+      "id": "orbit-star",
+      "sourceUrl": "https://svgdoodles.com/doodles/orbit-star.svg",
+      "originalTitle": "Orbit Star",
+      "legacyId": "109",
+      "originalSha256": "10221e2cd343c7ec18eecf17d2bd2cdfb6b2c2142f47cb433ea0d1e2f5479002",
+      "sha256": "48e677051ee26f88dab8475454959502b1474b1e2f1eeb9f5f73c59f0d2b1ddd",
+      "bytes": 1815,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "orbit-star.svg",
+      "name": "绕行的星"
+    },
+    {
+      "id": "offset-eclipse",
+      "sourceUrl": "https://svgdoodles.com/doodles/offset-eclipse.svg",
+      "originalTitle": "Offset Eclipse",
+      "legacyId": "41",
+      "originalSha256": "72f01a2f86ce057eee613eb0e46de95bd5ecae84137e8e0031c39ebf165e1bb9",
+      "sha256": "14b99c76b9a83e7738744e854c85f7ef9d39e8ec4822d78f7486befd7a6d6587",
+      "bytes": 292,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "offset-eclipse.svg",
+      "name": "错位圆影"
+    },
+    {
+      "id": "sunburst-outline",
+      "sourceUrl": "https://svgdoodles.com/doodles/sunburst-outline.svg",
+      "originalTitle": "Sunburst Outline",
+      "legacyId": "106",
+      "originalSha256": "b194db855410000727ecf5aeb182ba5b1239bf5b9b761efb60d356f49fe38005",
+      "sha256": "72f72fce4f716338d2a2e2c0faf77b3d719f4d0dcdf7e3beeb4fc43abb86d145",
+      "bytes": 1215,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "sunburst-outline.svg",
+      "name": "太阳光芒"
+    },
+    {
+      "id": "hand-drawn-twinkle",
+      "sourceUrl": "https://svgdoodles.com/doodles/hand-drawn-twinkle.svg",
+      "originalTitle": "Hand-Drawn Twinkle",
+      "legacyId": "90",
+      "originalSha256": "b4eb855d6d93e9e04aa408d99f0ed1649ea354393396030674d7261053a7a5a1",
+      "sha256": "a0ac57b59d0993c64403eb021ab6e9b065c3aa782d2dcc1e104e4a866a0b5842",
+      "bytes": 563,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "hand-drawn-twinkle.svg",
+      "name": "一点微光"
+    },
+    {
+      "id": "classic-sparkle",
+      "sourceUrl": "https://svgdoodles.com/doodles/classic-sparkle.svg",
+      "originalTitle": "Classic Sparkle",
+      "legacyId": "111",
+      "originalSha256": "3686db2cdfd5a0278c62f8f10453e927d70e80b732e5f744c573fe30885c9134",
+      "sha256": "03f5cdef3cabf65065bf6ae563df253523dbdfa40bd93b34f2f123572e5cb831",
+      "bytes": 339,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "classic-sparkle.svg",
+      "name": "四角星光"
+    },
+    {
+      "id": "bubble-cluster",
+      "sourceUrl": "https://svgdoodles.com/doodles/bubble-cluster.svg",
+      "originalTitle": "Bubble Cluster",
+      "legacyId": "241",
+      "originalSha256": "ecef1c937d0c2536783811064c5e1f68b4962f07fba01e0877d0ee39baf3fdc4",
+      "sha256": "24037c1de25e239e62a7a042e4cd6080dcbcc77f4eafbea5a6e9dcfecd7d0e05",
+      "bytes": 553,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "bubble-cluster.svg",
+      "name": "一簇泡泡"
+    },
+    {
+      "id": "sparkle-trail",
+      "sourceUrl": "https://svgdoodles.com/doodles/sparkle-trail.svg",
+      "originalTitle": "Sparkle Trail",
+      "legacyId": "248",
+      "originalSha256": "478a95e19d5c605b9e68469b2048b5a3ca64439453f31bcc00b3c4bc680d9bdd",
+      "sha256": "02e134c53cec0d951480531e7195c8b7efd3bec32f6ce86da2cba420814fdad1",
+      "bytes": 328,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "sparkle-trail.svg",
+      "name": "星光尾迹"
+    },
+    {
+      "id": "wobbly-blob-outline",
+      "sourceUrl": "https://svgdoodles.com/doodles/wobbly-blob-outline.svg",
+      "originalTitle": "Wobbly Blob Outline",
+      "legacyId": "131",
+      "originalSha256": "37ad8889e8faf6b3aa40ed62907decb3bb62e56e10eae42203d7bb691c71dce0",
+      "sha256": "962dc08cc5a18c0f4aa20ef2b19863195f3da40e1863bb98b9312a68969cb499",
+      "bytes": 703,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "wobbly-blob-outline.svg",
+      "name": "晃悠悠的轮廓"
+    },
+    {
+      "id": "bean-blob-outline",
+      "sourceUrl": "https://svgdoodles.com/doodles/bean-blob-outline.svg",
+      "originalTitle": "Bean Blob Outline",
+      "legacyId": "129",
+      "originalSha256": "309956d3036e17ccabe2384220f125dbf6c44614f1263c333d0bcba45c76f8d3",
+      "sha256": "dcdb7598f7a672e17e25d8f6d784e7baf3a5236ccabad8de915e2a6d15a2ac9d",
+      "bytes": 595,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "bean-blob-outline.svg",
+      "name": "小豆子轮廓"
+    },
+    {
+      "id": "freckled-blob",
+      "sourceUrl": "https://svgdoodles.com/doodles/freckled-blob.svg",
+      "originalTitle": "Freckled Blob",
+      "legacyId": "249",
+      "originalSha256": "0359bde9e5707aed687e2d985e8758e2cf29eed0deeff78f3fd63d9974166afb",
+      "sha256": "a25731dc782354e8b532117b8c7d0fbe17f386e720999adbcd906a719af950dd",
+      "bytes": 483,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "freckled-blob.svg",
+      "name": "点点小团块"
+    },
+    {
+      "id": "scattered-dots",
+      "sourceUrl": "https://svgdoodles.com/doodles/scattered-dots.svg",
+      "originalTitle": "Scattered Dots",
+      "legacyId": "5",
+      "originalSha256": "5182009bfaa53f72e29390ada954ab3a77c16bfd4927f145f94dea2af24f2339",
+      "sha256": "d3ddaf4da6bed3105bf38dba0d0b9b0e45bfabd6aac60ec6991f6279cf777007",
+      "bytes": 2962,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "scattered-dots.svg",
+      "name": "散落的小点"
+    },
+    {
+      "id": "gentle-squiggle-line",
+      "sourceUrl": "https://svgdoodles.com/doodles/gentle-squiggle-line.svg",
+      "originalTitle": "Gentle Squiggle Line",
+      "legacyId": "180",
+      "originalSha256": "b8fd5699b12d4c6b027f9371c492d8d6115accb0274048ef1413dc0f5c08d927",
+      "sha256": "fb159d2742abf8434afb4895bd3570adb22e8c8096a159ddbb7ede2cc6f6fedf",
+      "bytes": 511,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "gentle-squiggle-line.svg",
+      "name": "轻轻起伏的线"
+    },
+    {
+      "id": "triple-wave-lines",
+      "sourceUrl": "https://svgdoodles.com/doodles/triple-wave-lines.svg",
+      "originalTitle": "Triple Wave Lines",
+      "legacyId": "193",
+      "originalSha256": "92a065692c629beaf206591b52e87242fdc8b124607bd26311d77b42260060cf",
+      "sha256": "df9d95c38191439cc8244b5bda280a109248a5cd790de3fa384328924191870b",
+      "bytes": 2043,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "triple-wave-lines.svg",
+      "name": "三道海浪"
+    },
+    {
+      "id": "loose-swirl-scribble",
+      "sourceUrl": "https://svgdoodles.com/doodles/loose-swirl-scribble.svg",
+      "originalTitle": "Loose Swirl Scribble",
+      "legacyId": "96",
+      "originalSha256": "39d13e910cf8b5640e434252b47adf6ba22be0b686c868950f4c874c350528b7",
+      "sha256": "b7f8e285b920baa1f04f4abd2331ffdd9db70774ded8d705d21c5b34b404618c",
+      "bytes": 811,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "loose-swirl-scribble.svg",
+      "name": "随手涡旋"
+    },
+    {
+      "id": "infinity-scribble",
+      "sourceUrl": "https://svgdoodles.com/doodles/infinity-scribble.svg",
+      "originalTitle": "Infinity Scribble",
+      "legacyId": "231",
+      "originalSha256": "ac27c8355166bedab49bfa2c13a21b88177116f5a090dfa719bf3fc34f1a1210",
+      "sha256": "39a7189e3f73ee6c57563cb83e2c0f4c7f43f1c090a2e240a64157b590199862",
+      "bytes": 358,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "infinity-scribble.svg",
+      "name": "无尽线圈"
+    },
+    {
+      "id": "squiggle-knot",
+      "sourceUrl": "https://svgdoodles.com/doodles/squiggle-knot.svg",
+      "originalTitle": "Squiggle Knot",
+      "legacyId": "239",
+      "originalSha256": "3cee71ec2e15520a0089da8cc69f770c07ee57054381be972df169d9bd998b51",
+      "sha256": "48bfd69d14030854e45b4cf79c0d0c6cd656bbc0fffc9f79bced36391a1465ec",
+      "bytes": 257,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "squiggle-knot.svg",
+      "name": "松松的线结"
+    },
+    {
+      "id": "cursive-loop-underline",
+      "sourceUrl": "https://svgdoodles.com/doodles/cursive-loop-underline.svg",
+      "originalTitle": "Cursive Loop Underline",
+      "legacyId": "225",
+      "originalSha256": "b1743193f210f914649d8e7b006a9e4a0c1216dd485766719eb7de62c6a0b99e",
+      "sha256": "55240ab4875951cd1e279dbc8687196c3aa6e328d1b60ed414a02d8618c36cf2",
+      "bytes": 759,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "cursive-loop-underline.svg",
+      "name": "绕圈的下划线"
+    },
+    {
+      "id": "triangle-confetti",
+      "sourceUrl": "https://svgdoodles.com/doodles/triangle-confetti.svg",
+      "originalTitle": "Triangle Confetti",
+      "legacyId": "246",
+      "originalSha256": "9680455198fab9d28a93a4ead3270479ffe0113c100a8f8d98a46adc303f3352",
+      "sha256": "fe33b26074b39fb0897e5d1ffe432f170ee485705a237352bdc940a2fa7b5c06",
+      "bytes": 415,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "triangle-confetti.svg",
+      "name": "三角纸屑"
+    },
+    {
+      "id": "dashed-spiral",
+      "sourceUrl": "https://svgdoodles.com/doodles/dashed-spiral.svg",
+      "originalTitle": "Dashed Spiral",
+      "legacyId": "243",
+      "originalSha256": "838c1c1d8b2dbc8a9e8044d380f173b31dd33b084331c28e0181cf7482ef1ff8",
+      "sha256": "02b6ed7e2ac774afb84f87efca63670574d76ccab7299965320033d9a1385de0",
+      "bytes": 331,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "dashed-spiral.svg",
+      "name": "断续螺旋"
+    },
+    {
+      "id": "scattered-plus-signs",
+      "sourceUrl": "https://svgdoodles.com/doodles/scattered-plus-signs.svg",
+      "originalTitle": "Scattered Plus Signs",
+      "legacyId": "245",
+      "originalSha256": "c2387a5b455ff7372fd670c4aae2e9410b122e97ffb4e6479e799164f8b522e3",
+      "sha256": "4e0b503f91a722e39351d5625e9378480635f0d68811081c208bbdbc04da3f6a",
+      "bytes": 454,
+      "changes": [
+        "Replaced currentColor with #7b8794 for standalone image rendering.",
+        "Validated and normalized with the Bottle static SVG allowlist; geometry preserved."
+      ],
+      "file": "scattered-plus-signs.svg",
+      "name": "散落的小加号"
+    }
+  ]
+}

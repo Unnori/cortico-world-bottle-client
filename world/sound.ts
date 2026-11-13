@@ -10,13 +10,23 @@ export interface SoundConfig {
 }
 export interface SoundFile { id: string; label: string; kind: SoundKind | 'shared' }
 export const DEFAULT_SOUND_PACK = {
-  incoming: 'incoming/New_notifications_1.wav',
-  reply: 'reply/New_notifications_3.wav',
+  incoming: 'incoming/incoming_default.wav',
+  reply: 'reply/reply_default.wav',
 } as const;
 
-/** Retire only the previous built-in defaults; keep explicitly chosen custom files. */
+/** One mapping for native settings, browser preferences and old asset URLs. */
+export const LEGACY_SOUND_ALIASES: Record<string, string> = {};
+for (const kind of ['incoming', 'reply'] as const) {
+  const fallback = DEFAULT_SOUND_PACK[kind];
+  LEGACY_SOUND_ALIASES[`${kind}/default.wav`] = fallback;
+  for (let n = 1; n <= 5; n++) LEGACY_SOUND_ALIASES[`${kind}/New_notifications_${n}.wav`] =
+    n === 2 ? 'New_notifications_1.wav' : n === 4 ? 'New_notifications_2.wav' : n === 5 ? 'New_notifications_3.wav' : fallback;
+  for (const name of ['michael-jackson-hee-hee', 'rockstone', 'taco-bell-bong', '呦吼_cut', '奶龙大笑_cut', '熊大抽象笑声_cut'])
+    LEGACY_SOUND_ALIASES[`${kind}/memes_${name}.wav`] = fallback;
+}
 export function soundPackChoice(value: unknown, kind: SoundKind): string {
-  return typeof value === 'string' && value !== `${kind}/default.wav` ? value : DEFAULT_SOUND_PACK[kind];
+  if (typeof value !== 'string') return DEFAULT_SOUND_PACK[kind];
+  return soundOptions(kind).some(file => file.id === value) ? value : LEGACY_SOUND_ALIASES[value] ?? value;
 }
 export interface CardSound { path: string; volume: number; fadeOutMs: number }
 const ROOT = fileURLToPath(new URL('./sounds/', import.meta.url));
@@ -52,7 +62,9 @@ export function soundOptions(kind: SoundKind, files = soundLibrary()): SoundFile
 }
 
 export function packSound(id: string): { bytes: Uint8Array; mime: string } | null {
-  if (!soundLibrary().some(file=>file.id === id)) return null;
+  const files = soundLibrary();
+  if (!files.some(file => file.id === id)) id = LEGACY_SOUND_ALIASES[id] ?? id;
+  if (!files.some(file => file.id === id)) return null;
   try { return {bytes:readFileSync(resolve(ROOT,id)),mime:MIME[extension(id)]!}; } catch { return null; }
 }
 

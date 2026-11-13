@@ -7,7 +7,7 @@ function fixture() {
   const js = Buffer.from('export default {};\n'), css = Buffer.from('body{}\n');
   const hash = bytes => createHash('sha256').update(bytes).digest('hex').slice(0, 12);
   const manifest = { name: 'cortico-world-bottle', version: '0.8.0', cortico: { webUiClient: `dist/webui-${hash(js)}.js`, webUiStyle: `dist/webui-${hash(css)}.css` } };
-  const entries = new Map(['package.json', 'README.md', 'CHANGELOG.md', 'describe.json', 'world/index.ts', 'world/definition.ts', 'world/world.ts', 'world/ENV_PROMPT.md', 'world/icon.png', 'world/card-host.ps1', 'world/card-sound.ps1', 'world/sounds/incoming/New_notifications_1.wav', 'world/sounds/reply/New_notifications_3.wav', 'shared/contract.ts', 'shared/text.ts', 'shared/hints.ts', 'shared/ago.ts'].map(file => ['package/' + file, Buffer.from('')]));
+  const entries = new Map(['package.json', 'README.md', 'CHANGELOG.md', 'describe.json', 'world/index.ts', 'world/definition.ts', 'world/world.ts', 'world/ENV_PROMPT.md', 'world/icon.png', 'world/card-host.ps1', 'world/card-sound.ps1', 'world/sounds/incoming/incoming_default.wav', 'world/sounds/reply/reply_default.wav', 'shared/contract.ts', 'shared/stationery.ts', 'shared/text.ts', 'shared/hints.ts', 'shared/ago.ts'].map(file => ['package/' + file, Buffer.from('')]));
   entries.set('package/' + manifest.cortico.webUiClient, js); entries.set('package/' + manifest.cortico.webUiStyle, css);
   entries.set('package/world/fonts/catalog.json', Buffer.from(JSON.stringify({ baseUrl: 'https://fontsforletters.sqnori.com/', fonts: [{}] })));
   entries.set('package/world/index.ts', Buffer.from("import { BOTTLE } from './definition.ts'; export default BOTTLE;"));

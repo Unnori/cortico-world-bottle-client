@@ -14,6 +14,8 @@ export interface CardAction {
 }
 
 export interface CardSpec {
+  /** Bind confirmation buttons to exactly the displayed draft. */
+  draft?: { draftId: string; revision: number; kind: 'letter' | 'reply' };
   version: 1;
   /** 本地信箱服务的地址，卡片按这个地址回传动作。 */
   base: string;
@@ -51,8 +53,9 @@ export function draftLetterCard(input: {
   return {
     version: 1,
     base: base(input.base),
+    ...(input.draft.draftId && input.draft.revision ? {draft:{draftId:input.draft.draftId,revision:input.draft.revision,kind:input.draft.kind}} : {}),
     eyebrow: '漂流瓶 · 写好了',
-    from: '等你决定',
+    from: input.draft.source ? `来自本机程序 ${input.draft.source.name}，等你审阅` : '等你决定',
     ...(input.draft.topic ? { title: input.draft.topic } : {}),
     body: input.draft.body,
     meta: `${input.chars} / ${MAX_CHARS} 字`,
@@ -142,15 +145,16 @@ export function replyDraftCard(input: {
   return {
     version: 1,
     base: base(input.base),
+    ...(input.draft.draftId && input.draft.revision ? {draft:{draftId:input.draft.draftId,revision:input.draft.revision,kind:input.draft.kind}} : {}),
     eyebrow: '漂流瓶 · 回信写好了',
-    from: input.draft.autoSendAt ? '已安排自动寄出，可在信箱查看倒计时' : input.draft.autoSendKey ? '确认自动寄出时间中' : '等你决定',
+    from: input.draft.sendFailure ? '原信已失效，未寄出的回信保留在本机' : input.draft.autoSendAt ? '已安排自动寄出，可在信箱查看倒计时' : input.draft.autoSendKey ? '确认自动寄出时间中' : '等你决定',
     ...(input.held
       ? { quote: { label: `原来那一封（来自 ${input.held.from}）`, body: input.held.body } }
       : {}),
     body: input.draft.body,
     meta: `${input.chars} / ${MAX_CHARS} 字`,
     hints: input.hints.map((hint) => hint.text),
-    actions: [
+    actions: input.draft.sendFailure ? [{id:'discard',label:'放弃这份未寄稿',tone:'ghost'}] : [
       { id: 'send', label: input.hints.length ? '仍然寄出' : '寄出去', tone: 'primary' },
       { id: 'rewrite', label: '重写', tone: 'ghost' },
     ],

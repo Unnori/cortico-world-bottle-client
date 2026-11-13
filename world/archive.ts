@@ -1,6 +1,7 @@
 import { readingCount, type LocalStore, type SentLetter, type ReceivedLetter, type LocalReply } from './store.ts';
 import type { LetterStars } from './stars.ts';
 import type { LetterbookArchive } from '../shared/contract.ts';
+import { checkStationery } from '../shared/stationery.ts';
 export const ARCHIVE_MAX_BYTES = 32 * 1024 * 1024;
 const kinds = ['sent','received','reply','star'];
 const time = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 8.64e15;
@@ -45,9 +46,19 @@ export function parseArchive(raw: unknown): LetterbookArchive {
         for (const k of ['myReply','signature']) if (r[k] !== undefined) { if (!text(r[k])) throw Error('信件条目不完整。'); value[k] = r[k]; }
         if (r.seed === true) value.seed = true;
         if (r.lastCaughtAt !== undefined) { if (!time(r.lastCaughtAt)) throw Error('打捞时间不正确。'); value.lastCaughtAt = r.lastCaughtAt; }
+        if (r.myReplyStationery !== undefined) {
+          const decor = checkStationery(r.myReplyStationery);
+          if (!decor.ok) throw Error('回信装饰格式不正确。');
+          if (decor.value) value.myReplyStationery = decor.value;
+        }
       }
       if (entry.kind !== 'reply' && r.topic !== undefined) { if (!text(r.topic,256)) throw Error('信题不正确。'); value.topic = r.topic; }
       if (entry.kind === 'sent' && r.pickedNoticed === true) value.pickedNoticed = true;
+      if (r.stationery !== undefined) {
+        const decor = checkStationery(r.stationery);
+        if (!decor.ok) throw Error('信纸装饰格式不正确。');
+        if (decor.value) value.stationery = decor.value;
+      }
     }
     entries.push({kind:entry.kind,value});
   }

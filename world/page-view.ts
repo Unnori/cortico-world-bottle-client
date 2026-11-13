@@ -419,7 +419,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
         btn.setAttribute('aria-disabled', 'true');
       } else {
         btn.onclick = function () {
-          run(item.path, btn, item.letterId ? {letterId:item.letterId} : item.kind ? { kind: item.kind } : undefined);
+          run(item.path, btn, item.ref ? {kind:item.kind,draftId:item.ref.draftId,revision:item.ref.revision} : item.letterId ? {letterId:item.letterId} : item.kind ? { kind: item.kind } : undefined);
         };
       }
       box.appendChild(btn);
@@ -434,21 +434,22 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     var topic = isLetter ? draft.topic : null;
     card.appendChild(el('div', 'eyebrow', isLetter ? '信稿 · 尚未寄出' : '回信稿 · 尚未寄出'));
     if (!isLetter) card.appendChild(el('h2', 'title', '回信'));
-    card.appendChild(letterSheet({ topic: isLetter ? topic || '无题信' : null, body: draft.body, own: true, signature: botName(), heading: 'h2' }));
+    if (draft.source) card.appendChild(el('div', 'meta', '来自本机程序 ' + draft.source.name + '，尚未确认寄出。'));
+    card.appendChild(letterSheet({ topic: isLetter ? topic || '无题信' : null, body: draft.body, own: true, signature: draft.source ? null : botName(), heading: 'h2', stationery: draft.stationery }));
 
     if (!isLetter && s.held) {
       var detail = rememberDetails(el('details', 'original'), 'original:' + s.held.letterId);
       detail.appendChild(el('summary', null, '看看原来那一封（来自 ' + s.held.from + '）'));
-      detail.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.signature || s.held.from }));
+      detail.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.signature || s.held.from, stationery: s.held.stationery }));
       card.appendChild(detail);
     }
 
     card.appendChild(el('div', 'meta', draft.chars + ' / 120 字'));
     if (!isLetter) {
       var minutes = draft.autoSendAt ? Math.max(0, Math.ceil((draft.autoSendAt - Date.now()) / 60000)) : null;
-      card.appendChild(el('div', 'hint', draft.autoSendAt
+      card.appendChild(el('div', 'hint', draft.sendFailure ? '原信已回海或失效，补寄已停止。这份未寄出的回信仍保留在本机，可查看或放弃。' : draft.autoSendAt
         ? minutes > 0 ? '约 ' + minutes + ' 分钟后自动寄出，也可以现在寄出。重写保留原倒计时，期间这只瓶子不会自动回海。' : '自动寄出中；暂时断网会保留草稿，连通后继续寄出。'
-        : draft.autoSendPending ? '正在向海边确认自动寄出时间；确认后开始两小时倒计时。' : '当前海边暂不支持自动寄出保护，请手动寄出这封回信。'));
+        : draft.autoSendPending ? '正在向海边确认自动寄出时间；确认后开始两小时倒计时。' : draft.sendPolicy === 'manual' ? '这封回信等待明确寄出，沿用原信有效期，不会自动寄出。' : '当前海边暂不支持自动寄出保护，请手动寄出这封回信。'));
     }
 
     if (draft.hints && draft.hints.length) {
@@ -465,7 +466,9 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     // 回信额度用完时：寄出先灰着，旁边留「扔回海里」——也可以放着等明天额度回来再寄
     var canReply = s.canReply !== false || !!draft.autoSendAt;
     var actions;
-    if (!isLetter && !canReply) {
+    if (draft.sendFailure) {
+      actions = [{ label: '放弃这份未寄稿', path: '/discard', style: 'ghost', kind: draft.kind }];
+    } else if (!isLetter && !canReply) {
       actions = [
         { label: '多等一天', path: '/send', style: 'seal', kind: draft.kind, disabled: true },
         { label: '扔回海里', path: '/dismiss', style: 'ghost' }
@@ -479,6 +482,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
       // 放弃回信稿会取消自动寄出，原信仍按最初的期限回海。
       actions.push({ label: '算了吧', path: '/discard', style: 'ghost', kind: draft.kind });
     }
+    actions.forEach(function(action){if(['/send','/rewrite','/discard'].indexOf(action.path)>=0 && draft.draftId)action.ref={draftId:draft.draftId,revision:draft.revision};});
     card.appendChild(buttons(actions));
     return card;
   }
@@ -494,7 +498,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     head.appendChild(starButton(s.held.letterId));
     card.appendChild(head);
     if (!s.held.topic) card.appendChild(el('h2', 'title', '还没决定要不要回'));
-    card.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.from, heading: 'h2' }));
+    card.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.from, heading: 'h2', stationery: s.held.stationery }));
     card.appendChild(el('div', 'meta', s.held.readAt ? botName() + '已经读过了' : s.held.hoursLeft > 0 ? '还有 ' + s.held.hoursLeft + ' 小时回海' : '等你决定如何处理'));
     if (s.held.readAt && s.held.hoursLeft > 0) card.appendChild(el('div', 'meta', '还有 ' + s.held.hoursLeft + ' 小时回海。'));
     // 今天回不了就直说，别让人点了「回信」才发现第 4 封被 429
@@ -524,7 +528,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     head.appendChild(starButton(s.held.letterId));
     card.appendChild(head);
     card.appendChild(el('h2', 'title', '它的字被海带走了'));
-    card.appendChild(letterSheet({ body: s.held.body || '这封的字已经不在海上了。', fontId: s.held.fontId, signature: s.held.signature || s.held.from }));
+    card.appendChild(letterSheet({ body: s.held.body || '这封的字已经不在海上了。', fontId: s.held.fontId, signature: s.held.signature || s.held.from, stationery: s.held.stationery }));
     card.appendChild(el('div', 'meta', '海那边已经没有它了，你这边还留着。'));
     card.appendChild(buttons([{ label: '珍藏', path: '/keep', style: 'seal' }]));
     return card;
@@ -538,7 +542,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     card.appendChild(head);
     // 没有 topic 时才用来源顶替标题，免得标题位置空着
     if (!s.held.topic) card.appendChild(el('h2', 'title', '来自群岛上的某位居民'));
-    card.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.signature, heading: 'h2' }));
+    card.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.signature, heading: 'h2', stationery: s.held.stationery }));
     card.appendChild(el('div', 'meta', '来自群岛上的某位居民'));
     card.appendChild(buttons([{ label: '收好', path: '/dismiss', style: 'seal' }]));
     return card;
@@ -877,11 +881,13 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     if(entry.paperOnly)body.appendChild(el('p','meta','这段往来的原信未保存在此设备，随信的小纸条仍在这里。'));
     else body.appendChild(letterSheet({ topic: !isReply ? item.topic : null, body: entry.body,
       fontId: isReply ? item.reply.fontId : kind === 'sent' ? null : item.fontId,
-      own: kind === 'sent', signature: kind === 'seed' ? item.signature : kind === 'sent' ? botName() : isReply ? item.reply.from : item.from }));
+      own: kind === 'sent', signature: kind === 'seed' ? item.signature : kind === 'sent' ? botName() : isReply ? item.reply.from : item.from,
+      stationery: isReply ? item.reply.stationery : kind === 'sent' ? item.stationery : item.stationery }));
     if (isReply || item.myReply) {
       var quote = el('div', 'reply-quote');
       quote.appendChild(el('div', 'reply-quote-label', botName() + (isReply ? '写下的原信' : '的回信')));
-      quote.appendChild(letterSheet({ topic: isReply ? item.topic : null, body: isReply ? item.body : item.myReply, own: true, signature: botName() }));
+      quote.appendChild(letterSheet({ topic: isReply ? item.topic : null, body: isReply ? item.body : item.myReply, own: true, signature: botName(),
+        stationery: isReply ? item.stationery : item.myReplyStationery }));
       body.appendChild(quote);
     }
     if (kind === 'received' && !item.myReply && item.outcome === 'replied') body.appendChild(el('div', 'meta', '回过信，但这段没有留下来。'));

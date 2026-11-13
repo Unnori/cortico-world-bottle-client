@@ -20,9 +20,9 @@ it('receives and notifies without a browser; only paper text is automatic, deliv
  const {id}=await incoming(),page=h.world.pageDeps();const push=vi.spyOn(host,'pushDeferred');
  await (h.world as any).refreshMailbox();
  expect(h.db.notes).toHaveLength(0);expect(await page.notes!()).toMatchObject([{id,body:paper,read:false}]);
- expect(push).toHaveBeenCalledWith(expect.objectContaining({type:'bottle.note-arrived',origin:'external'}),{trigger:'flush'});
+ expect(push).toHaveBeenCalledWith(expect.objectContaining({type:'bottle.note-arrived',origin:'external'}),{trigger:'debounce'});
  const [event]=await host.deliverDeferred(h.world);
- expect(event!.text).toContain(paper);expect(event!.text).toContain('请告诉人');expect(event!.text).not.toContain(original);expect(event!.text).not.toContain(answer);expect(event!.text).not.toContain(id);
+ expect(event!.text).toContain(paper);expect(event!.text).toContain('Tell your partner');expect(event!.text).not.toContain(original);expect(event!.text).not.toContain(answer);expect(event!.text).not.toContain(id);
  expect(await page.notes!()).toMatchObject([{id,read:true}]);
  await(h.world as any).refreshNotes();expect(host.deferred).toHaveLength(0);
 });
@@ -41,7 +41,7 @@ it('look together includes paper plus original title and reply, with read-only a
  expect(await callTool(h.world,'bottle_reply',{text:'不应回信'})).toContain('不能回');expect(await callTool(h.world,'bottle_note',{text:'不应起草'})).toContain('只有人邀请');
  const [event]=await host.deliverDeferred(h.world);expect(event!.type).toBe('bottle.note-reading');
  for(const text of [paper,original,answer,'随海风来'])expect(event!.text).toContain(text);
- expect(event!.text).toContain('只读');expect(event!.text).not.toContain(letterId);
+ expect(event!.text).toContain('Read and share your thoughts only');expect(event!.text).not.toContain(letterId);
  expect(page.snapshot().received.find(n=>n.letterId===letterId)?.readCount).toBe(count);
  h.world.onTurnEnded();expect((h.world as any).authorized).toBeNull();
 });
@@ -75,7 +75,7 @@ it('server expiry preserves together-reading; missing historical bodies get an h
  const {id}=await incoming(),page=h.world.pageDeps();await(h.world as any).refreshNotes();await host.deliverDeferred(h.world);
  (h.world as any).store.received=[];
  expect((await page.readNote!(id)).ok).toBe(true);const queued=host.deferred.at(-1)!;
- expect(await queued.render()).toContain('原信未留在本机');
+ expect(await queued.render()).toContain('The original was not saved locally');
  h.clock.t+=NOTE_TTL_MS+1;expect(await queued.render()).toBeNull();expect((await page.notes!())[0]?.body).toBe(paper);
  expect((await page.readNote!(id)).ok).toBe(true);const events=await host.deliverDeferred(h.world);expect(events.at(-1)!.text).toContain(paper);
  expect(readFileSync((h.world as any).receivedNotes.file,'utf8')).toContain(paper);

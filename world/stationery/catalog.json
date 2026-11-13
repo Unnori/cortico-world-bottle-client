@@ -1,0 +1,330 @@
+{
+  "version": 1,
+  "doodles": [
+    {
+      "id": "wave-line",
+      "name": "波浪线",
+      "tags": [
+        "simple",
+        "line",
+        "wave"
+      ],
+      "file": "wave-line.svg"
+    },
+    {
+      "id": "corner-flower",
+      "name": "角落小花",
+      "tags": [
+        "flower",
+        "corner",
+        "decoration"
+      ],
+      "file": "corner-flower.svg"
+    },
+    {
+      "id": "star-border",
+      "name": "星星边框",
+      "tags": [
+        "star",
+        "border",
+        "frame"
+      ],
+      "file": "star-border.svg"
+    },
+    {
+      "id": "paper-plane",
+      "name": "小纸飞机",
+      "tags": [
+        "paper",
+        "plane",
+        "journey",
+        "hope"
+      ],
+      "file": "paper-plane.svg"
+    },
+    {
+      "id": "rain-cloud",
+      "name": "雨云",
+      "tags": [
+        "cloud",
+        "rain",
+        "weather",
+        "quiet"
+      ],
+      "file": "rain-cloud.svg"
+    },
+    {
+      "id": "rainbow-arcs",
+      "name": "彩虹弧线",
+      "tags": [
+        "rainbow",
+        "arcs",
+        "hope",
+        "weather"
+      ],
+      "file": "rainbow-arcs.svg"
+    },
+    {
+      "id": "loose-daisy",
+      "name": "随手小雏菊",
+      "tags": [
+        "flower",
+        "daisy",
+        "nature",
+        "soft"
+      ],
+      "file": "loose-daisy.svg"
+    },
+    {
+      "id": "geometric-lotus-flower",
+      "name": "几何莲花",
+      "tags": [
+        "lotus",
+        "flower",
+        "calm",
+        "nature"
+      ],
+      "file": "geometric-lotus-flower.svg"
+    },
+    {
+      "id": "hand-drawn-heart",
+      "name": "手绘爱心",
+      "tags": [
+        "heart",
+        "love",
+        "warmth"
+      ],
+      "file": "hand-drawn-heart.svg"
+    },
+    {
+      "id": "hand-drawn-smiley",
+      "name": "手绘笑脸",
+      "tags": [
+        "smile",
+        "happy",
+        "playful"
+      ],
+      "file": "hand-drawn-smiley.svg"
+    },
+    {
+      "id": "double-music-note",
+      "name": "两个音符",
+      "tags": [
+        "music",
+        "melody",
+        "sound"
+      ],
+      "file": "double-music-note.svg"
+    },
+    {
+      "id": "saturn-sparkle",
+      "name": "星光小轨道",
+      "tags": [
+        "star",
+        "orbit",
+        "poetic"
+      ],
+      "file": "saturn-sparkle.svg"
+    },
+    {
+      "id": "orbit-star",
+      "name": "绕行的星",
+      "tags": [
+        "star",
+        "orbit",
+        "space"
+      ],
+      "file": "orbit-star.svg"
+    },
+    {
+      "id": "offset-eclipse",
+      "name": "错位圆影",
+      "tags": [
+        "eclipse",
+        "circle",
+        "quiet"
+      ],
+      "file": "offset-eclipse.svg"
+    },
+    {
+      "id": "sunburst-outline",
+      "name": "太阳光芒",
+      "tags": [
+        "sun",
+        "rays",
+        "light"
+      ],
+      "file": "sunburst-outline.svg"
+    },
+    {
+      "id": "hand-drawn-twinkle",
+      "name": "一点微光",
+      "tags": [
+        "twinkle",
+        "sparkle",
+        "hope"
+      ],
+      "file": "hand-drawn-twinkle.svg"
+    },
+    {
+      "id": "classic-sparkle",
+      "name": "四角星光",
+      "tags": [
+        "sparkle",
+        "star",
+        "light"
+      ],
+      "file": "classic-sparkle.svg"
+    },
+    {
+      "id": "bubble-cluster",
+      "name": "一簇泡泡",
+      "tags": [
+        "bubbles",
+        "float",
+        "light"
+      ],
+      "file": "bubble-cluster.svg"
+    },
+    {
+      "id": "sparkle-trail",
+      "name": "星光尾迹",
+      "tags": [
+        "sparkle",
+        "trail",
+        "travel"
+      ],
+      "file": "sparkle-trail.svg"
+    },
+    {
+      "id": "wobbly-blob-outline",
+      "name": "晃悠悠的轮廓",
+      "tags": [
+        "blob",
+        "organic",
+        "casual"
+      ],
+      "file": "wobbly-blob-outline.svg"
+    },
+    {
+      "id": "bean-blob-outline",
+      "name": "小豆子轮廓",
+      "tags": [
+        "bean",
+        "blob",
+        "soft"
+      ],
+      "file": "bean-blob-outline.svg"
+    },
+    {
+      "id": "freckled-blob",
+      "name": "点点小团块",
+      "tags": [
+        "blob",
+        "dots",
+        "organic"
+      ],
+      "file": "freckled-blob.svg"
+    },
+    {
+      "id": "scattered-dots",
+      "name": "散落的小点",
+      "tags": [
+        "dots",
+        "scattered",
+        "casual"
+      ],
+      "file": "scattered-dots.svg"
+    },
+    {
+      "id": "gentle-squiggle-line",
+      "name": "轻轻起伏的线",
+      "tags": [
+        "line",
+        "wave",
+        "quiet"
+      ],
+      "file": "gentle-squiggle-line.svg"
+    },
+    {
+      "id": "triple-wave-lines",
+      "name": "三道海浪",
+      "tags": [
+        "waves",
+        "sea",
+        "line"
+      ],
+      "file": "triple-wave-lines.svg"
+    },
+    {
+      "id": "loose-swirl-scribble",
+      "name": "随手涡旋",
+      "tags": [
+        "swirl",
+        "scribble",
+        "free"
+      ],
+      "file": "loose-swirl-scribble.svg"
+    },
+    {
+      "id": "infinity-scribble",
+      "name": "无尽线圈",
+      "tags": [
+        "infinity",
+        "loop",
+        "endless"
+      ],
+      "file": "infinity-scribble.svg"
+    },
+    {
+      "id": "squiggle-knot",
+      "name": "松松的线结",
+      "tags": [
+        "knot",
+        "squiggle",
+        "casual"
+      ],
+      "file": "squiggle-knot.svg"
+    },
+    {
+      "id": "cursive-loop-underline",
+      "name": "绕圈的下划线",
+      "tags": [
+        "loop",
+        "line",
+        "underline"
+      ],
+      "file": "cursive-loop-underline.svg"
+    },
+    {
+      "id": "triangle-confetti",
+      "name": "三角纸屑",
+      "tags": [
+        "triangle",
+        "confetti",
+        "scatter"
+      ],
+      "file": "triangle-confetti.svg"
+    },
+    {
+      "id": "dashed-spiral",
+      "name": "断续螺旋",
+      "tags": [
+        "spiral",
+        "dashed",
+        "swirl"
+      ],
+      "file": "dashed-spiral.svg"
+    },
+    {
+      "id": "scattered-plus-signs",
+      "name": "散落的小加号",
+      "tags": [
+        "plus",
+        "confetti",
+        "free"
+      ],
+      "file": "scattered-plus-signs.svg"
+    }
+  ]
+}

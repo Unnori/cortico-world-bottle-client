@@ -67,14 +67,14 @@ it.each([false, true])('构造读取旧暂停且尊重部署显式开启=%s，�
 
 
 describe('配置页原生分组', () => {
-  it('常用项靠前，音效按来信与回信拆开，连接调试放最后', () => {
+  it('显示、邀请与音效靠前，可选访问与记忆随后，高危入口放在最底部', () => {
     expect(BOTTLE_CONFIG_GROUPS.map(group => group.schema.title)).toEqual([
-      '星笺匣与记忆', '显示与通知', '海边邀请与提醒', '桌面音效', '来信提示音', '回信提示音', '其他设备访问', '连接与调试',
+      '显示与通知', '海边邀请与提醒', '桌面音效', '来信提示音', '回信提示音', '其他设备访问', '连接与调试', '星笺匣与记忆', '无头模式（高危实验功能）', '本地 Bridge 与 Controller（高级功能）',
     ]);
     expect(Object.keys(BOTTLE_CONFIG_GROUPS.find(group => group.id === 'world:bottle:display')!.schema.properties)).toEqual([
       'worlds.bottle.surface', 'worlds.bottle.cardAutoCloseSec', 'worlds.bottle.tsunamiNotice',
     ]);
-    expect(Object.keys(BOTTLE_CONFIG_GROUPS.at(-1)!.schema.properties)).toEqual([
+    expect(Object.keys(BOTTLE_CONFIG_GROUPS.find(group => group.id === 'world:bottle:connection')!.schema.properties)).toEqual([
       'worlds.bottle.server', 'worlds.bottle.port', 'worlds.bottle.debug',
     ]);
   });
@@ -106,8 +106,8 @@ describe('配置页原生分组', () => {
 it('migrates retired audio defaults without changing explicit custom, shared or local sources',()=>{
   const config={...BOTTLE_DEFAULTS,soundIncomingPack:'incoming/default.wav',soundReplyPack:'reply/default.wav'};
   initialiseSoundSettings(config);
-  expect(config.soundIncomingPack).toBe('incoming/New_notifications_1.wav');
-  expect(config.soundReplyPack).toBe('reply/New_notifications_3.wav');
+  expect(config.soundIncomingPack).toBe('incoming/incoming_default.wav');
+  expect(config.soundReplyPack).toBe('reply/reply_default.wav');
   config.soundIncomingPack='shared.wav';config.soundReplyPack='reply/custom.wav';config.soundIncomingSource='local';config.soundIncomingFile='C:/Music/custom.wav';
   const before={...config};initialiseSoundSettings(config);expect(config).toEqual(before);
 });

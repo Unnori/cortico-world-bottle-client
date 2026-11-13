@@ -4,28 +4,42 @@
  *
  * 文件名都以 `bottle-` 开头：`ctx.dataDir` 是 Core 和所有 World 共用的。
  */
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { Stationery } from '../shared/contract.ts';
+import { storedStationery } from '../shared/stationery.ts';
 
 export type DraftKind = 'letter' | 'reply';
 
 export interface LocalDraft {
+  /** External attribution only; never evidence of human approval. Deleted with draft. */
+  source?: { kind: 'bridge'; name: string };
+  /** Persisted with the draft; deleted on send/discard/delete/clear. */
+  draftId?: string;
+  revision?: number;
+  sendPolicy?: 'manual' | 'delayed';
   /** Reply only. Both are removed with the draft on send/discard/delete/clear. */
   autoSendKey?: string;
   autoSendAt?: number;
+  /** Confirmed delivery became impossible; body stays local until discard/delete/clear. */
+  sendFailure?: 'expired';
   topic?: string;
   kind: DraftKind;
   /** kind 为 reply 时，这是被回的那一封。 */
   letterId?: string;
   body: string;
   at: number;
+  /** 可选的信纸与装饰。 */
+  stationery?: Stationery;
 }
 
 /** 捞起来、还没决定的那一封。正文只给页面看，永远不进工具回执。 */
 /** readAt 随 held 在寄出/收好/归还/删除时清除，不传给下一位收信人。 */
 export interface LocalHeld {
   readAt?: number;
-  caughtBy?: 'bot' | 'human';
+  caughtBy?: 'bot' | 'human' | 'bridge';
+  catchSource?: string;
   letterId: string;
   from: string;
   body: string;
@@ -44,6 +58,10 @@ export interface LocalHeld {
   /** 种子信的落款，以及所有信件可选的标题。 */
   signature?: string;
   topic?: string;
+  /** 收到的信纸与装饰。随 held 清除；信册里的 ReceivedLetter 另存一份。 */
+  stationery?: Stationery;
+  /** 来信带了装饰但没通过校验：正文照常保存，页面如实说明图案没有显示。 */
+  stationeryRejected?: true;
 }
 /** 别人回给我的一封。只读，没有选项。 */
 export interface LocalReply {
@@ -53,6 +71,9 @@ export interface LocalReply {
   from: string;
   body: string;
   at: number;
+  /** 对方回信的装饰。 */
+  stationery?: Stationery;
+  stationeryRejected?: true;
 }
 
 /** 我寄出去的信。留一份在本地，网页上才看得到自己写过什么。 */
@@ -63,6 +84,8 @@ export interface SentLetter {
   at: number;
   /** 首次拾信播报的持久标记，随信册保存。 */
   pickedNoticed?: boolean;
+  /** 我寄信时的装饰。 */
+  stationery?: Stationery;
 }
 
 export type ReceivedOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'expired' | 'kept';
@@ -84,6 +107,12 @@ export interface ReceivedLetter {
   seed?: boolean;
   signature?: string;
   topic?: string;
+  /** 收到的信纸与装饰。 */
+  stationery?: Stationery;
+  stationeryRejected?: true;
+  /** 我回信时的装饰（与收到的装饰分开保存，互不覆盖）。 */
+  myReplyStationery?: Stationery;
+  myReplyStationeryRejected?: true;
 }
 
 export interface Identity {
@@ -215,11 +244,17 @@ export class LocalStore {
       if (value.kind !== undefined && value.kind !== kind) return null;
       return {
         kind,
+        ...(value.source?.kind === 'bridge' && typeof value.source.name === 'string' && value.source.name.length <= 64 && !/[\u0000-\u001f\u007f]/.test(value.source.name) ? {source:{kind:'bridge' as const,name:value.source.name}} : {}),
+        draftId: typeof value.draftId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value.draftId) ? value.draftId : randomUUID(),
+        revision: Number.isSafeInteger(value.revision) && value.revision! > 0 ? value.revision : 1,
+        sendPolicy: kind === 'reply' && value.sendFailure !== 'expired' && value.autoSendKey && value.sendPolicy !== 'manual' ? 'delayed' : 'manual',
+        ...(kind === 'reply' && value.sendFailure === 'expired' ? {sendFailure:'expired' as const} : {}),
         ...(kind === 'reply' && typeof value.letterId === 'string' ? { letterId: value.letterId } : {}),
         body: value.body,
         ...(kind === 'letter' && typeof value.topic === 'string' && value.topic ? { topic: value.topic } : {}),
         at: Number(value.at ?? 0),
-        ...(kind==='reply'&&typeof value.autoSendKey==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(value.autoSendKey)?{autoSendKey:value.autoSendKey,
+        ...stationeryField(value.stationery),
+        ...(kind==='reply'&&value.sendFailure!=='expired'&&value.sendPolicy!=='manual'&&typeof value.autoSendKey==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(value.autoSendKey)?{autoSendKey:value.autoSendKey,
           ...(typeof value.autoSendAt==='number'&&Number.isFinite(value.autoSendAt)&&value.autoSendAt>0?{autoSendAt:value.autoSendAt}:{})}:{}),
       };
     };
@@ -237,6 +272,8 @@ export class LocalStore {
       this.draft = readDraft(legacy, 'reply');
     }
 
+    if (this.draft || this.letterDraft) this.saveDrafts();
+
     const book = readJson<{
       held?: Partial<LocalHeld>;
       replies?: Array<Partial<LocalReply>>;
@@ -249,7 +286,8 @@ export class LocalStore {
         letterId: held.letterId,
         from: typeof held.from === 'string' ? held.from : '一位陌生人',
         body: held.body,
-        caughtBy: held.caughtBy === 'human' ? 'human' : 'bot',
+        caughtBy: held.caughtBy === 'bridge' ? 'bridge' : held.caughtBy === 'human' ? 'human' : 'bot',
+        ...(typeof held.catchSource === 'string' && held.catchSource.length <= 64 ? {catchSource:held.catchSource} : {}),
         caughtAt: Number(held.caughtAt ?? 0),
         windowUntil: Number(held.windowUntil ?? 0),
         ...(typeof held.readAt === 'number' && Number.isFinite(held.readAt) && held.readAt > 0 ? { readAt: held.readAt } : {}),
@@ -257,6 +295,8 @@ export class LocalStore {
         ...(held.dead === true ? { dead: true } : {}),
         ...(typeof held.signature === 'string' && held.signature ? { signature: held.signature } : {}),
         ...(typeof held.topic === 'string' && held.topic ? { topic: held.topic } : {}),
+        ...stationeryField(held.stationery),
+        ...rejectedField(held.stationeryRejected),
       };
     }
     const replies = Array.isArray(book?.replies) ? book.replies : [];
@@ -264,6 +304,8 @@ export class LocalStore {
       .filter((item): item is Partial<LocalReply> & { letterId: string; body: string } =>
         typeof item?.letterId === 'string' && typeof item.body === 'string')
       .map((item) => ({
+        ...stationeryField(item.stationery),
+        ...rejectedField(item.stationeryRejected),
         letterId: item.letterId,
         from: typeof item.from === 'string' ? item.from : '一位陌生人',
         body: item.body,
@@ -276,7 +318,7 @@ export class LocalStore {
     this.sent = sent
       .filter((item): item is Partial<SentLetter> & { letterId: string; body: string } =>
         typeof item?.letterId === 'string' && typeof item.body === 'string')
-      .map((item) => ({ letterId: item.letterId, body: item.body, ...(typeof item.topic === 'string' && item.topic ? { topic: item.topic } : {}), at: Number(item.at ?? 0), ...(item.pickedNoticed === true ? { pickedNoticed: true } : {}) }));
+      .map((item) => ({ ...stationeryField(item.stationery), letterId: item.letterId, body: item.body,...(typeof item.topic === 'string' && item.topic ? { topic: item.topic } : {}), at: Number(item.at ?? 0), ...(item.pickedNoticed === true ? { pickedNoticed: true } : {}) }));
 
     const received = Array.isArray(book?.received) ? book.received : [];
     this.received = received
@@ -295,6 +337,9 @@ export class LocalStore {
         ...(typeof item.myReply === 'string' && item.myReply ? { myReply: item.myReply } : {}),
         ...(typeof item.signature === 'string' && item.signature ? { signature: item.signature } : {}),
         ...(typeof item.topic === 'string' && item.topic ? { topic: item.topic } : {}),
+        ...stationeryField(item.stationery),
+        ...rejectedField(item.stationeryRejected),
+        ...myReplyStationeryField(item.myReplyStationery),
       }));
   }
 
@@ -348,14 +393,25 @@ export class LocalStore {
 
   /** 写回信草稿（`kind` 一律按 reply 归槽）；信稿走 `setLetterDraft`。 */
   setDraft(draft: LocalDraft | null): void {
-    this.draft = draft && draft.kind === 'reply' ? draft : null;
+    this.draft = draft && draft.kind === 'reply' ? this.versionDraft(draft, this.draft) : null;
     this.saveDrafts();
   }
 
   /** 写信稿；不动回信草稿。 */
   setLetterDraft(draft: LocalDraft | null): void {
-    this.letterDraft = draft && draft.kind === 'letter' ? draft : null;
+    this.letterDraft = draft && draft.kind === 'letter' ? this.versionDraft(draft, this.letterDraft) : null;
     this.saveDrafts();
+  }
+
+  private versionDraft(draft: LocalDraft, previous: LocalDraft | null): LocalDraft {
+    const same = previous?.kind === draft.kind && previous.letterId === draft.letterId;
+    const changed = same && (previous.body !== draft.body || previous.topic !== draft.topic ||
+      JSON.stringify(previous.stationery) !== JSON.stringify(draft.stationery) || JSON.stringify(previous.source) !== JSON.stringify(draft.source) || previous.sendFailure !== draft.sendFailure);
+    draft.draftId = same ? previous.draftId ?? randomUUID() : draft.draftId ?? randomUUID();
+    draft.revision = same ? (previous.revision ?? 1) + (changed ? 1 : 0) : draft.revision ?? 1;
+    draft.sendPolicy ??= draft.autoSendKey ? 'delayed' : 'manual';
+    if (draft.sendPolicy === 'manual') { delete draft.autoSendKey; delete draft.autoSendAt; }
+    return draft;
   }
 
   private saveDrafts(): void {
@@ -406,6 +462,9 @@ export class LocalStore {
       if (letter.seed === true) existing.seed = true;
       if (letter.signature) existing.signature = letter.signature;
       if (letter.topic) existing.topic = letter.topic;
+      // 再次捞到时以这一次服务端给的为准：没带装饰就清掉旧的，免得显示另一次的图。
+      if (letter.stationery) existing.stationery = letter.stationery; else delete existing.stationery;
+      if (letter.stationeryRejected) existing.stationeryRejected = true; else delete existing.stationeryRejected;
     } else {
       this.received.unshift(letter);
     }
@@ -423,10 +482,11 @@ export class LocalStore {
   }
 
   /** 记下我回过的那段正文（只用于「一起读信」的上文）。 */
-  setReceivedMyReply(letterId: string, body: string): void {
+  setReceivedMyReply(letterId: string, body: string, stationery?: Stationery): void {
     const hit = this.received.find((item) => item.letterId === letterId);
-    if (!hit || hit.myReply === body) return;
+    if (!hit) return;
     hit.myReply = body;
+    if (stationery) hit.myReplyStationery = stationery; else delete hit.myReplyStationery;
     this.saveLetterbook();
   }
 
@@ -496,6 +556,20 @@ export class LocalStore {
       // 删不掉下次覆盖也一样
     }
   }
+}
+
+/** 读盘时重新校验装饰；不合格的静默丢弃，正文不受影响。 */
+function stationeryField(value: unknown): { stationery?: Stationery } {
+  const stationery = storedStationery(value);
+  return stationery === undefined ? {} : { stationery };
+}
+function myReplyStationeryField(value: unknown): { myReplyStationery?: Stationery } {
+  const stationery = storedStationery(value);
+  return stationery === undefined ? {} : { myReplyStationery: stationery };
+}
+function rejectedField(value: unknown): { stationeryRejected?: true } {
+  if (value === true) return { stationeryRejected: true };
+  return {};
 }
 
 function normalizeOutcome(value: unknown): ReceivedOutcome {

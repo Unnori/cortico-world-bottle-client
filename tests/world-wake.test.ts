@@ -50,7 +50,7 @@ it.each([3, 11])('服务端沉底上限为 %s 时，事件不声称固定次数'
   await callTool(h.world, 'bottle_catch');
   expect((await h.world.pageDeps().dismiss()).ok).toBe(true);
   expect(h.db.letters[0]!.archivedReason).toBe('sunk');
-  expect(host.last('bottle.dismissed')?.text).toContain('沉入了海底');
+  expect(host.last('bottle.dismissed')?.text).toContain('sank');
   expect(host.last('bottle.dismissed')?.text).not.toMatch(/五次|八次|\d+\s*次/);
 });
 
@@ -69,8 +69,8 @@ describe('World 随机邀请接线', () => {
     const id = host.deferred[0].meta?.taskId;
     const events = await host.deliverDeferred(rig.world);
     expect(events[0].origin).toBe('external');
-    expect(events[0].text).toContain('今天写了 0 封');
-    expect(events[0].text).toContain('小感受也值得写');
+    expect(events[0].text).toContain('You have written 0 letters today');
+    expect(events[0].text).toMatch(/small or unfinished (thoughts|feelings)/i);
     expect(events[0].text).not.toContain(String(id));
     rig.world.onTurnEnded();
     expect((await status()).wake.active?.phase).toBe('retry');
@@ -85,8 +85,8 @@ describe('World 随机邀请接线', () => {
   it('打捞邀请给出额度与上次收信间隔，不自动捞取或读信', async () => {
     const rig = await start(1, 3, 3); await tick(); await tick(2);
     const events = await host.deliverDeferred(rig.world);
-    expect(events[0].text).toContain('今日可捞 3 次，可回信 3 次');
-    expect(events[0].text).toContain('还没收过信');
+    expect(events[0].text).toContain('You have 3 catches and 3 replies left today');
+    expect(events[0].text).toContain('You have not caught a letter yet');
     expect(rig.world.pageDeps().snapshot().held).toBeNull();
     rig.throwAs('peer', '留在页面里的陌生来信。');
     await callTool(rig.world, 'bottle_catch');
@@ -157,7 +157,7 @@ describe('信箱行动主体、提醒与可调间隔', () => {
     expect(host.events.filter(e => e.type === 'bottle.request')).toHaveLength(0);
     expect(page.snapshot().letterDraft).toBeNull();
     const [event] = await host.deliverDeferred(rig.world);
-    expect(event.text).toContain('小感受也值得写');
+    expect(event.text).toMatch(/small or unfinished (thoughts|feelings)/i);
     expect(event.text).not.toContain(String(event.meta!.taskId));
     expect((await status()).wake.active).toMatchObject({ action: 'write', manual: true });
   });
@@ -198,9 +198,9 @@ describe('信箱行动主体、提醒与可调间隔', () => {
     await page.open('page');
     const reading = host.last('bottle.reading')!;
     expect(reading.origin).toBe('external');
-    expect(reading.text).toContain('人去海边捞了一封信，署名是');
-    expect(reading.text).toContain('人想请你回复这封信');
-    expect(reading.text).toContain('标题：来自潮间带');
+    expect(reading.text).toContain('your partner caught a letter signed');
+    expect(reading.text).toContain('asks you to draft a reply');
+    expect(reading.text).toContain('Title: 来自潮间带');
     expect(reading.text).toContain('只在回信后才能看的原文');
     expect(reading.text).not.toContain(row.id);
   });
@@ -211,7 +211,7 @@ describe('信箱行动主体、提醒与可调间隔', () => {
     rig.throwAs('peer', '人在海边捞起来的一封。');
     expect((await page.request('catch', 'human')).ok).toBe(true);
     expect((await page.request('write', 'human')).ok).toBe(true);
-    expect(host.last('bottle.request')?.text).toContain('小感受也值得写');
+    expect(host.last('bottle.request')?.text).toMatch(/small or unfinished (thoughts|feelings)/i);
   });
   it.each(['letter', 'reply'] as const)('只有待寄%s草稿、没有手持来信或可用额度时也提醒，重启后仍有效', async kind => {
     const rig = await start(0, 0, 0);
@@ -228,8 +228,8 @@ describe('信箱行动主体、提醒与可调间隔', () => {
     expect(host.deferred).toHaveLength(1);
     expect(host.deferred[0].meta?.action).toBe('remind');
     const [event] = await host.deliverDeferred(rig.world);
-    expect(event.text).toContain('0 封来信、1 份草稿');
-    expect(event.text).toContain('只提醒，不读信、不代寄');
+    expect(event.text).toContain('0 pending letters and 1 draft');
+    expect(event.text).toContain('Only remind: do not read bodies or send anything');
     expect(event.text).not.toContain(draft.body);
     expect(event.text).not.toContain('不应递给模型的标题');
     rig.world.onTurnEnded();
@@ -259,8 +259,8 @@ describe('信箱行动主体、提醒与可调间隔', () => {
     await tick(); await tick(2);
     expect(host.deferred).toHaveLength(1); expect(host.deferred[0].meta?.action).toBe('remind');
     const [event] = await host.deliverDeferred(rig.world);
-    expect(event.text).toContain('1 封来信、1 份草稿');
-    expect(event.text).toContain('先放着就别催');
+    expect(event.text).toContain('1 pending letter and 1 draft');
+    expect(event.text).toContain('Respect a request to leave them for later');
     expect(event.text).not.toContain('不能泄露给模型的正文');
     expect(event.text).not.toContain('这是一份没寄的草稿');
     rig.world.onTurnEnded();
@@ -275,7 +275,7 @@ describe('信箱行动主体、提醒与可调间隔', () => {
     expect(host.deferred).toHaveLength(1);
     expect((await page.dismiss()).ok).toBe(true);
     const [event] = await host.deliverDeferred(rig.world);
-    expect(event.text).toContain('0 封来信、1 份草稿');
+    expect(event.text).toContain('0 pending letters and 1 draft');
     expect(event.text).not.toContain('私密正文');
   });
   it.each(['paused', 'disabled', 'busy'] as const)('只有草稿时仍尊重%s，不唤醒桌宠', async condition => {
@@ -537,15 +537,15 @@ it('打捞邀请带上一瓶的署名与标题；写信只说实际授权读信�
   await rig.world.start(host);
   await rig.world.pageDeps().request!('catch', 'bot');
   let events = await host.deliverDeferred(rig.world);
-  expect(events[0].text).toContain('上一瓶是3 小时前');
-  expect(events[0].text).toContain('「灯塔守望人」写的《今晚的海风》');
+  expect(events[0].text).toContain('You last caught a bottle 3 hours ago');
+  expect(events[0].text).toContain('from "灯塔守望人", titled "今晚的海风"');
   expect(events[0].text).not.toContain('秘密正文');
   expect(events[0].text).not.toContain('private-letter-id');
   await callTool(rig.world, 'bottle_wake_choice', { reason: 'not_now' });
   await rig.world.pageDeps().request!('write', 'bot');
   events = await host.deliverDeferred(rig.world);
-  expect(events[0].text).toContain('1 小时前读了「灯塔守望人」的信');
-  expect(events[0].text).toContain('结合你的近况，有什么想对陌生人说的吗？小感受也值得写');
+  expect(events[0].text).toContain('You read a letter from "灯塔守望人" 1 hour ago');
+  expect(events[0].text).toContain('draw on your own recent feelings. Any subject or form is welcome');
   expect(events[0].text).not.toContain('秘密正文');
 });
 
@@ -555,8 +555,8 @@ it('未读或旧版只有阅读次数的信，不凭收信时间编造读信间�
   disk.addReceived({ letterId: 'old', from: '海上来客', body: '正文', at: rig.clock.t - HOUR, outcome: 'kept', readCount: 2 });
   await rig.world.start(host); await rig.world.pageDeps().request!('write', 'bot');
   const events = await host.deliverDeferred(rig.world);
-  expect(events[0].text).not.toContain('前读了');
-  expect(events[0].text).toContain('结合你的近况');
+  expect(events[0].text).not.toContain('You read a letter from');
+  expect(events[0].text).toContain('draw on your own recent feelings');
 });
 
 

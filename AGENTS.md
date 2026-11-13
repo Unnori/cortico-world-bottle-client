@@ -1,5 +1,10 @@
 # 漂流瓶扩展开发提醒
 
+## 0.9.0 回信保护必须有期限
+
+- 两小时寄送时点后仅再保留 24 小时补寄保护（REPLY_DRAFT_RETRY_GRACE_MS）；超时或无效 replyDraftKey/replyDraftDueAt 必须清除，按原 replyWindowUntil 回海。原窗口仍未到则继续正常持有；旧 null 窗口不能让失效草稿无限占信。正文缺失的信归档，不回海。每次 API 请求包括健康探针都执行清理，不依赖原持有人上线。
+- 同一草稿重试不能延期；不同 key 不能直接替换已有保护，须先取消原稿。客户端只在服务端明确 not_found/gone 或 deadLetters 确认后停止已确认草稿补寄，网络失败仍按原凭据重试。失效已确认稿的正文保留为 manual，sendFailure=expired，清除自动寄送字段和 held，不报已寄出；仅供查看/放弃，删除草稿/对应往来/整册清空时一起删除该状态和正文，重启继续保留。
+
 ## 0.8.0 明确的隐私与触发边界（覆盖旧版约定）
 
 - 本节以用户最新五项修订与纸条寄出确认回答为准，覆盖此前的后台禁唤醒/禁星笺记忆口径。服务端信件/回信正文与信题不落盘；本机信册与明文备份例外。自动邀请、待办、到信事件恢复唤醒，但不得自动递出新来信正文；公告保持只在网页显示。
@@ -46,7 +51,7 @@
 
 ## 音效目录与默认值
 
-来信默认 `incoming/New_notifications_1.wav`，回信默认 `reply/New_notifications_3.wav`，唯一常量在 sound.ts。包内选项只能是各自子目录的直接音频，以及 sounds 根目录标记 shared 的直接音频；不要把两个子目录混合进任一下拉。同步维护桌面动态选项、网页列表与 README，测试根目录共享、跨目录隔离、旧默认迁移；不要擅自覆盖人添加的音频文件。
+来信默认 `incoming/incoming_default.wav`，回信默认 `reply/reply_default.wav`，唯一常量在 sound.ts。包内选项只能是各自子目录的直接音频，以及 sounds 根目录标记 shared 的直接音频；不要把两个子目录混合进任一下拉。同步维护桌面动态选项、网页列表与 README，测试根目录共享、跨目录隔离、旧默认迁移；不要擅自覆盖人添加的音频文件。
 
 
 ## 邀请与手中信件一致性
@@ -98,3 +103,33 @@
 - 0.8.0 邀请区布局回归：主体选择与说明须分行，使用具名 grid 区域固定按钮/回音位置；不要恢复 nowrap 的整个 actor-choice（会把中文按钮挤成竖排）。运行 tests/mailbox-layout-browser.mts 验证 320—1440px 与明暗模式。备份入口在网页信册外 footer / World 面板最后，不能混回信件列表头；修改后仍需执行上文真实宿主资源检查。
 
 - 小纸条防跳动：attachPapers 只能在父容器确实改变时移动节点；不可在每次轮询先停放/删除再挂载。纸条不要设持续可重触发的 CSS 入场动画，首次草稿才可定位，重写与无关额度刷新保留阅读位置。新增 UI 需跑 tests/paper-layout-browser.mts，验证 DOM、焦点、分类/折叠和滚动稳定及 bfcache 正文恢复。
+
+## 无头模式与草稿版本（A/B/D 修复）
+
+- 默认 headlessEnabled=false；启用必须由人修改设置。缓存 handler 每次检查开关及当前读信意图。无头下仅桌宠自行打捞自动投递完整正文（外部延迟事件，投递前重验）；先分享原文与感想，可起草当前信的 manual 回信，本轮锁止发送/放弃，等人后续明确确认。普通逐封读信仍不建立回信意图；人另行要求回信时显式提供 letterId。人工/Bridge 打捞不自动递正文。
+- 草稿 draftId/revision/sendPolicy 随草稿持久，发送、放弃、删除或清空时删除。内容、标题或装饰变化递增 revision；重建草稿使用新 ID。发送须真实 ID 和当前版本，等待自动任务后重验。
+- 无头新回信 manual，沿用 held.windowUntil，不调用 /reply/draft 保护；过期清草稿和 held。旧桌面 delayed 保留原 autoSendKey/autoSendAt，不随开关变化。
+- 本机装饰可保留；旧海边不支持时不发送 stationery 并明确降级。shared/stationery.ts 和 world/stationery 必须进入运行包，自描述从源码生成。
+
+## C/E 入口一致性
+
+- 新网页、原生卡片提交所显示的 draftId/revision/kind，复用 World 的确认和发送业务方法；等待自动任务、取消或异步模型重写之后都要重验。旧本机路由仅保留兼容，不能当作 Agent 安全接口。
+- Bridge 默认关闭，独立 BOTTLE_BRIDGE_TOKEN，只有回环 /api/v1；LAN handler 必须拒绝。Agent API 只给状态投影、创建新信稿和打捞元信息，不返回 PageSnapshot、正文或凭证，不发送、不改配置。
+- Controller 另需 bridgeControllerEnabled 和独立 BOTTLE_BRIDGE_CONTROLLER_TOKEN，默认关闭，双向隔离普通 Agent 凭证。只预览指定草稿、以当前 ID/revision 确认发送/重写/放弃、对指定信请求回信/共读/归还/收好；复用 World 业务方法并重验开关、生命周期和目标。Controller 新回信 manual，不隐式确认定时寄出；外部请求不得伪装为人点击网页或 internal 事件。
+- 发现文件 bottle-bridge.json 不含 token，随停止 World 清理。草稿 source 是外部自报来源，不是审批；随草稿删除。held.catchSource 随 held 归还、收好、寄回、过期或删除清理。
+- F 本轮只允许必要的确认负载和外部来源提示。教程与碎碎念仅在 E:/BottleWeb/guide 和 E:/BottleWeb/notes 新增，不改已有大屏、共用 style 或鉴权文件；不自动部署路由。
+
+## 桌宠上下文语言与称呼
+
+- 运行时工具及参数 description 统一英语，直接以 you / 祈使句指导桌宠，用 your partner 指代伙伴；工具说明不解析提示词占位符。
+- 事件通知内容可用中文或英语，信件原文、署名、标题不翻译。自描述中的事件 description 仅供人查看，统一中文。
+- ENV_PROMPT 面向桌宠，以“你”说明行动与边界，用 `{{bottle.user | 伙伴}}` 指代伙伴；不要写成给使用者看的操作指南。不覆盖部署中已有的自定义提示词。
+- 每个 World 单独渲染模板。漂流瓶显式提供 bottle.user：只读部署 config.json 的 worlds.desktop-pet.user，未设置、文件缺失或损坏时用模板缺省“伙伴”；不猜系统登录名，不写回配置，不加入信件负载。
+
+## 事件投递分级（按用户最新事件指南要求覆盖旧唤醒约定）
+
+- world/events.ts 统一声明真实投递方式与中文事件说明；每个 pushEvent/pushDeferred 都显式传投递规则，不依赖 internal 默认 flush。
+- flush：主动写信/打捞/提醒邀请、直接写信、回信/共读/重写、小纸条邀请/一起看、无头自动共读。保留原资格、间隔、次数、暂停与发送确认。
+- debounce：新回信和新到小纸条，沿用宿主合批配置，不修改 Core 的全局定时值。
+- piggyback：寄出、归还/收好、被捡起、系统邮件、海啸结果，以及已授权星笺记忆正文；仅随其他事件带入，不单独唤醒。延迟正文仍须在 render 时重验权限与生命周期。
+- origin 仍按内容来源选择，不因省唤醒而改变内外部安全边界；不使用 preempt/interrupt 打断当前轮。

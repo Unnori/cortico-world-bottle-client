@@ -7,7 +7,7 @@ import { FakeHost } from './fake-host.ts';
 import { DEFAULT_TUNING } from '../server/tuning.ts';
 import { createApi, sha256 } from '../server/app.ts';
 import { Db } from '../server/db.ts';
-import { REPLY_AUTO_SEND_MS } from '../shared/contract.ts';
+import { REPLY_AUTO_SEND_MS, REPLY_DRAFT_RETRY_GRACE_MS } from '../shared/contract.ts';
 import type { LocalStore } from '../world/store.ts';
 
 let h: Harness | undefined;
@@ -114,6 +114,36 @@ it('automatic send retries after a network failure without returning or losing t
   blocked = ''; h!.clock.t += 60_001; await tick();
   expect(h!.db.replies).toHaveLength(1);
   expect(h!.world.pageDeps().snapshot().replyDraft).toBeNull();
+});
+
+it('expired server protection stops automatic retries, frees local holding and retains the unsent reply across restart',async()=>{
+  const id=await setup();h!.clock.t+=23*hour;await draft();
+  const original=h!.world.pageDeps().snapshot().replyDraft!;
+  h!.clock.t=original.autoSendAt!+REPLY_DRAFT_RETRY_GRACE_MS;
+  await (h!.world as any).refreshQuota();expect(h!.db.letterById(id)!.state).toBe('floating');
+  h!.db.bots.find(bot=>bot.tokenHash===sha256((h!.world as any).token()))!.repliesMade=999;
+  await tick();const retained=h!.world.pageDeps().snapshot().replyDraft!;
+  expect(retained.body).toBe(original.body);expect(retained.sendPolicy).toBe('manual');expect(retained.sendFailure).toBe('expired');
+  expect(retained.autoSendAt).toBeUndefined();expect(retained.autoSendPending).toBeUndefined();
+  expect(retained.revision).toBe(original.revision!+1);
+  expect(h!.world.pageDeps().snapshot().held).toBeNull();expect(h!.db.replies).toHaveLength(0);
+  expect(h!.world.pageDeps().snapshot().received.find(r=>r.letterId===id)?.outcome).toBe('expired');
+  const count=calls.filter(p=>p==='/reply').length;h!.clock.t+=2*hour;await tick();
+  expect(calls.filter(p=>p==='/reply')).toHaveLength(count);
+  await h!.world.stop();await h!.world.start(host);await tick();
+  expect(h!.world.pageDeps().snapshot().replyDraft).toMatchObject({body:original.body,sendFailure:'expired',sendPolicy:'manual'});
+  expect((await h!.world.pageDeps().rewrite('reply','remote')).ok).toBe(false);
+  expect(h!.world.pageDeps().snapshot().replyDraft?.body).toBe(original.body);
+  expect((await h!.world.pageDeps().send('reply')).ok).toBe(false);
+  expect((await h!.world.pageDeps().discard('reply')).ok).toBe(true);expect(h!.world.pageDeps().snapshot().replyDraft).toBeNull();
+});
+
+it('a definite dead-letter receipt retains a confirmed unsent reply instead of deleting it',async()=>{
+  const id=await setup();await draft();const body=h!.world.pageDeps().snapshot().replyDraft!.body;
+  const row=h!.db.letterById(id)!;row.state='archived';row.archivedReason='tsunami';delete row.replyDraftKey;delete row.replyDraftDueAt;
+  await (h!.world as any).refreshQuota();await tick();
+  expect(h!.world.pageDeps().snapshot().replyDraft).toMatchObject({body,sendFailure:'expired',sendPolicy:'manual'});
+  expect(h!.world.pageDeps().snapshot().held).toBeNull();expect(h!.db.replies).toHaveLength(0);
 });
 it('a lost send response retries idempotently without another reply or quota charge', async () => {
   const id = await setup(); await draft();

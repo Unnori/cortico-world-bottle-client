@@ -28,7 +28,10 @@ export class FakeHost implements WorldHost {
   } as unknown as WorldHost['log'];
 
   deferred: Array<Parameters<WorldHost['pushDeferred']>[0]> = [];
-  pushDeferred(event: Parameters<WorldHost['pushDeferred']>[0]): void { this.deferred.push(event); }
+  deferredOpts: Array<Parameters<WorldHost['pushDeferred']>[1]> = [];
+  pushDeferred(event: Parameters<WorldHost['pushDeferred']>[0],opts?:Parameters<WorldHost['pushDeferred']>[1]): void {
+    this.deferred.push(event);this.deferredOpts.push(opts);
+  }
   async deliverDeferred(world: { onEventsSettled(events: readonly EventEnvelope[], outcome: 'delivered' | 'discarded'): void }): Promise<EventEnvelope[]> {
     const delivered: EventEnvelope[] = [];
     for (const spec of this.deferred.splice(0)) {

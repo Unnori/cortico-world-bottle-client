@@ -75,6 +75,16 @@ it('session signatures survive restart with the same secret and expire after a y
   now+=366*24*60*60*1000;expect(a.valid(cookie)).toBe(false);
 });
 
+it('serves tinted built-ins through the same paired asset routes and rejects invalid colors',async()=>{
+  const {base,pair,pairing}=await start();const path='/doodle/rain-cloud/112233';
+  expect((await fetch(base+path)).status).toBe(401);
+  const cookie=(await pair()).split(';')[0];
+  const res=await fetch(base+path,{headers:{cookie}});
+  expect(res.status).toBe(200);expect(res.headers.get('content-type')).toContain('image/svg+xml');expect(await res.text()).toContain('#112233');
+  for(const bad of ['/doodle/rain-cloud/red','/doodle/rain-cloud/112233/extra','/doodle/no-such-doodle/112233'])expect((await fetch(base+bad,{headers:{cookie}})).status).toBe(404);
+  pairing.rotate(newPairingToken());expect((await fetch(base+path,{headers:{cookie}})).status).toBe(401);
+});
+
 it('serves a secure cookie through a configured HTTPS proxy without trusting forwarded headers',async()=>{
   const server=await startLanServer(deps(),{port:0,pairing:new LanPairing(token),advertised:'https://mail.example.test/'}); servers.push(server);
   const res=await raw(`http://127.0.0.1:${server.port}/pair`,{host:'mail.example.test',origin:'https://mail.example.test','x-bottle':'1'},JSON.stringify({token}));

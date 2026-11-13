@@ -1,9 +1,9 @@
 import { expect, it, vi } from 'vitest';
 import { runInNewContext } from 'node:vm';
-import { DEFAULT_SOUND_PACK, type SoundFile } from '../world/sound.ts';
+import { DEFAULT_SOUND_PACK, LEGACY_SOUND_ALIASES, type SoundFile } from '../world/sound.ts';
 import { pageSoundScript } from '../world/page-sound.ts';
 const library:SoundFile[]=[{id:DEFAULT_SOUND_PACK.incoming,label:'New_notifications_1',kind:'incoming'},{id:DEFAULT_SOUND_PACK.reply,label:'New_notifications_3',kind:'reply'},{id:'shared.wav',label:'shared',kind:'shared'}];
-function browser(hostname='192.168.1.8', storageWorks=true, preferences:Record<string,unknown>={}, files=library, options:{delayed?:string[];holdPlayback?:boolean}={}) {
+function browser(hostname='192.168.1.8', storageWorks=true, preferences:Record<string,unknown>={}, files=library, options:{delayed?:string[];holdPlayback?:boolean;unavailable?:string[]}={}) {
   const nodes=new Map<string,any>(),storage=new Map<string,string>(),played:string[]=[],ramps:number[][]=[];
   const pending=new Map<string,()=>void>(),stopped:string[]=[];
   const window:any={addEventListener:vi.fn()};
@@ -15,7 +15,7 @@ function browser(hostname='192.168.1.8', storageWorks=true, preferences:Record<s
   };
   const node=(id:string)=>{if(!nodes.has(id))nodes.set(id,{value:'',children:[] as any[],appendChild(child:any){this.children.push(child);}});return nodes.get(id);};
   storage.set('bottle-device-sound',JSON.stringify({enabled:true,volume:30,fade:250,...preferences}));
-  const fetch=vi.fn(async(url:string)=>{const id=decodeURIComponent(url.slice(8));return {ok:true,json:async()=>({files}),arrayBuffer:async()=>{if(options.delayed?.includes(id))await new Promise<void>(resolve=>pending.set(id,resolve));return new TextEncoder().encode(id).buffer;}};});
+  const fetch=vi.fn(async(url:string)=>{const id=decodeURIComponent(url.slice(8));return {ok:!options.unavailable?.includes(id),json:async()=>({files}),arrayBuffer:async()=>{if(options.delayed?.includes(id))await new Promise<void>(resolve=>pending.set(id,resolve));return new TextEncoder().encode(id).buffer;}};});
   const localStorage={getItem:(key:string)=>{if(!storageWorks)throw Error();return storage.get(key)??null;},setItem:(key:string,value:string)=>{if(!storageWorks)throw Error();storage.set(key,value);}};
   runInNewContext(pageSoundScript,{window,location:{hostname},document:{getElementById:node,createElement:()=>({}),addEventListener:vi.fn()},localStorage,fetch,queueMicrotask});
   return {window,node,played,ramps,storage,fetch,pending,stopped};
@@ -120,4 +120,24 @@ it('切换选项会停止正在响的旧试听，再点试听只播放新文件'
   expect(b.stopped).toEqual([DEFAULT_SOUND_PACK.incoming]);
   b.node('sound-incoming-preview').onclick();
   await vi.waitFor(()=>expect(b.played).toEqual([DEFAULT_SOUND_PACK.incoming,'shared.wav']));
+});
+
+
+it('browser migrates all historical IDs using shared aliases and plays the mapped bytes',async()=>{
+  const shared=['New_notifications_1.wav','New_notifications_2.wav','New_notifications_3.wav'].map(id=>({id,label:id,kind:'shared' as const}));
+  for(const [old,target] of Object.entries(LEGACY_SOUND_ALIASES)) {
+    const kind=old.startsWith('incoming/')?'incoming':'reply';
+    const b=browser('phone.test',true,{[kind]:'pack:'+old},[...library,...shared]);
+    await vi.waitFor(()=>expect(JSON.parse(b.storage.get('bottle-device-sound')!)[kind]).toBe('pack:'+target));
+    b.node('sound-'+kind+'-preview').onclick();
+    await vi.waitFor(()=>expect(b.played).toEqual([target]));
+  }
+});
+
+it('failed migration audio loading preserves the original saved preference',async()=>{
+  const old='pack:incoming/New_notifications_1.wav';
+  const b=browser('phone.test',true,{incoming:old},library,{unavailable:[DEFAULT_SOUND_PACK.incoming]});
+  await vi.waitFor(()=>expect(b.node('sound-incoming').children).toHaveLength(4));
+  await new Promise(done=>setTimeout(done,10));
+  expect(JSON.parse(b.storage.get('bottle-device-sound')!).incoming).toBe(old);
 });

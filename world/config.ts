@@ -24,6 +24,11 @@ export interface BottleConfigSection extends Partial<BottleWakeSettings>, SoundC
   enabled: boolean;
   /** Opt-in only; a separate per-letter consent is also required. */
   starMemoryEnabled?: boolean;
+  /** 高危实验功能，默认关闭。开启后桌宠可读取信件正文并根据聊天指令直接寄出，无需网页人工确认。 */
+  headlessEnabled?: boolean;
+  /** Agent-only loopback API, separately opted in; enabling requires World restart. */
+  bridgeEnabled?: boolean;
+  bridgeControllerEnabled?: boolean;
   /** 随机邀请只提供机会，Bot 可明确暂不做。 */
   randomWake?: boolean;
   /** 海在哪。改地址要重启 World。 */
@@ -81,6 +86,9 @@ export function initialiseSoundSettings(config: BottleConfigSection): void {
 export const BOTTLE_DEFAULTS: BottleConfigSection = {
   enabled: false,
   randomWake: true,
+  headlessEnabled: false,
+  bridgeEnabled: false,
+  bridgeControllerEnabled: false,
   writeInviteEnabled: true,
   writeInviteIntervalHours: 2,
   writeInviteDayLimit: 3,
@@ -112,6 +120,21 @@ export const BOTTLE_CONFIG_FIELDS: Record<string, ConfigProperty> = {
     type: 'boolean', title: '允许星笺记忆',
     description: '默认关闭。开启后还需在网页的星笺匣逐封勾选，才会把完整往来交给桌宠并允许后续重读；仅星标不会读正文。关闭会清除全部逐封授权，已进入上下文或摘要的内容无法追回。不修改核心记忆。',
     'x-hot': true,
+  },
+  'worlds.bottle.headlessEnabled': {
+    type: 'boolean', title: '无头模式（高危实验功能）',
+    description: '默认关闭。开启后桌宠捞信会自动看到正文，先向你分享完整原文和感想；可起草回信，但本轮禁止寄出，等你之后明确确认。也能按聊天指令读信和直接寄出指定草稿，无需网页逐次确认。扩展无法验证指令是否来自你本人；群聊消息、误解或恶意诱导可能让正文发错会话，或把私人信息寄给陌生人。接收方可保存传播，关闭不能撤回已经寄出或泄露的内容。请理解风险后再开启。',
+    'x-hot': true,
+  },
+  'worlds.bottle.bridgeEnabled': {
+    type:'boolean', title:'启用本地 Bridge（实验功能）',
+    description:'默认关闭。供小纸船等本机程序查询状态、投入待审新信草稿和打捞元信息，不开放寄出或无头开关。专用凭证保存在部署 secret BOTTLE_BRIDGE_TOKEN；实际 API 地址由数据目录 bottle-bridge.json 提供。启用后重启 World；这不是操作系统沙盒。',
+    'x-hot':false,
+  },
+  'worlds.bottle.bridgeControllerEnabled': {
+    type:'boolean',title:'允许本地 Controller 操作（高危）',
+    description:'默认关闭，须同时启用 Bridge 并重启 World。独立 Controller 凭证可以查看指定草稿、确认寄出、请求共读或起草回信、重写、放弃和归还。只能交给你信任的控制程序；不能验证请求背后的真人，泄露凭证可能导致正文外泄或误寄。普通 Bridge 凭证没有这些权限。',
+    'x-hot':false,
   },
   'worlds.bottle.server': {
     type: 'string',
@@ -232,8 +255,7 @@ function configGroup(id: string, title: string, description: string, fields: rea
 }
 
 export const BOTTLE_CONFIG_GROUPS: ConfigGroup[] = [
-  configGroup('world:bottle:stars', '星笺匣与记忆',
-    '星标表示喜欢；确认邀请后才允许正文长期重读，关闭可撤回授权。', ['starMemoryEnabled']),
+  // Everyday controls first; optional access, memory and high-risk integrations follow.
   configGroup('world:bottle:display', '显示与通知',
     '先选信件显示的位置，再调整桌面卡片和海啸提醒。',
     ['surface', 'cardAutoCloseSec', 'tsunamiNotice']),
@@ -255,4 +277,10 @@ export const BOTTLE_CONFIG_GROUPS: ConfigGroup[] = [
   configGroup('world:bottle:connection', '连接与调试',
     '通常保持默认即可。更换海边服务端或本机端口后需重启漂流瓶 World，调试日志按需开启。',
     ['server', 'port', 'debug']),
+  configGroup('world:bottle:stars', '星笺匣与记忆',
+    '可选的正文长期重读授权。仅星标不会读正文；还需逐封确认，关闭可撤回授权。', ['starMemoryEnabled']),
+  configGroup('world:bottle:headless', '无头模式（高危实验功能）',
+    '默认关闭。开启后自动共读桌宠捞到的信，也能按聊天指令操作草稿；寄出仍需你明确确认。请先阅读下方风险说明。', ['headlessEnabled']),
+  configGroup('world:bottle:bridge', '本地 Bridge 与 Controller（高级功能）',
+    '默认关闭，供可信本机程序接入。普通 Bridge 与高危 Controller 分别授权、使用独立凭证；请先了解各自权限。', ['bridgeEnabled', 'bridgeControllerEnabled']),
 ];

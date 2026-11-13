@@ -9,6 +9,12 @@ import {
 
 const base = 'http://127.0.0.1:7796/';
 
+it('keeps an expired unsent reply readable without offering send or rewrite',()=>{
+  const card=replyDraftCard({base,draft:{kind:'reply',body:'未寄出的原文',at:1,sendPolicy:'manual',sendFailure:'expired'},held:null,chars:7,hints:[]});
+  expect(card.body).toBe('未寄出的原文');expect(card.from).toContain('原信已失效');
+  expect(card.actions.map(a=>a.id)).toEqual(['discard']);
+});
+
 describe('原生卡片规格', () => {
   it('写信：正文、字数、寄出去 / 重写 / 算了吧', () => {
     const card = draftLetterCard({

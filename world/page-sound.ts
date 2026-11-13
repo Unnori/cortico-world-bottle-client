@@ -1,4 +1,4 @@
-import { DEFAULT_SOUND_PACK } from './sound.ts';
+import { DEFAULT_SOUND_PACK, LEGACY_SOUND_ALIASES } from './sound.ts';
 
 /** Per-browser notification audio. Local files stay in this device's IndexedDB. */
 export const soundSettingsHtml = `<details class="invitation-settings sound-settings" id="sound-settings">
@@ -13,7 +13,8 @@ export const soundSettingsHtml = `<details class="invitation-settings sound-sett
 export const pageSoundScript = String.raw`
 (function () {
   var KEY = 'bottle-device-sound', SEEN = 'bottle-sound-seen';
-  var defaults = ${JSON.stringify(DEFAULT_SOUND_PACK)};
+  var defaults = ${JSON.stringify(DEFAULT_SOUND_PACK)}, aliases = ${JSON.stringify(LEGACY_SOUND_ALIASES)};
+  var original = {}, pendingMigrations = {}, availableIds = null;
   var kinds = ['incoming', 'reply'], prefs = {}, initialized = false, context = null, queue = Promise.resolve(), sources = [];
   var versions = {incoming:0,reply:0}, previewVersion = 0;
   var MAX = 10 * 1024 * 1024, dbPromise = null, memorySeen = {incoming:[],reply:[]};
@@ -21,16 +22,19 @@ export const pageSoundScript = String.raw`
   function note(text) { node('note').textContent = text; }
   function number(value, fallback, max) { return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(max, value)) : fallback; }
   try { prefs = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (_) {}
+  original = {incoming:prefs.incoming,reply:prefs.reply};
   function selection(value, kind) {
     var fallback = 'pack:' + defaults[kind];
     if(value === 'local' || value === 'off')return value;
-    if(typeof value !== 'string' || value.indexOf('pack:') !== 0 || value === 'pack:' + kind + '/default.wav')return fallback;
+    if(typeof value !== 'string' || value.indexOf('pack:') !== 0)return fallback;
     var id = value.slice(5);
+    if (availableIds && !availableIds[id] && aliases[id]) { id = aliases[id]; value = 'pack:' + id; }
     return id && (id.indexOf('/') < 0 || id.indexOf(kind + '/') === 0) ? value : fallback;
   }
   prefs = { enabled: prefs.enabled === true, volume: number(prefs.volume,70,100), fade: number(prefs.fade,250,5000),
     incoming: selection(prefs.incoming, 'incoming'), reply: selection(prefs.reply, 'reply') };
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch (_) { note('浏览器未允许保存，设置仅对当前页面有效。'); } }
+  kinds.forEach(function(kind){if(original[kind] && original[kind]!==prefs[kind])pendingMigrations[kind]=original[kind];});
+  function save() { try { var stored=Object.assign({},prefs,pendingMigrations);localStorage.setItem(KEY, JSON.stringify(stored)); } catch (_) { note('浏览器未允许保存，设置仅对当前页面有效。'); } }
   function db() {
     if (!dbPromise) dbPromise = new Promise(function (resolve, reject) {
       if (!window.indexedDB) { reject(Error('storage')); return; }
@@ -64,6 +68,7 @@ export const pageSoundScript = String.raw`
     });
   }
   function choose(kind, choice) {
+    if(prefs[kind]!==choice)delete pendingMigrations[kind];
     if(prefs[kind]!==choice){prefs[kind]=choice;versions[kind]++;stopSources(kind,false);}
     node(kind+'-file').hidden=choice!=='local';save();
   }
@@ -104,17 +109,23 @@ export const pageSoundScript = String.raw`
     file(kind).then(function(value){if(value)node(kind+'-name').textContent=value.name;}).catch(function(){});
   });
   fetch('/sounds').then(function(res){if(!res.ok)throw Error();return res.json();}).then(function(data){
-    kinds.forEach(function(kind){var select=node(kind), current=prefs[kind];select.textContent='';
+    availableIds={};(data.files||[]).forEach(function(item){availableIds[item.id]=true;});
+    kinds.forEach(function(kind){var select=node(kind), current=selection(prefs[kind],kind);select.textContent='';
       var files = (data.files||[]).filter(function(item){return item.kind === kind || item.kind === 'shared';});
       files.forEach(function(item){var option=document.createElement('option');option.value='pack:'+item.id;option.textContent=(item.kind==='shared'?'通用 · ':kind==='incoming'?'来信 · ':'回信 · ')+item.label;select.appendChild(option);});
       [['local','本设备文件'],['off','静音']].forEach(function(item){var option=document.createElement('option');option.value=item[0];option.textContent=item[1];select.appendChild(option);});
       if(current !== 'local' && current !== 'off' && !files.some(function(item){return 'pack:'+item.id === current;})) {
         current = files.some(function(item){return item.id === defaults[kind];}) ? 'pack:' + defaults[kind] : 'off';
       }
+      if (current!==prefs[kind] && original[kind])pendingMigrations[kind]=original[kind];
       prefs[kind] = current;select.value=current;node(kind+'-file').hidden=current!=='local';
     });
-    save();
-  }).catch(function(){});
+    return Promise.all(kinds.map(function(kind){
+      var choice=prefs[kind];
+      if(!pendingMigrations[kind] || choice.indexOf('pack:')!==0)return Promise.resolve();
+      return audioData(kind,choice).then(function(bytes){if(bytes && bytes.byteLength && prefs[kind]===choice){delete pendingMigrations[kind];save();}}).catch(function(){});
+    }));
+  }).then(function(){save();}).catch(function(){});
   document.addEventListener('pointerdown',function(){if(prefs.enabled&&(!context||context.state!=='running'))unlock().catch(function(){});},{passive:true});
   window.addEventListener('pagehide',function(){previewVersion++;kinds.forEach(function(kind){versions[kind]++;});stopSources(null,false);if(context)context.close().catch(function(){});});
   window.bottleSound={snapshot:function(snapshot){

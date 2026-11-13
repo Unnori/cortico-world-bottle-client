@@ -11,18 +11,19 @@ export function checkReleaseFiles(files, manifest, readEntry) {
   const assets = [manifest.cortico?.webUiClient, manifest.cortico?.webUiStyle];
   if (!/^dist\/webui-[a-f0-9]{12}\.js$/.test(assets[0] ?? '') || !/^dist\/webui-[a-f0-9]{12}\.css$/.test(assets[1] ?? '')) throw Error('Missing hashed WebUI asset declarations');
   const rootFiles = new Set(['package.json', 'README.md', 'CHANGELOG.md', 'LICENSE', 'LICENSE.md', 'describe.json']);
-  const sharedFiles = new Set(['shared/contract.ts', 'shared/text.ts', 'shared/hints.ts', 'shared/ago.ts']);
+  const sharedFiles = new Set(['shared/contract.ts', 'shared/stationery.ts', 'shared/text.ts', 'shared/hints.ts', 'shared/ago.ts']);
   for (const name of files) {
     if (!name.startsWith('package/') || name.includes('\\') || name.split('/').some(part => !part || part === '.' || part === '..')) throw Error('Unsafe tarball path: ' + name);
     const file = name.slice('package/'.length);
     const allowed = rootFiles.has(file) || sharedFiles.has(file) || assets.includes(file)
       || /^world\/[a-z][a-z0-9-]*\.ts$/.test(file)
       || ['world/ENV_PROMPT.md', 'world/icon.png', 'world/card-host.ps1', 'world/card-sound.ps1', 'world/fonts/catalog.json', 'world/fonts/README.md', 'world/sounds/README.md'].includes(file)
+      || /^world\/stationery\/(?:catalog\.json|sources\.json|README\.md|ATTRIBUTION\.md|[a-z0-9-]+\.svg)$/.test(file)
       || /^world\/fonts\/licenses\/[^/]+\.(?:txt|md)$/.test(file)
       || /^world\/sounds\/(?:incoming\/|reply\/)?[^/]+\.(?:wav|mp3|ogg|m4a|aac|flac)$/i.test(file);
     if (!allowed) throw Error('Unexpected file in client package: ' + name);
   }
-  const required = ['package.json', 'README.md', 'CHANGELOG.md', 'describe.json', 'world/index.ts', 'world/definition.ts', 'world/world.ts', 'world/ENV_PROMPT.md', 'world/icon.png', 'world/card-host.ps1', 'world/card-sound.ps1', 'world/fonts/catalog.json', 'world/sounds/incoming/New_notifications_1.wav', 'world/sounds/reply/New_notifications_3.wav', ...sharedFiles, ...assets];
+  const required = ['package.json', 'README.md', 'CHANGELOG.md', 'describe.json', 'world/index.ts', 'world/definition.ts', 'world/world.ts', 'world/ENV_PROMPT.md', 'world/icon.png', 'world/card-host.ps1', 'world/card-sound.ps1', 'world/fonts/catalog.json', 'world/sounds/incoming/incoming_default.wav', 'world/sounds/reply/reply_default.wav', ...sharedFiles, ...assets];
   for (const file of required) if (!names.has('package/' + file)) throw Error('Missing runtime file: ' + file);
   for (const asset of assets) {
     const hash = createHash('sha256').update(readEntry('package/' + asset)).digest('hex').slice(0, 12);

@@ -1,7 +1,10 @@
+import { serveBridge, type BridgeDeps } from './bridge.ts';
+import { isDraftRef, type DraftRef } from './drafts.ts';
 import { ARCHIVE_MAX_BYTES } from './archive.ts';
 import type { DefaultFont, FontResource } from './font-catalog.ts';
 import { MY_FONT_MAX_BYTES } from './my-font.ts';
 import { fontAsset } from './fonts.ts';
+import { doodleAsset } from './stationery.ts';
 import { customPalettes } from './appearance.ts';
 import { BACKGROUND_MAX_BYTES } from './background.ts';
 import { feedbackQr } from './feedback.ts';
@@ -9,7 +12,7 @@ import { feedbackQr } from './feedback.ts';
  * 本地信箱 WebUI：信件显示、人工确认与历史信册。
  *
  * 它存在的唯一理由是「人类看文本，Bot 不看」。气泡里的字是模型写的，模型不读原文就没法把
- * 原文放进气泡；所以需要一个不经模型的显示通道。发送也只从这里出发，模型没有 send 工具。
+ * 原文放进气泡；所以需要一个不经模型的显示通道。默认发送由人从页面确认；显式开启高危无头模式后模型可操作指定草稿版本。
  *
  * Windows 上主界面是原生卡片（`card-host.ps1`），这一页是兜底、调试，以及「翻旧信」的地方。
  * 本机监听只绑 127.0.0.1，不做鉴权；可选对外监听由 lan.ts 包裹鉴权。POST 要求一个自定义头，
@@ -30,8 +33,11 @@ import type { SoftHint } from '../shared/hints.ts';
 export type Surface = 'card' | 'page' | 'remote';
 
 export interface PageDraftView {
+  source?: {kind:'bridge';name:string};
+  draftId?: string; revision?: number; sendPolicy?: 'manual' | 'delayed';
   autoSendAt?:number;
   autoSendPending?:boolean;
+  sendFailure?:'expired';
   at?: number;
   topic?: string;
   kind: 'letter' | 'reply';
@@ -39,6 +45,7 @@ export interface PageDraftView {
   letterId?: string;
   chars: number;
   hints: SoftHint[];
+  stationery?: import('../shared/contract.ts').Stationery;
 }
 
 export interface PageHeldView {
@@ -55,6 +62,8 @@ export interface PageHeldView {
   dead?: boolean;
   signature?: string;
   topic?: string;
+  stationery?: import('../shared/contract.ts').Stationery;
+  stationeryRejected?: true;
 }
 
 export interface PageReplyView {
@@ -63,6 +72,8 @@ export interface PageReplyView {
   from: string;
   body: string;
   at: string;
+  stationery?: import('../shared/contract.ts').Stationery;
+  stationeryRejected?: true;
 }
 
 /** 我写出去的这封信现在在哪：还在漂 / 被人捡起 / 海啸丢了 / 裂了 / 已经收到回信。 */
@@ -75,6 +86,7 @@ export interface PageSentView {
   at: string;
   state?: PageSentState;
   reply?: PageReplyView;
+  stationery?: import('../shared/contract.ts').Stationery;
 }
 
 export type PageOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'expired' | 'kept';
@@ -92,6 +104,10 @@ export interface PageReceivedView {
   seed?: boolean;
   signature?: string;
   topic?: string;
+  stationery?: import('../shared/contract.ts').Stationery;
+  stationeryRejected?: true;
+  myReplyStationery?: import('../shared/contract.ts').Stationery;
+  myReplyStationeryRejected?: true;
 }
 
 export interface PageSnapshot {
@@ -156,6 +172,7 @@ export interface PageResult {
 }
 
 export interface PageDeps {
+  bridge?: BridgeDeps;
   notes?(): Promise<Array<import('./note-cache.ts').LocalNote & {read:boolean}>>;
   readNote?(id:string):Promise<PageResult>;
   ackNote?(id:string): Promise<PageResult>;
@@ -182,15 +199,15 @@ export interface PageDeps {
   wakeControl?(action: WakeAction, command: 'pause' | 'resume' | 'interval', hours?: number, dayLimit?: number): Promise<PageResult>;
   request(action: 'write' | 'catch', actor?: 'bot' | 'human', surface?: Surface): Promise<PageResult>;
   /** 信稿人工寄出；已确认的回信稿另有两小时自动寄出。 */
-  send(kind?: 'letter' | 'reply'): Promise<PageResult>;
-  rewrite(kind?: 'letter' | 'reply', surface?: Surface): Promise<PageResult>;
+  send(kind?: 'letter' | 'reply', ref?: DraftRef): Promise<PageResult>;
+  rewrite(kind?: 'letter' | 'reply', surface?: Surface, ref?: DraftRef): Promise<PageResult>;
   dismiss(): Promise<PageResult>;
   /** 字已经没了的信：只能珍藏，不再有回信/再等/扔回。 */
   keep(): Promise<PageResult>;
   /** 「一起读信」：把信册里某一封（别人写的）递进上下文，读完说点自己的想法。 */
   peruse(letterId: string): Promise<PageResult>;
   /** 把还没寄出去的草稿扔掉（「算了吧」）；不动手里那封信。 */
-  discard(kind?: 'letter' | 'reply'): Promise<PageResult>;
+  discard(kind?: 'letter' | 'reply', ref?: DraftRef): Promise<PageResult>;
   open(surface: Surface): Promise<PageResult>;
   read?(surface: Surface): Promise<PageResult>;
   /** 不带 letterId 清空历史；带了就只删那一条。 */
@@ -244,6 +261,11 @@ export async function handlePage(
   }
   if (method === 'GET' && route.startsWith('/fonts/')) {
     const file = fontAsset(route.slice(7));
+    return file ? { status:200, binary:file } : { status:404, json:{ok:false} };
+  }
+  if (method === 'GET' && route.startsWith('/doodle/')) {
+    const match = /^\/doodle\/([a-z0-9][a-z0-9-]{0,47})(?:\/([a-f0-9]{6}))?$/i.exec(route);
+    const file = match ? doodleAsset(match[1], undefined, match[2] ? '#' + match[2] : undefined) : null;
     return file ? { status:200, binary:file } : { status:404, json:{ok:false} };
   }
   if (method === 'GET' && /^\/palette\/[a-f0-9]{6}$/i.test(route))
@@ -338,12 +360,18 @@ export async function handlePage(
     const actor = body?.actor === 'human' ? 'human' : 'bot';
     const surface = opts.surface ?? 'page';
     const kind = draftKindOf(opts.body);
+    const hasRef = body && ('draftId' in body || 'revision' in body);
+    if (['/send','/rewrite','/discard'].includes(route) && hasRef && (!isDraftRef(body) ||
+      body.kind !== undefined && body.kind !== 'letter' && body.kind !== 'reply' ||
+      Object.keys(body).some(k => !['draftId','revision','kind'].includes(k))))
+      return {status:400,json:{ok:false,message:'请明确指定当前草稿 ID 与版本，确认动作不能携带新正文。'}};
+    const ref = hasRef && isDraftRef(body) ? {draftId:body.draftId,revision:body.revision} : undefined;
     const actions: Record<string, () => Promise<PageResult>> = {
       '/write': () => deps.request('write', actor, surface),
       '/catch': () => deps.request('catch', actor, surface),
-      '/send': () => deps.send(kind),
-      '/rewrite': () => deps.rewrite(kind, surface),
-      '/discard': () => deps.discard(kind),
+      '/send': () => ref ? deps.send(kind,ref) : deps.send(kind),
+      '/rewrite': () => ref ? deps.rewrite(kind,surface,ref) : deps.rewrite(kind,surface),
+      '/discard': () => ref ? deps.discard(kind,ref) : deps.discard(kind),
       '/dismiss': () => deps.dismiss(),
       '/keep': () => deps.keep(),
       '/peruse': () => deps.peruse(letterIdOf(opts.body) ?? ''),
@@ -417,6 +445,8 @@ export function pageHandler(deps: PageDeps, log?: (line: string) => void, remote
   return (req: IncomingMessage, res: ServerResponse): void => {
     const method = (req.method ?? 'GET').toUpperCase();
     const path = (req.url ?? '/').split('?')[0] ?? '/';
+
+    if (path === '/api' || path.startsWith('/api/')) { serveBridge(deps.bridge,req,res,remote); return; }
 
     // 跨站表单发不出自定义头；这一条挡住「替人类点寄出」
     if (method === 'POST' && req.headers['x-bottle'] !== '1') {
@@ -501,9 +531,10 @@ export async function startPageServer(
         });
       });
       server.unref();
+      const actualPort=(server.address() as {port:number}).port;
       return {
-        url: `http://${LOOPBACK}:${port}/`,
-        port,
+        url: `http://${LOOPBACK}:${actualPort}/`,
+        port:actualPort,
         close: () =>
           new Promise<void>((resolve) => {
             // 页面每几秒轮询一次；不掐掉 keep-alive 连接，close 会等很久

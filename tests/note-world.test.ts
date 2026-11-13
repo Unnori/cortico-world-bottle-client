@@ -69,7 +69,7 @@ it('only Coo replaces a draft after a rewrite invitation; invalid output keeps t
  const first=page.snapshot().noteDraft!,quota=page.snapshot().quota!.catches_left;
  h.clock.t+=60_000;
  const result=await handlePage(page,'POST','/note/rewrite',{body:{letterId:id},surface:'remote'});
- expect(result.json).toMatchObject({ok:true});expect(host.last('bottle.note-request')!.text).toContain('重新写');
+ expect(result.json).toMatchObject({ok:true});expect(host.last('bottle.note-request')!.text).toContain('rewrite your previous draft');
  expect(page.snapshot()).toMatchObject({noteRewriting:true,noteDraft:first});
  expect((await page.note!(id)).ok).toBe(false);
  expect(await callTool(h.world,'bottle_note',{text:'海'.repeat(41)})).toContain('1—40');

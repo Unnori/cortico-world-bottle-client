@@ -314,7 +314,12 @@ function Invoke-CardAction([string]$id) {
     $client.Encoding = [System.Text.Encoding]::UTF8
     $client.Headers.Add('x-bottle', '1')
     $client.Headers.Add('x-bottle-surface', 'card')
-    $raw = $client.UploadString("$($script:baseUrl)/$id", 'POST', '')
+    $payload = ''
+    if ($id -in @('send', 'rewrite', 'discard') -and $spec.draft) {
+      $client.Headers.Add('content-type', 'application/json')
+      $payload = @{ draftId = [string]$spec.draft.draftId; revision = [int]$spec.draft.revision; kind = [string]$spec.draft.kind } | ConvertTo-Json -Compress
+    }
+    $raw = $client.UploadString("$($script:baseUrl)/$id", 'POST', $payload)
     $res = $raw | ConvertFrom-Json
     if ($res.message) {
       $script:status.Text = [string]$res.message

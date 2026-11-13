@@ -27,7 +27,7 @@ jobs:
     # npm 端登记的环境名；这里加了保护规则就等于「发布要人批」
     environment: npm
     permissions:
-      contents: read
+      contents: write
       # Trusted Publishing 的 OIDC 令牌就靠这一行
       id-token: write
 
@@ -73,6 +73,7 @@ jobs:
           archive=$(node -p "const data=JSON.parse(require('fs').readFileSync('pack.json', 'utf8')); (Array.isArray(data)?data:Object.values(data))[0].filename")
           node scripts/check-release-package.mjs "$archive" > package-check.json
           cat package-check.json
+          sha256sum "$archive" > SHA256SUMS
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Keep verified release package
@@ -83,7 +84,13 @@ jobs:
             ${{ steps.pack.outputs.archive }}
             pack.json
             package-check.json
+            SHA256SUMS
           if-no-files-found: error
 
       - name: Publish verified archive via Trusted Publishing
         run: npm publish "${{ steps.pack.outputs.archive }}" --provenance --access public
+
+      - name: Attach the published archive to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "${{ steps.pack.outputs.archive }}" SHA256SUMS package-check.json --repo "$GITHUB_REPOSITORY" --clobber

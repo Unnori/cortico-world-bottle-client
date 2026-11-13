@@ -36,7 +36,7 @@ describe('草稿往返', () => {
     first.setLetterDraft({ kind: 'letter', body: '今天的海很平。', at: 1_000 });
 
     const again = reload(dir);
-    expect(again.letterDraft).toEqual({ kind: 'letter', body: '今天的海很平。', at: 1_000 });
+    expect(again.letterDraft).toMatchObject({ kind: 'letter', body: '今天的海很平。', at: 1_000 });
     // 信稿不占回信草稿那个槽
     expect(again.draft).toBeNull();
   });
@@ -45,7 +45,7 @@ describe('草稿往返', () => {
     const dir = freshDir();
     reload(dir).setDraft({ kind: 'reply', letterId: 'l_abc123', body: '下了，很小。', at: 2 });
 
-    expect(reload(dir).draft).toEqual({ kind: 'reply', letterId: 'l_abc123', body: '下了，很小。', at: 2 });
+    expect(reload(dir).draft).toMatchObject({ kind: 'reply', letterId: 'l_abc123', body: '下了，很小。', at: 2 });
   });
 
   it('信稿与回信稿是两个槽，互不覆盖', () => {
