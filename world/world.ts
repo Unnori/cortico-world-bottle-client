@@ -1410,7 +1410,7 @@ export class BottleWorld implements World {
     }
   }
 
-  /** 回信目标只由当前授权决定；模型只提交正文，编号留在 World 内部。 */
+  /** 有授权时严格沿用授权目标；无头聊天回信默认使用唯一的当前持信。 */
   private async doReply(text: string, stationery?: unknown, letterId?: string): Promise<string> {
     if (this.sendPending || this.replyChangePending) return '回信正在处理，请稍等。';
     this.pruneExpired();
@@ -1423,8 +1423,17 @@ export class BottleWorld implements World {
     if(desktopAuth && (automatic || desktopAuth.controllerSource) && letterId!==undefined && letterId!=='held' && letterId!==desktopAuth.letterId)
       return '回信目标与当前一起读的信不一致。';
     const target = this.store.held;
-    const headless = automatic || letterId !== undefined && this.ctx.cfg.headlessEnabled === true && !desktopAuth;
-    const auth: LetterAuthorization | null = automatic || desktopAuth?.controllerSource ? desktopAuth : headless && target && (letterId === 'held' || letterId === target.letterId)
+    const headless = automatic || this.ctx.cfg.headlessEnabled === true && !desktopAuth;
+    if (headless && !automatic) {
+      const problem = this.headlessProblem();
+      if (problem) return problem;
+      if (!target) return '手里没有可回信的漂流瓶，请先用 bottle_mailbox 查看当前状态。';
+      if (letterId !== undefined && letterId !== 'held' && letterId !== target.letterId)
+        return '指定的不是当前手里的信，请用 bottle_mailbox 核对；回复当前信可省略 letterId 或使用 held，不要使用聊天消息编号。';
+      if (target.readAt === undefined)
+        return '当前信的正文还没读到，不能回。请先用 bottle_read_letter 读取 held，向人分享原文与感想，再按人的请求起草回信。';
+    }
+    const auth: LetterAuthorization | null = automatic || desktopAuth?.controllerSource ? desktopAuth : headless && target
       ? { letterId: target.letterId, intent: 'reply', remote: true,until:this.now()+AUTH_TTL_MS,delivered:true } : desktopAuth;
     if (!auth || auth.intent === 'read' || auth.intent === 'note') {
       return '这一封还没给人类看过，不能回。等人类点了「回信」再说。';

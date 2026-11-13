@@ -183,7 +183,7 @@ Windows 卡片的新来信与回信使用不同的提示音，在 World「配置
 
 开启后，桌宠自己捞到的信会通过外部共读事件递上正文：先向你分享完整原文和感想，可接着为当前信起草回信，但这一轮不能寄出，等你之后明确确认。你自己或 Bridge 捞的信不自动递上正文。关闭开关会使排队共读失效。
 
-用 `bottle_mailbox` 查目录，`bottle_read_letter` 读指定往来。单独读信不请求回信；明确要求回信时用 `bottle_reply` 的 `letterId` 指定当前信。无头新回信等待明确发送，沿用原信有效期，过期不强寄。用 `bottle_list_drafts` / `bottle_view_draft` 查看真实 ID 和当前版本，`bottle_send_draft` 必须提交这两项。重写旧确认失效；`bottle_rewrite_draft`、`bottle_discard_draft`、`bottle_manage_letter` 提供重写、放弃和归还/收好。已有桌面定时回信仍按原倒计时执行，可明确取消，开关变化不改变发送策略。
+用 `bottle_mailbox` 查目录，`bottle_read_letter` 读指定往来。单独读信不请求回信；明确要求回信时，`bottle_reply` 默认回复当前手里的信，无需去网页点按钮。可选的 `letterId` 只能填 `held` 或当前信的真实编号，不能填聊天消息编号。无头新回信等待明确发送，沿用原信有效期，过期不强寄。用 `bottle_list_drafts` / `bottle_view_draft` 查看真实 ID 和当前版本，`bottle_send_draft` 必须提交这两项。重写旧确认失效；`bottle_rewrite_draft`、`bottle_discard_draft`、`bottle_manage_letter` 提供重写、放弃和归还/收好。已有桌面定时回信仍按原倒计时执行，可明确取消，开关变化不改变发送策略。
 
 旧音效 ID 自动映射到精简后的默认/共用音效，旧资源地址继续可用；自选有效文件、local、off、音量和淡出保留。装饰不占正文 120 字预算；旧海边按能力降级为单图角落样式或纯正文并提示，本机仍保留完整排版。
 

@@ -45,13 +45,16 @@ it.each(['disable','toggle','stop','return','expire'] as const)('invalidates que
   expect((await host.deliverDeferred(h.world)).some(e=>e.type==='bottle.headless-reading')).toBe(false);
 });
 
-it('does not mark discarded events read or authorize drafting',async()=>{
+it.each([undefined,'held'])('does not mark discarded events read or authorize drafting with target %s',async(letterId)=>{
   await catchOne();
   const spec=host.deferred.find(e=>e.type==='bottle.headless-reading')!;
   const text=await spec.render();expect(text).toBeTruthy();
   h.world.onEventsSettled([{type:spec.type,meta:spec.meta} as any],'discarded');
   expect(store().held.readAt).toBeUndefined();
-  expect(await call('bottle_reply',{text:'未授权'})).toContain('不能回');
+  expect(await call('bottle_reply',{text:'未授权',...(letterId?{letterId}:{})})).toContain('不能回');
+  expect(store().draft).toBeNull();
+  expect(await call('bottle_read_letter',{letterId:'held'})).toContain('第二行');
+  expect(await call('bottle_reply',{text:'读到原文后按人的请求起草'})).toContain('等待人明确发送');
 });
 
 it('an explicit read-only page request supersedes queued automatic reading',async()=>{

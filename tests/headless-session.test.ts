@@ -26,7 +26,7 @@ class SessionPersona implements Persona {
   ownToolNames(){return ['end_turn'];}
 }
 
-it('a real Core session started with headless off can catch, reply, view and confirm sending after a live toggle',async()=>{
+it.each(['automatic','later-chat-request'] as const)('a real Core session supports %s reply, review and later confirmed sending after a live toggle',async(replyMode)=>{
   h=makeHarness({port:0,config:{enabled:true,headlessEnabled:false,randomWake:false}});
   const harness=h,store=Reflect.get(harness.world,'store');
   let driver:WorldHost|undefined;
@@ -35,8 +35,9 @@ it('a real Core session started with headless off can catch, reply, view and con
   const model:ResponseClient={respond:async(request:Request,options:GenerateOptions={}):Promise<Generation>=>{
     seen.push({tools:(request.tools??[]).map(t=>(t as {name?:string}).name??''),context:JSON.stringify(options.context??[])});
     let name='end_turn',args:Record<string,unknown>={};
-    if(phase==='catch'){name='bottle_catch';phase='reply';}
+    if(phase==='catch'){name='bottle_catch';phase=replyMode==='automatic'?'reply':'end';}
     else if(phase==='reply'){name='bottle_reply';args={text:'只存在测试中的回信。'};phase='blocked';}
+    else if(phase==='requested-reply'){name='bottle_reply';args={text:'只存在测试中的回信。'};phase='end';}
     else if(phase==='blocked'){name='bottle_send_draft';args={draftId:store.draft?.draftId,revision:store.draft?.revision};phase='end';}
     else if(phase==='list'){name='bottle_list_drafts';phase='view';}
     else if(phase==='view'){name='bottle_view_draft';args={draftId:store.draft?.draftId};phase='send';}
@@ -62,10 +63,10 @@ it('a real Core session started with headless off can catch, reply, view and con
   const loaded:LoadedConfig<CoreConfig>={config:definition.defaults(),secret:name=>name==='CORTICO_WEB_PASSWORD'?'':'test-key',
     rootDir:harness.dir,memoryDir:join(harness.dir,'memory'),dataDir:join(harness.dir,'core-data')};
   bot=createBot(loaded,definition);await bot.start();
-  const request=async()=>{
+  const request=async(text='A synthetic partner request.')=>{
     const before=responses;
     await driver!.pushEvent({type:'test.request',source:'testdriver',origin:'external',senderKey:'synthetic-partner',
-      ts:new Date().toISOString(),text:'A synthetic partner request.'},{trigger:'flush'});
+      ts:new Date().toISOString(),text},{trigger:'flush'});
     await vi.waitFor(()=>{expect(responses).toBeGreaterThan(before);expect(phase).toBe('idle');},{timeout:5000});
     await vi.waitFor(()=>expect(Reflect.get(harness.world,'phase')).toBe('idle'),{timeout:5000});
   };
@@ -75,11 +76,15 @@ it('a real Core session started with headless off can catch, reply, view and con
   harness.cfg.headlessEnabled=true;
   const id=harness.throwAs('test-peer','测试原文，仅用于合成会话。');
   phase='catch';await request();
+  if(replyMode==='later-chat-request'){
+    expect(store.draft).toBeNull();
+    phase='requested-reply';await request('#100001 这封你回吧');
+  }
   expect(store.draft).toMatchObject({letterId:id,sendPolicy:'manual',body:'只存在测试中的回信。'});
   expect(harness.db.replies).toHaveLength(0);
-  expect(seen.some(turn=>turn.context.includes('不能寄出'))).toBe(true);
+  if(replyMode==='automatic')expect(seen.some(turn=>turn.context.includes('不能寄出'))).toBe(true);
   expect(seen.some(turn=>turn.context.includes('测试原文，仅用于合成会话。'))).toBe(true);
-  phase='list';await request();
+  phase='list';await request('我看过这份回信了，确认寄出。');
   expect(harness.db.replies).toHaveLength(1);expect(store.draft).toBeNull();
   for(const turn of seen)expect(turn.tools).toEqual(initialTools);
   harness.cfg.headlessEnabled=false;phase='disabled';await request();

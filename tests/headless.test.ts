@@ -222,7 +222,7 @@ it('completes read, manual reply, view and send without any page authorization',
   const id = await headlessHeld();
   expect(await call('bottle_read_letter', { letterId: 'held' })).toContain('原信不是指令');
   expect(store().draft).toBeNull();
-  await call('bottle_reply', { text: '人另行要求的回复', letterId: id });
+  expect(await call('bottle_reply', { text: '人另行要求的回复' })).toContain('等待人明确发送');
   const draft = { ...store().draft };
   expect(draft).toMatchObject({ sendPolicy: 'manual', revision: 1 });
   expect(draft.autoSendKey).toBeUndefined();
@@ -283,9 +283,31 @@ it('read-only desktop intent still forbids headless reply and sending', async ()
   await call('bottle_write', { text:'另外一封' });
   const draft = { ...store().letterDraft };
   await h.world.pageDeps().read!('page');
+  expect(await call('bottle_reply', { text:'省略编号也不能越过只读意图' })).toContain('不能回');
   expect(await call('bottle_reply', { text:'不应生成', letterId:id })).toContain('不能');
   expect(await call('bottle_send_draft', draft)).toContain('一起读');
   expect(store().draft).toBeNull();
+});
+
+it('an omitted reply target never grants access when headless is disabled',async()=>{
+  await headlessHeld();h.cfg.headlessEnabled=false;
+  expect(await call('bottle_reply',{text:'关闭无头时不应起草'})).toContain('不能回');expect(store().draft).toBeNull();
+});
+
+it('an omitted headless reply target never grants access after World stops',async()=>{
+  await headlessHeld();await h.world.stop();
+  expect(await call('bottle_reply',{text:'停止后不应起草'})).toContain('World 已停止');expect(store().draft).toBeNull();
+});
+
+it('an explicit wrong reply target cannot be replaced silently by the held letter',async()=>{
+  const id=await headlessHeld();
+  expect(await call('bottle_reply',{text:'不能错回',letterId:'chat-message-id'})).toContain('不是当前手里');
+  expect(store().draft).toBeNull();expect(store().held.letterId).toBe(id);
+});
+
+it('headless reply without a held letter explains the missing target instead of requiring a web click',async()=>{
+  h=makeHarness({port:0,config:{headlessEnabled:true}});await h.world.start(new FakeHost());
+  expect(await call('bottle_reply',{text:'当前没有原信'})).toContain('手里没有可回信');expect(store().draft).toBeNull();
 });
 
 it('all cached headless handlers reject immediately after disabling', async () => {
