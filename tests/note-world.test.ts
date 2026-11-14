@@ -50,7 +50,7 @@ it('draft has no disk copy and is removed on discard, expiry, record deletion an
 });
 it('World mailbox panel exposes the same offline merge backup operations',async()=>{
  await correspondence();const ui=h.world.webUi();const archive=await ui.invoke!('mailbox','archiveExport',[]) as any;
- expect(archive.schemaVersion).toBe(1);expect(archive.entries.some((e:any)=>e.kind==='reply')).toBe(true);
+ expect(archive.schemaVersion).toBe(2);expect(archive.entries.some((e:any)=>e.kind==='reply')).toBe(true);
  expect(await ui.invoke!('mailbox','archiveImport',[archive])).toMatchObject({ok:true});
  expect(await ui.invoke!('mailbox','archiveImport',[{schemaVersion:99}])).toMatchObject({ok:false});
 });

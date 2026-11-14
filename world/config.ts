@@ -122,8 +122,8 @@ export const BOTTLE_CONFIG_FIELDS: Record<string, ConfigProperty> = {
     'x-hot': true,
   },
   'worlds.bottle.headlessEnabled': {
-    type: 'boolean', title: '无头模式（高危实验功能）',
-    description: '默认关闭。开启后立即允许使用无头工具，不需要另开会话；关闭后立即拒绝新的无头操作。桌宠捞信会自动看到正文，先向你分享完整原文和感想；可起草回信，但本轮禁止寄出，等你之后明确确认。也能按聊天指令读信和直接寄出指定草稿，无需网页逐次确认。扩展无法验证指令是否来自你本人；群聊消息、误解或恶意诱导可能让正文发错会话，或把私人信息寄给陌生人。接收方可保存传播，关闭不能撤回已经寄出或泄露的内容。请理解风险后再开启。',
+    type: 'boolean', title: '聊天里处理信件（高危实验功能）',
+    description: '默认关闭。开启后立即允许使用无头工具，不需要另开会话；关闭后立即拒绝新的无头操作。桌宠会自主阅读自己捞到的信、新系统信、小纸条和回信，主动分享感想，正文只在你问起时转述；可起草回信，但本轮禁止寄出，等你之后明确确认。也能按聊天指令读信和直接寄出指定草稿，无需网页逐次确认。扩展无法验证指令是否来自你本人；群聊消息、误解或恶意诱导可能让正文发错会话，或把私人信息寄给陌生人。接收方可保存传播，关闭不能撤回已经寄出或泄露的内容。请理解风险后再开启。',
     'x-hot': true,
   },
   'worlds.bottle.bridgeEnabled': {
@@ -279,8 +279,8 @@ export const BOTTLE_CONFIG_GROUPS: ConfigGroup[] = [
     ['server', 'port', 'debug']),
   configGroup('world:bottle:stars', '星笺匣与记忆',
     '可选的正文长期重读授权。仅星标不会读正文；还需逐封确认，关闭可撤回授权。', ['starMemoryEnabled']),
-  configGroup('world:bottle:headless', '无头模式（高危实验功能）',
-    '默认关闭。开启后自动共读桌宠捞到的信，也能按聊天指令操作草稿；寄出仍需你明确确认。请先阅读下方风险说明。', ['headlessEnabled']),
+  configGroup('world:bottle:headless', '聊天里处理信件（高危实验功能）',
+    '默认关闭。开启后自主阅读桌宠捞到的信、新系统信、回信和小纸条，主动分享感想；正文等你问起再说，寄出仍需明确确认。请先阅读下方风险说明。', ['headlessEnabled']),
   configGroup('world:bottle:bridge', '本地 Bridge 与 Controller（高级功能）',
     '默认关闭，供可信本机程序接入。普通 Bridge 与高危 Controller 分别授权、使用独立凭证；请先了解各自权限。', ['bridgeEnabled', 'bridgeControllerEnabled']),
 ];

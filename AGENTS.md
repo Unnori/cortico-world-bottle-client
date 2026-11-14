@@ -1,5 +1,17 @@
 # 漂流瓶扩展开发提醒
 
+## 0.9.3：表达留存与完整信册
+
+- 手动/定时回信失去投递资格后均保留 sendFailure=expired，原稿正文与装饰另附 ReceivedLetter.unsentReplies。字段随对应往来删除/清空，当前留稿明确放弃时也删除相应项；新稿不得覆盖历史表达，不自动转成已寄回信。过期留稿不算待办、不阻止新邀请；禁止续占/强寄。
+- 信册导出 v2 包含 note 与 received.unsentReplies，导入接受 v1/v2，先验证整份文件再改本机。纸条按 ID 合并本机优先，保留正文/方向/已读；导入记录加 imported，禁止自动到信播报；待确认寄出只恢复为 unconfirmed，禁止补寄。正文删除仍跟随对应往来，删除凭据和密钥/模型授权不导出。
+- 模型共读用实际 signature || from，传已保存的装饰元信息并说明非渲染图。桌面完整预览只打开固定本机信箱与确切 ID/revision，不做寄送；草稿变化须重新审阅。
+- 面向玩家以“聊天里处理信件”为主名，配置键 headlessEnabled 和技术别名无头模式继续兼容，不改 API。
+
+## 0.9.3：自主阅读
+
+- 无头自动捞信、新系统信、回信、小纸条均自主阅读后主动分享感想；默认不复述正文，伙伴询问时才转述。人工一起读按既有请求处理。
+- 回信和系统信只在无头开启时排队 external 延迟正文；保留 mail debounce / post piggyback，render 重验开关、生命周期及本机仍有正文。自动背景到信轮次只读，不允许借外部文字起草/寄出/放弃；捞信轮仍可起草 manual 回信且当轮禁寄。相关 token 和轮锁仅内存，关闭/停止/轮末清理。
+
 ## 0.9.2 无头聊天回信目标
 
 - 无头开启且没有现存桌面/Controller 授权时，bottle_reply 省略 letterId 默认回当前 held；显式 held/真实当前信 ID 也可，错 ID 必须拒绝，不接受聊天消息编号。不能把可选 letterId 变成无头路径的隐式必填条件。没有 held 时说明无目标，不诱导去网页授权。World 停止拒绝；原文未成功投递/读取时先要求 bottle_read_letter，不因丢弃事件而隐式授权。
@@ -116,9 +128,9 @@
 
 ## 无头模式与草稿版本（A/B/D 修复）
 
-- 默认 headlessEnabled=false；启用必须由人修改设置。缓存 handler 每次检查开关及当前读信意图。无头下仅桌宠自行打捞自动投递完整正文（外部延迟事件，投递前重验）；先分享原文与感想，可起草当前信的 manual 回信，本轮锁止发送/放弃，等人后续明确确认。普通逐封读信仍不建立回信意图；人另行要求回信时默认当前持信，可选 letterId 仅核对目标。人工/Bridge 打捞不自动递正文。
+- 默认 headlessEnabled=false；启用必须由人修改设置。缓存 handler 每次检查开关及当前读信意图。无头下仅桌宠自行打捞自动投递完整正文（外部延迟事件，投递前重验）；自主阅读并分享感想，正文仅在伙伴询问时转述，可起草当前信的 manual 回信，本轮锁止发送/放弃，等人后续明确确认。普通逐封读信仍不建立回信意图；人另行要求回信时默认当前持信，可选 letterId 仅核对目标。人工/Bridge 打捞不自动递正文。
 - 草稿 draftId/revision/sendPolicy 随草稿持久，发送、放弃、删除或清空时删除。内容、标题或装饰变化递增 revision；重建草稿使用新 ID。发送须真实 ID 和当前版本，等待自动任务后重验。
-- 无头新回信 manual，沿用 held.windowUntil，不调用 /reply/draft 保护；过期清草稿和 held。旧桌面 delayed 保留原 autoSendKey/autoSendAt，不随开关变化。
+- 聊天里处理信件的新回信 manual，沿用 held.windowUntil，不调用 /reply/draft 保护；过期清 held 并保留不能投递的原稿及装饰，不删除表达。旧桌面 delayed 保留原 autoSendKey/autoSendAt，不随开关变化。
 - 本机装饰可保留；旧海边不支持时不发送 stationery 并明确降级。shared/stationery.ts 和 world/stationery 必须进入运行包，自描述从源码生成。
 
 ## C/E 入口一致性

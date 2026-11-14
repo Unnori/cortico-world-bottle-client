@@ -5,7 +5,7 @@
 import type { SoftHint } from '../shared/hints.ts';
 import type { LocalDraft, LocalHeld, LocalReply } from './store.ts';
 
-export type CardActionId = 'send' | 'rewrite' | 'discard' | 'dismiss' | 'open' | 'keep' | 'close';
+export type CardActionId = 'send' | 'rewrite' | 'discard' | 'dismiss' | 'open' | 'keep' | 'close' | 'preview';
 
 export interface CardAction {
   id: CardActionId;
@@ -58,9 +58,10 @@ export function draftLetterCard(input: {
     from: input.draft.source ? `来自本机程序 ${input.draft.source.name}，等你审阅` : '等你决定',
     ...(input.draft.topic ? { title: input.draft.topic } : {}),
     body: input.draft.body,
-    meta: `${input.chars} / ${MAX_CHARS} 字`,
+    meta: `${input.chars} / ${MAX_CHARS} 字${input.draft.stationery?' · 含信纸装饰，可查看完整预览':''}`,
     hints: input.hints.map((hint) => hint.text),
     actions: [
+      { id: 'preview', label: '完整预览', tone: 'ghost' },
       { id: 'send', label: input.hints.length ? '仍然寄出' : '寄出去', tone: 'primary' },
       { id: 'rewrite', label: '重写', tone: 'ghost' },
       { id: 'discard', label: '算了吧', tone: 'ghost' },
@@ -148,13 +149,14 @@ export function replyDraftCard(input: {
     ...(input.draft.draftId && input.draft.revision ? {draft:{draftId:input.draft.draftId,revision:input.draft.revision,kind:input.draft.kind}} : {}),
     eyebrow: '漂流瓶 · 回信写好了',
     from: input.draft.sendFailure ? '原信已失效，未寄出的回信保留在本机' : input.draft.autoSendAt ? '已安排自动寄出，可在信箱查看倒计时' : input.draft.autoSendKey ? '确认自动寄出时间中' : '等你决定',
-    ...(input.held
+    ...(input.held && input.held.letterId===input.draft.letterId
       ? { quote: { label: `原来那一封（来自 ${input.held.from}）`, body: input.held.body } }
       : {}),
     body: input.draft.body,
     meta: `${input.chars} / ${MAX_CHARS} 字`,
     hints: input.hints.map((hint) => hint.text),
-    actions: input.draft.sendFailure ? [{id:'discard',label:'放弃这份未寄稿',tone:'ghost'}] : [
+    actions: input.draft.sendFailure ? [{id:'preview',label:'完整预览',tone:'ghost'},{id:'discard',label:'放弃这份未寄稿',tone:'ghost'}] : [
+      { id: 'preview', label: '完整预览', tone: 'ghost' },
       { id: 'send', label: input.hints.length ? '仍然寄出' : '寄出去', tone: 'primary' },
       { id: 'rewrite', label: '重写', tone: 'ghost' },
     ],

@@ -7,3 +7,5 @@
 webui/* text eol=lf
 dist/* text eol=lf
 scripts/*.mjs text eol=lf
+# Attribution hashes use original SVG bytes; do not convert their line endings.
+world/stationery/*.svg -text

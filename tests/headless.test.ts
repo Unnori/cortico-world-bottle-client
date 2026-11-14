@@ -271,8 +271,10 @@ it('manual reply expires with held, without reserving the server slot indefinite
   await call('bottle_reply', { text:'未确认的草稿', letterId:id });
   const old = { ...store().draft };
   h.clock.t = store().held.windowUntil + 1;
-  expect(await call('bottle_send_draft', old)).toContain('没有这个草稿');
-  expect(store().draft).toBeNull();
+  expect(await call('bottle_send_draft', old)).toContain('版本号不匹配');
+  expect(store().draft).toMatchObject({body:old.body,sendFailure:'expired',sendPolicy:'manual'});
+  expect(await call('bottle_send_draft',store().draft)).toContain('失效');
+  expect(store().received.find((r:any)=>r.letterId===id).unsentReplies[0].body).toBe(old.body);
   expect(store().held).toBeNull();
   expect(h.db.replies).toHaveLength(0);
   expect(h.db.letterById(id)?.replyDraftKey).toBeUndefined();

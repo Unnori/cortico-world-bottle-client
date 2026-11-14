@@ -952,7 +952,7 @@ describe('漂流瓶 World · 一起读信', () => {
     expect(res.ok).toBe(true);
     await vi.waitFor(() => expect(host.last('bottle.peruse')).toBeTruthy(), { timeout: 1000, interval: 10 });
     const text = host.last('bottle.peruse')!.text;
-    expect(text).toContain('群岛上的某位居民');
+      expect(text).toContain('邮差');
     expect(text).not.toContain('回信人');
   });
 });

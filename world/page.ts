@@ -92,6 +92,7 @@ export interface PageSentView {
 export type PageOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'expired' | 'kept';
 
 export interface PageReceivedView {
+  unsentReplies?: import('./store.ts').ReceivedLetter['unsentReplies'];
   fontId?: string;
   readCount?: number;
   letterId: string;

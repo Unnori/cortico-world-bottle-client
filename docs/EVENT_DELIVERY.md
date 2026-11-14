@@ -8,9 +8,9 @@
 | debounce | mail、note-arrived | 使用宿主的 quietGap / maxBatchAge 等设置合并到达通知，不自行修改全局配置。 |
 | piggyback | sent、dismissed、picked、post、tsunami、star-memory | 等待其他对话、主动邀请等触发下一批，不单独获得投递许可，也不启动或延后合批计时器。 |
 
-这里的短名称均带 bottle. 前缀。通知排队不等于正文已读：小纸条只在 delivered 后标读；星笺记忆正文仍延迟 render，投递前检查当前授权，取消授权或停止后失效。普通回信到达仍只含元信息，不把全文加入状态通知。
+这里的短名称均带 bottle. 前缀。通知排队不等于正文已读：小纸条及无头自动阅读的系统信/回信只在 delivered 后标读；星笺记忆正文仍延迟 render，投递前检查当前授权，取消授权或停止后失效。无头关闭时回信到达仍只含元信息，不把全文加入状态通知。
 
-主动写信、打捞与待办提醒仍使用原有 WakeScheduler；资格、暂停、拒绝、每日次数和补试逻辑不变。直接按钮与 Controller 的请求复用原业务方法。无头自动共读保留完整原文分享、manual 回信及本轮禁寄限制。
+主动写信、打捞与待办提醒仍使用原有 WakeScheduler；资格、暂停、拒绝、每日次数和补试逻辑不变。直接按钮与 Controller 的请求复用原业务方法。无头自动共读改为自主阅读并分享感想，正文仅在伙伴问起时转述，保留 manual 回信及本轮禁寄限制。无头下新系统信和回信改用外部延迟正文事件，仍沿用原 piggyback/debounce 节奏；小纸条也默认只分享感想。
 
 事件 origin 按实际来源保持原规则：来信、署名、标题及 Controller 请求仍走 external；通知分级不把外部内容升级为内部指令。事件目录的说明给人查看，使用中文；通知文字可用中文或英语。未使用 preempt、interrupt、archive-only 或容易覆盖历史结果的 snapshot 标签。
 

@@ -12,7 +12,7 @@ const base = 'http://127.0.0.1:7796/';
 it('keeps an expired unsent reply readable without offering send or rewrite',()=>{
   const card=replyDraftCard({base,draft:{kind:'reply',body:'未寄出的原文',at:1,sendPolicy:'manual',sendFailure:'expired'},held:null,chars:7,hints:[]});
   expect(card.body).toBe('未寄出的原文');expect(card.from).toContain('原信已失效');
-  expect(card.actions.map(a=>a.id)).toEqual(['discard']);
+  expect(card.actions.map(a=>a.id)).toEqual(['preview','discard']);
 });
 
 describe('原生卡片规格', () => {
@@ -28,6 +28,7 @@ describe('原生卡片规格', () => {
     expect(card.body).toBe('今天的海很平。');
     expect(card.meta).toBe('7 / 120 字');
     expect(card.actions.map((a) => [a.id, a.label, a.tone])).toEqual([
+      ['preview', '完整预览', 'ghost'],
       ['send', '寄出去', 'primary'],
       ['rewrite', '重写', 'ghost'],
       ['discard', '算了吧', 'ghost'],
@@ -42,7 +43,7 @@ describe('原生卡片规格', () => {
       hints: [{ kind: 'contact', text: '这封信里有联系方式' }],
     });
     expect(card.hints).toEqual(['这封信里有联系方式']);
-    expect(card.actions[0]).toMatchObject({ id: 'send', label: '仍然寄出' });
+    expect(card.actions.find(a=>a.id==='send')).toMatchObject({ id: 'send', label: '仍然寄出' });
   });
 
   it('捞到一封：回信 / 先放着 / 扔回海里', () => {
@@ -71,7 +72,7 @@ describe('原生卡片规格', () => {
     expect(card.eyebrow).toContain('回信写好了');
     expect(card.quote?.label).toContain('海盐大福#4821');
     expect(card.quote?.body).toBe('你那边也下雨吗');
-    expect(card.actions[0]).toMatchObject({ id: 'send', label: '寄出去' });
+    expect(card.actions.find(a=>a.id==='send')).toMatchObject({ id: 'send', label: '寄出去' });
   });
 
   it('回信到了：只读，只有一个「知道了」', () => {

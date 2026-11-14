@@ -431,16 +431,19 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     var card = el('div', 'card draft-card');
     var isLetter = draft.kind === 'letter';
     card.dataset.kind = draft.kind;
+      card.dataset.draftId = draft.draftId || '';
+      card.id = 'draft-' + draft.draftId;
     var topic = isLetter ? draft.topic : null;
     card.appendChild(el('div', 'eyebrow', isLetter ? '信稿 · 尚未寄出' : '回信稿 · 尚未寄出'));
     if (!isLetter) card.appendChild(el('h2', 'title', '回信'));
     if (draft.source) card.appendChild(el('div', 'meta', '来自本机程序 ' + draft.source.name + '，尚未确认寄出。'));
     card.appendChild(letterSheet({ topic: isLetter ? topic || '无题信' : null, body: draft.body, own: true, signature: draft.source ? null : botName(), heading: 'h2', stationery: draft.stationery }));
 
-    if (!isLetter && s.held) {
-      var detail = rememberDetails(el('details', 'original'), 'original:' + s.held.letterId);
-      detail.appendChild(el('summary', null, '看看原来那一封（来自 ' + s.held.from + '）'));
-      detail.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.signature || s.held.from, stationery: s.held.stationery }));
+    var draftOriginal = s.held && draft.letterId === s.held.letterId ? s.held : (s.received || []).find(function(r) { return r.letterId === draft.letterId; });
+    if (!isLetter && draftOriginal) {
+      var detail = rememberDetails(el('details', 'original'), 'original:' + draftOriginal.letterId);
+      detail.appendChild(el('summary', null, '看看原来那一封（来自 ' + (draftOriginal.signature || draftOriginal.from) + '）'));
+      detail.appendChild(letterSheet({ topic: draftOriginal.topic, body: draftOriginal.body, fontId: draftOriginal.fontId, signature: draftOriginal.signature || draftOriginal.from, stationery: draftOriginal.stationery }));
       card.appendChild(detail);
     }
 
@@ -604,7 +607,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
       stage.appendChild(card);
       shown += 1;
     }
-    if (!replyDraft && state.held) {
+    if ((!replyDraft || replyDraft.letterId !== state.held?.letterId) && state.held) {
       putCard(renderHeld(state), JSON.stringify(['held', state.held.letterId, state.held.caughtAt]));
       shown += 1;
     }
@@ -626,6 +629,19 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     renderBook();
     renderFoot();
     updateDeskArrivals(entries);
+    var previewParams = typeof location !== 'undefined' && location.search && typeof URLSearchParams !== 'undefined' ? new URLSearchParams(location.search) : null;
+    var previewId = previewParams && previewParams.get('draft');
+    if (previewId && !window.bottlePreviewLocated) {
+      window.bottlePreviewLocated = true;
+      var previewDraft = [letterDraft, replyDraft].find(function(d) { return d && d.draftId === previewId; });
+      if (!previewDraft) toast('这份草稿已经不在了，请在信箱查看最新记录。', true);
+      else {
+        var previewNode = document.getElementById('draft-' + previewId);
+        if (previewNode && previewNode.scrollIntoView) previewNode.scrollIntoView({block:'center'});
+        reveal(previewNode);
+        if (String(previewDraft.revision) !== previewParams.get('revision')) toast('草稿已变化，现在展示最新版；请重新审阅后再决定。', true);
+      }
+    }
     document.title = (letterDraft || replyDraft) ? '● 有草稿 · 漂流瓶' : '漂流瓶 · 信箱';
     if (focusedFold) {
       var replacement = Array.from(document.querySelectorAll('details[data-fold-key]')).find(function (node) { return node.dataset.foldKey === focusedFold; });
@@ -704,8 +720,8 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     document.getElementById('write-label').textContent = (isBot ? '写一封信' : '请' + botName() + '写一封信') + (writeSeconds ? ' · ' + writeSeconds + '秒' : '');
     document.getElementById('catch-label').textContent = '去海边打捞' + (catchSeconds ? ' · ' + catchSeconds + '秒' : '');
     var active = state.wake && state.wake.active;
-    document.getElementById('write-button').disabled = busy || !!state.pendingAction || !!letterDraft || writeSeconds > 0 || (isBot && (!!active || !!state.held || !!state.replyDraft));
-    document.getElementById('catch-button').disabled = busy || !!state.pendingAction || !!state.held || catchSeconds > 0 || (isBot && (!!active || !!letterDraft || !!state.replyDraft));
+    document.getElementById('write-button').disabled = busy || !!state.pendingAction || !!letterDraft || writeSeconds > 0 || (isBot && (!!active || !!state.held || !!state.replyDraft && !state.replyDraft.sendFailure));
+    document.getElementById('catch-button').disabled = busy || !!state.pendingAction || !!state.held || catchSeconds > 0 || (isBot && (!!active || !!letterDraft || !!state.replyDraft && !state.replyDraft.sendFailure));
     document.getElementById('action-note').textContent = state.pendingAction
       ? '已请' + botName() + '写信，等候落笔…'
       : isBot ? '邀请后各等一分钟。信写好后，寄不寄由你。' : '打捞不通知' + botName() + '，寄不寄由你。';
@@ -890,6 +906,12 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
         stationery: isReply ? item.stationery : item.myReplyStationery }));
       body.appendChild(quote);
     }
+    (item.unsentReplies || []).forEach(function(saved) {
+      var note=el('div','reply-quote');
+      note.appendChild(el('div','reply-quote-label',botName()+'写过的回信 · 未寄出（原信已失效）'));
+      note.appendChild(letterSheet({body:saved.body,own:true,signature:botName(),stationery:saved.stationery}));
+      body.appendChild(note);
+    });
     if (kind === 'received' && !item.myReply && item.outcome === 'replied') body.appendChild(el('div', 'meta', '回过信，但这段没有留下来。'));
     var foot = el('div', 'mail-foot');
     if (kind === 'sent' && item.state === 'tsunami') foot.appendChild(buttons([{label:'重新投出去 · 用一次打捞机会',path:'/repost',letterId:item.letterId,style:'seal'}]));

@@ -48,7 +48,7 @@ it('delivers English automatic-reading instructions while preserving the origina
   const events=await host.deliverDeferred(h.world);
   const event=events.find(e=>e.type==='bottle.headless-reading')!;
   expect(event.origin).toBe('external');expect(event.text).toContain(body);
-  expect(event.text).toContain('First share the complete original');
+  expect(event.text).toContain('Do not quote or recite its body by default');
   expect(event.text).toContain('You must not send or discard anything in this turn');
   let instructions=event.text!;
   for(const original of [body,held.signature,held.from,held.topic].filter(Boolean))instructions=instructions.replaceAll(original,'');

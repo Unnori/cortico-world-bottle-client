@@ -304,6 +304,13 @@ function Close-Soon([int]$ms) {
 function Invoke-CardAction([string]$id) {
   if ($script:busy) { return }
   if ($id -eq 'close') { Close-Soon 0; return }
+  if ($id -eq 'preview') {
+    if ($spec.draft -and $spec.draft.draftId) {
+      $previewUrl = $script:baseUrl + '/?draft=' + [Uri]::EscapeDataString([string]$spec.draft.draftId) + '&revision=' + [string]$spec.draft.revision
+      Start-Process -FilePath $previewUrl
+    } else { Start-Process -FilePath ($script:baseUrl + '/') }
+    return
+  }
 
   $script:busy = $true
   foreach ($b in $script:buttons) { $b.IsEnabled = $false }
@@ -397,7 +404,7 @@ function New-Pill([string]$label, [string]$tone, [string]$id) {
   return $pill
 }
 
-$actions = New-Object System.Windows.Controls.StackPanel
+$actions = New-Object System.Windows.Controls.WrapPanel
 $actions.Orientation = 'Horizontal'
 $actions.Margin = [System.Windows.Thickness]::new(0, 16, 0, 0)
 foreach ($action in @($spec.actions)) {

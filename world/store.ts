@@ -92,6 +92,8 @@ export type ReceivedOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'exp
 
 /** 我捞到过的信。outcome 记的是这件事最后怎么收场。 */
 export interface ReceivedLetter {
+  /** Expired expressions, never sendable; removed by explicit discard or correspondence deletion/clear. */
+  unsentReplies?: Array<Pick<LocalDraft,'draftId'|'body'|'at'|'stationery'>>;
   /** Latest catch; at remains the date first collected in the letterbook. */
   lastCaughtAt?: number;
   readCount?: number;
@@ -340,6 +342,7 @@ export class LocalStore {
         ...stationeryField(item.stationery),
         ...rejectedField(item.stationeryRejected),
         ...myReplyStationeryField(item.myReplyStationery),
+        ...(Array.isArray(item.unsentReplies)?{unsentReplies:item.unsentReplies.filter(r=>typeof r?.draftId==='string' && typeof r.body==='string' && Number.isFinite(r.at)).map(r=>({draftId:r.draftId,body:r.body,at:r.at,...stationeryField(r.stationery)}))}:{}),
       }));
   }
 
@@ -393,6 +396,7 @@ export class LocalStore {
 
   /** 写回信草稿（`kind` 一律按 reply 归槽）；信稿走 `setLetterDraft`。 */
   setDraft(draft: LocalDraft | null): void {
+    if(this.draft?.sendFailure==='expired')this.retainReply(this.draft);
     this.draft = draft && draft.kind === 'reply' ? this.versionDraft(draft, this.draft) : null;
     this.saveDrafts();
   }
@@ -404,7 +408,7 @@ export class LocalStore {
   }
 
   private versionDraft(draft: LocalDraft, previous: LocalDraft | null): LocalDraft {
-    const same = previous?.kind === draft.kind && previous.letterId === draft.letterId;
+    const same = previous?.kind === draft.kind && previous.letterId === draft.letterId && !(previous.sendFailure && !draft.sendFailure);
     const changed = same && (previous.body !== draft.body || previous.topic !== draft.topic ||
       JSON.stringify(previous.stationery) !== JSON.stringify(draft.stationery) || JSON.stringify(previous.source) !== JSON.stringify(draft.source) || previous.sendFailure !== draft.sendFailure);
     draft.draftId = same ? previous.draftId ?? randomUUID() : draft.draftId ?? randomUUID();
@@ -487,6 +491,21 @@ export class LocalStore {
     if (!hit) return;
     hit.myReply = body;
     if (stationery) hit.myReplyStationery = stationery; else delete hit.myReplyStationery;
+    this.saveLetterbook();
+  }
+
+  retainReply(draft:LocalDraft):void {
+    const record=this.received.find(r=>r.letterId===draft.letterId);
+    if(!record || !draft.draftId)return;
+    record.unsentReplies??=[];
+    if(!record.unsentReplies.some(r=>r.draftId===draft.draftId))record.unsentReplies.push({draftId:draft.draftId,body:draft.body,at:draft.at,...(draft.stationery?{stationery:draft.stationery}:{})});
+    this.saveLetterbook();
+  }
+
+  discardRetainedReply(letterId:string,draftId:string):void {
+    const record=this.received.find(r=>r.letterId===letterId);
+    if(!record)return;
+    record.unsentReplies=record.unsentReplies?.filter(r=>r.draftId!==draftId);
     this.saveLetterbook();
   }
 

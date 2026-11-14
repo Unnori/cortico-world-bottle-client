@@ -330,8 +330,8 @@ export interface ReceivedNote { id: string; letterId: string; from: string; body
 export type NotesRes = ReceivedNote[];
 export interface RepostReq { letterId: string; body?: string; topic?: string; stationery?: Stationery }
 export interface RepostRes { ok: true; letterId: string; quota: Quota; repeated?: boolean }
-/** 明文本机备份，不含令牌、配对数据、纸条或模型授权。 */
-export interface LetterbookArchive { schemaVersion: 1; exportedAt: string; entries: Array<{ kind: 'sent' | 'received' | 'reply' | 'star'; value: Record<string, unknown> }> }
+/** Plaintext local backup; v2 includes notes and retained expressions, never secrets or model grants. */
+export interface LetterbookArchive { schemaVersion: 1 | 2; exportedAt: string; entries: Array<{ kind: 'sent' | 'received' | 'reply' | 'star' | 'note'; value: Record<string, unknown> }> }
 
 export const REPLY_WINDOW_HOURS = 72;
 /**

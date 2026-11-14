@@ -69,7 +69,7 @@ it.each([false, true])('构造读取旧暂停且尊重部署显式开启=%s，�
 describe('配置页原生分组', () => {
   it('显示、邀请与音效靠前，可选访问与记忆随后，高危入口放在最底部', () => {
     expect(BOTTLE_CONFIG_GROUPS.map(group => group.schema.title)).toEqual([
-      '显示与通知', '海边邀请与提醒', '桌面音效', '来信提示音', '回信提示音', '其他设备访问', '连接与调试', '星笺匣与记忆', '无头模式（高危实验功能）', '本地 Bridge 与 Controller（高级功能）',
+      '显示与通知', '海边邀请与提醒', '桌面音效', '来信提示音', '回信提示音', '其他设备访问', '连接与调试', '星笺匣与记忆', '聊天里处理信件（高危实验功能）', '本地 Bridge 与 Controller（高级功能）',
     ]);
     expect(Object.keys(BOTTLE_CONFIG_GROUPS.find(group => group.id === 'world:bottle:display')!.schema.properties)).toEqual([
       'worlds.bottle.surface', 'worlds.bottle.cardAutoCloseSec', 'worlds.bottle.tsunamiNotice',

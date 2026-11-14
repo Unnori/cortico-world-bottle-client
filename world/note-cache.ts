@@ -4,7 +4,7 @@ import { NOTE_TTL_MS, type ReceivedNote } from '../shared/contract.ts';
 import { checkNote } from '../shared/text.ts';
 
 /** expiresAt describes server retention only; it never expires this local copy. */
-export interface LocalNote extends ReceivedNote { readAt?: number; direction?: 'sent'; delivery?: 'pending' | 'sent' }
+export interface LocalNote extends ReceivedNote { readAt?: number; direction?: 'sent'; delivery?: 'pending' | 'sent' | 'unconfirmed'; imported?: true }
 interface ForgottenNote { id:string; letterId:string; expiresAt:string }
 
 /** Local archive: body and readAt remain until the human deletes the correspondence or
@@ -14,7 +14,7 @@ interface ForgottenNote { id:string; letterId:string; expiresAt:string }
  * Outgoing bodies, like incoming bodies, are deleted only with their correspondence.
  * Body-free deletion receipts prevent a failed server ACK from restoring removed notes;
  * these receipts alone expire at the server's original seven-day deadline.
- * Neither notes nor these receipts are included in letterbook exports or star memory. */
+ * Notes are in v2 letterbook exports; deletion receipts and model permissions are excluded. */
 export class NoteCache {
   readonly file:string;
   private records = new Map<string,LocalNote>();
@@ -27,7 +27,7 @@ export class NoteCache {
       if(data.schemaVersion!==1)return;
       for(const value of Array.isArray(data.notes)?data.notes:[]) {
         const note=this.valid(value);if(!note)continue;
-        this.records.set(note.id,{...note,...(value.direction==='sent'?{direction:'sent' as const,delivery:value.delivery==='pending'?'pending' as const:'sent' as const}:{}),...(typeof value.readAt==='number'&&Number.isFinite(value.readAt)&&value.readAt>0?{readAt:value.readAt}:{})});
+        this.records.set(note.id,{...note,...(value.direction==='sent'?{direction:'sent' as const,delivery:value.delivery==='pending'?'pending' as const:value.delivery==='unconfirmed'?'unconfirmed' as const:'sent' as const}:{}),...(value.imported===true?{imported:true as const}:{}),...(typeof value.readAt==='number'&&Number.isFinite(value.readAt)&&value.readAt>0?{readAt:value.readAt}:{})});
       }
       for(const value of Array.isArray(data.forgotten)?data.forgotten:[]){
         if(value&&this.id(value.id)&&this.id(value.letterId)&&typeof value.expiresAt==='string'&&Date.parse(value.expiresAt)>this.now()){
@@ -56,6 +56,16 @@ export class NoteCache {
   }
   outgoing(letterId:string):LocalNote|undefined {
     const note=this.records.get('sent:'+letterId);return note?.direction==='sent'?{...note}:undefined;
+  }
+  /** Restore history only. Never queue imported arrivals or resume an uncertain outgoing send. */
+  importRecords(notes:LocalNote[]):number {
+    const previous=new Map(this.records);let added=0;
+    for(const note of notes){
+      if(this.records.has(note.id)||this.forgotten.has(note.id))continue;
+      this.records.set(note.id,{...note,imported:true,...(note.direction==='sent'&&note.delivery!=='sent'?{delivery:'unconfirmed' as const}:{})});added++;
+    }
+    try{if(added)this.save();}catch(error){this.records=previous;throw error;}
+    return added;
   }
   stageOutgoing(letterId:string,body:string,from:string):LocalNote {
     const existing=this.outgoing(letterId);if(existing)return existing;
