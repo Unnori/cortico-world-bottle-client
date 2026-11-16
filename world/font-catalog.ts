@@ -1,5 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
+import {readLocalDocument,writeLocalDocument} from './local-db.ts';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 export const FONT_ORIGIN = 'https://fontsforletters.sqnori.com';
 export const FONT_CATALOG_URL = FONT_ORIGIN + '/catalog.json';
@@ -35,7 +36,7 @@ export class RemoteFontCatalog {
   private readonly file:string;
   constructor(dataDir:string, private readonly fetcher:typeof fetch = fetch, private readonly now = Date.now) {
     this.file=join(dataDir,'bottle-font-catalog.json');
-    try { this.catalog=parseFontCatalog(JSON.parse(readFileSync(this.file,'utf8'))); } catch { /* Shipped metadata is the offline fallback. */ }
+    try { this.catalog=parseFontCatalog(readLocalDocument(this.file)); } catch { /* Shipped metadata is the offline fallback. */ }
   }
   current():CloudCatalog { return this.catalog; }
   refresh():Promise<void> {
@@ -53,8 +54,6 @@ export class RemoteFontCatalog {
     finally { await reader.cancel().catch(()=>{}); }
     const parsed=JSON.parse(Buffer.concat(chunks).toString('utf8')),catalog=parseFontCatalog(parsed);
     this.catalog=catalog;
-    const temp=this.file+'.'+randomUUID()+'.tmp';
-    try {writeFileSync(temp,JSON.stringify(parsed)+'\n','utf8');renameSync(temp,this.file);} catch { /* Keep the last valid in-memory catalog if storage is unavailable. */ }
-    finally {try{unlinkSync(temp);}catch{}}
+    try{writeLocalDocument(this.file,parsed);}catch{/* Metadata refresh can remain in memory. */}
   }
 }

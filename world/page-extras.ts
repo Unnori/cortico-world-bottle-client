@@ -1,6 +1,6 @@
 export const extrasHtml = `<div id="paper-parking" hidden><section id="paper-compose" class="paper-slip paper-compose" hidden aria-label="小纸条草稿"><strong>随这封回信，留张小纸条</strong><p class="paper-hint">由桌宠写下，寄出用一次打捞机会。草稿最多保留一小时。</p><p id="paper-body"></p><div class="actions"><button id="paper-send" class="btn" type="button">寄出小纸条</button><button id="paper-rewrite" class="btn ghost" type="button">请桌宠重写</button><button id="paper-skip" class="btn ghost" type="button">放弃这张</button></div><p id="paper-result" role="status"></p></section></div>`;
-export const archiveHtml = `<div class="archive-tools" role="group" aria-label="信册备份"><button type="button" class="link" id="archive-export">导出信册</button><button type="button" class="link" id="archive-import">导入信册</button><input id="archive-file" type="file" accept="application/json,.json" hidden><small>备份是含正文的明文文件，请妥善保管，别随意转发。</small></div>`;
-export const extrasStyles = `.archive-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;padding:14px 0 0;margin:0}.archive-tools small{flex-basis:100%;text-align:center;color:var(--muted);font-size:11px}.archive-tools .link{color:var(--muted)}.archive-tools .link:hover{color:var(--ink)}.paper-compose .actions{flex-wrap:wrap}`;
+export const archiveHtml = `<details class="archive-tools" id="device-data"><summary>数据迁移与备份</summary><p>导入、导出和旧数据迁移已集中到桌宠设置 → 漂流瓶 → 信箱 →「数据迁移与备份」。</p><p>只存在本设备的自选音效，可在这里主动收集到本机备份库。</p><div class="actions"><button type="button" class="btn ghost" id="device-data-collect">收集本设备素材</button><button type="button" class="btn ghost" id="device-data-refresh">查看可恢复的设备偏好</button></div><div id="device-data-restore" hidden><label for="device-data-source">选择以前保存的设备</label><select id="device-data-source"></select><button type="button" class="btn ghost" id="device-data-apply">用于本设备</button></div><small id="device-data-result" role="status">收集会将本设备自选音效传至漂流瓶所在电脑，不会上传海边服务器。</small></details>`;
+export const extrasStyles = `.archive-tools{display:block;text-align:center;padding:14px 0 0;margin:0}.archive-tools summary{cursor:pointer}.archive-tools p{font-size:12px;color:var(--muted);line-height:1.7}.archive-tools .actions{justify-content:center;flex-wrap:wrap}.archive-tools small{flex-basis:100%;text-align:center;color:var(--muted);font-size:11px}.archive-tools .link{color:var(--muted)}.archive-tools .link:hover{color:var(--ink)}.paper-compose .actions{flex-wrap:wrap}`;
 export const extrasScript = String.raw`
   var paperTarget = null, paperBusy = false, paperFetching = false, paperDraftFocus = false, paperClosed = false;
   var paperRows = new Map(), paperComposer = document.getElementById('paper-compose');
@@ -78,7 +78,7 @@ export const extrasScript = String.raw`
         }
         var node=el('article','paper-slip');node.dataset.noteId=row.id;
         var heading=el('div','paper-heading');heading.appendChild(el('small',null,row.from+(outgoing?'寄出的小纸条':'留下的小纸条')));
-        var status=el('span','paper-status '+(pending||(!outgoing&&!row.read)?'paper-unread':'paper-read'),outgoing?(row.delivery==='unconfirmed'?'备份留存 · 寄送结果未知':pending?'寄送待确认':'已寄出'):(row.read?'已读':'未读'));heading.appendChild(status);node.appendChild(heading);node.appendChild(el('p',null,row.body));
+        var status=el('span','paper-status '+(pending||(!outgoing&&!row.read)?'paper-unread':'paper-read'),outgoing?(row.delivery==='unconfirmed'?'备份留存 · 寄送结果未知':pending?'寄送待确认':'已寄出'):(row.read?'已读':'未读'));heading.appendChild(status);node.appendChild(heading);node.appendChild(el('p',null,row.body));if(!outgoing)appendReceivedStamp(node,row.receivedAt);
         var together=el('button','read-together',pending&&row.delivery!=='unconfirmed'?'确认寄送结果':'一起看');together.type='button';
         together.onclick=function(){if(together.disabled)return;together.disabled=true;var retry=pending&&row.delivery!=='unconfirmed';api(retry?'/note':'/note/read',retry?{letterId:row.letterId}:{id:row.id}).then(function(r){toast(r.message||'没有递过去，请稍后重试。',!r.ok);refreshPapers();refresh();}).catch(function(){toast('没有递过去，请稍后重试。',true);}).then(function(){together.disabled=false;});};
         node.appendChild(together);
@@ -89,18 +89,4 @@ export const extrasScript = String.raw`
   }
   window.addEventListener('pagehide',function(){paperClosed=true;paperRows.forEach(function(r){r.node.textContent='';r.node.remove();});paperRows.clear();document.getElementById('paper-body').textContent='';paperComposer.dataset.draftKey='';paperTarget=null;paperDraftFocus=false;});
   window.addEventListener('pageshow',function(e){if(e.persisted){paperClosed=false;refresh();}});
-  document.getElementById('archive-export').onclick=function(){
-    var button=this;button.disabled=true;
-    fetch('/archive/export',{cache:'no-store'}).then(function(r){if(!r.ok)throw Error();return r.json();}).then(function(doc){
-      var blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob);
-      var a=document.createElement('a');a.href=url;a.download='漂流瓶信册-明文请勿转发-'+new Date().toISOString().slice(0,10)+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1000);
-      toast('明文备份已导出，请妥善保管。');
-    }).catch(function(){toast('未能导出，请稍后再试。',true);}).then(function(){button.disabled=false;});
-  };
-  document.getElementById('archive-import').onclick=function(){document.getElementById('archive-file').click();};
-  document.getElementById('archive-file').onchange=function(){
-    var file=this.files&&this.files[0],input=this;if(!file)return;
-    if(file.size>32*1024*1024){toast('信册文件不能超过 32 MiB。',true);input.value='';return;}
-    file.text().then(function(text){var doc=JSON.parse(text);return api('/archive/import',doc);}).then(function(r){toast(r.message||'未能导入。',!r.ok);if(r.ok)refresh();}).catch(function(){toast('文件不是有效信册，原有信件没有改动。',true);}).then(function(){input.value='';});
-  };
 `;

@@ -1,3 +1,4 @@
+import {withDatabase} from '../world/local-db.ts';
 /**
  * 「捞到了但本机没记下来」的死锁回归测试。
  *
@@ -382,7 +383,8 @@ describe('E. World client recovery and persistence failures', () => {
   it('detects a real filesystem write failure and preserves a readable error', async () => {
     const { h } = await start();
     const store = new LocalStore(join(h.dir, 'blocked-store'));
-    mkdirSync(store.letterbookFile, { recursive: true });
+    store.load();
+    withDatabase(join(h.dir,'blocked-store'),db=>db.exec("CREATE TRIGGER fail_holding BEFORE INSERT ON local_documents WHEN NEW.key='held' BEGIN SELECT RAISE(ABORT,'injected write failure'); END"));
     store.setHeld({ letterId: 'lost-letter', from: '陌生人', body: '测试正文', caughtAt: h.clock.t, windowUntil: h.clock.t + 72 * HOUR });
     expect(store.heldPersisted()).toBe(false);
     expect(lastStoreWriteError()).toEqual(expect.any(String));

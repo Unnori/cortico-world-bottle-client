@@ -11,7 +11,7 @@ const base = 'http://127.0.0.1:7796/';
 
 it('keeps an expired unsent reply readable without offering send or rewrite',()=>{
   const card=replyDraftCard({base,draft:{kind:'reply',body:'未寄出的原文',at:1,sendPolicy:'manual',sendFailure:'expired'},held:null,chars:7,hints:[]});
-  expect(card.body).toBe('未寄出的原文');expect(card.from).toContain('原信已失效');
+  expect(card.body).toBe('未寄出的原文');expect(card.from).toBe('已失效');
   expect(card.actions.map(a=>a.id)).toEqual(['preview','discard']);
 });
 
@@ -26,7 +26,7 @@ describe('原生卡片规格', () => {
     expect(card.base).toBe('http://127.0.0.1:7796');
     expect(card.eyebrow).toContain('写好了');
     expect(card.body).toBe('今天的海很平。');
-    expect(card.meta).toBe('7 / 120 字');
+    expect(card.meta).toBe('待确认 · 7 / 120 字');
     expect(card.actions.map((a) => [a.id, a.label, a.tone])).toEqual([
       ['preview', '完整预览', 'ghost'],
       ['send', '寄出去', 'primary'],

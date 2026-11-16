@@ -6,12 +6,12 @@ import { resolve, relative, isAbsolute, sep } from 'node:path';
 import ts from 'typescript';
 import { BOTTLE_CONFIG_GROUPS, BOTTLE_CONFIG_FIELDS, BOTTLE_DEFAULTS } from '../world/config.ts';
 import { coerceGroupValues, readGroupValues, setByPath } from 'cortico/core/config-schema.ts';
-import { BUILTIN_PALETTES } from 'cortico/web/shared/theme.ts';
+import { MAILBOX_PALETTES } from '../world/appearance.ts';
 
 const framework=resolve('node_modules/cortico/src');
 const state={worlds:{bottle:{...BOTTLE_DEFAULTS}}};
 const saves:Array<{group:string;values:Record<string,unknown>}>=[];
-const palette=Object.values(BUILTIN_PALETTES)[0];
+const palette=Object.fromEntries(Object.entries(MAILBOX_PALETTES.ocean).map(([mode,p])=>[mode,{...p,sheet:p.card,'sheet-2':p.panel,'sheet-3':p.soft,'ink-soft':p.muted,'line-2':p.line,'line-strong':p.line,'ink-blue':p.sea,ok:'#247b54',warn:p['warning-text'],danger:p['danger-text']}]));
 const html=`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><link rel="stylesheet" href="/styles.css">
 <style>*,*::before,*::after{box-sizing:border-box}body{display:block;overflow:auto;margin:0;padding:16px;background:var(--paper);color:var(--ink)}#root{container:webui-content / inline-size;max-width:1080px;margin:auto}</style>
 <div id="root"></div><script type="module">
@@ -78,7 +78,7 @@ try{
   await panel(`var first=document.querySelector('.trow select');first.value='page';first.dispatchEvent(new Event('change'));true`);
   await until("document.querySelector('.msgline').textContent.startsWith('✓')");
   assert.equal(saves[0]?.group,'world:bottle:display');assert.equal(state.worlds.bottle.surface,'page');
-  assert.equal(Object.keys(saves[0]!.values).length,3);
+  assert.equal(Object.keys(saves[0]!.values).length,4);
   // Native checkboxes live in label wrappers; target by the LAN field title, not a sibling section.
   await panel(`var row=Array.from(document.querySelectorAll('.trow')).find(n=>n.querySelector('.tlabel').textContent.startsWith('允许其他设备访问信箱'));var box=row.querySelector('input');box.checked=true;box.dispatchEvent(new Event('change'));true`);
   for(let n=0;n<40&&saves.length<2;n++)await new Promise(done=>setTimeout(done,100));
@@ -91,6 +91,15 @@ try{
   await panel(`var row=Array.from(document.querySelectorAll('.trow')).find(n=>n.querySelector('.tlabel').textContent.startsWith('待办提醒每日上限'));var input=row.querySelector('input');input.value='20';input.dispatchEvent(new Event('change'));true`);
   for(let n=0;n<40&&saves.length<4;n++)await new Promise(done=>setTimeout(done,100));
   assert.equal(saves[3]?.group,'world:bottle:invitations');assert.equal(state.worlds.bottle.reminderDayLimit,20);
+  const syncSettings=await panel(`(()=>{const rows=Array.from(document.querySelectorAll('.trow'));const find=title=>rows.find(row=>row.querySelector('.tlabel').textContent.startsWith(title)).querySelector('input');const poll=find('去海边看看消息的间隔');return {poll:[poll.min,poll.max,poll.value],notice:find('系统来信提醒').checked,quote:find('自动阅读时转述正文').checked}})()`);
+  assert.deepEqual(syncSettings,{poll:['1','60','10'],notice:true,quote:false});
+  for(const [label,value] of [['系统来信提醒',false],['自动阅读时转述正文',true],['去海边看看消息的间隔',20]] as const){
+    const previous=saves.length;
+    await panel(`var row=Array.from(document.querySelectorAll('.trow')).find(n=>n.querySelector('.tlabel').textContent.startsWith(${JSON.stringify(label)}));var input=row.querySelector('input');if(input.type==='checkbox')input.checked=${JSON.stringify(value)};else input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('change'));true`);
+    for(let n=0;n<40&&saves.length===previous;n++)await new Promise(done=>setTimeout(done,100));
+    assert.ok(saves.length>previous);
+  }
+  assert.equal(state.worlds.bottle.systemMailNotice,false);assert.equal(state.worlds.bottle.headlessQuoteBody,true);assert.equal(state.worlds.bottle.pollIntervalMinutes,20);
   console.log('PASS native autosave: reminder bounds/defaults, per-group persistence and original LAN group ID; all data synthetic');
   const out=resolve('../../scratch/bottle-config-groups');mkdirSync(out,{recursive:true});
   await panel('scrollTo(0,0);true');

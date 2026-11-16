@@ -1,3 +1,4 @@
+import {readLocalDocument as sqlRead,writeLocalDocument as sqlWrite,withDatabase as sqlDb,LOCAL_DB_NAME} from '../world/local-db.ts';
 import {afterEach,expect,it,vi} from 'vitest';
 import {mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';import {join} from 'node:path';
@@ -7,12 +8,12 @@ function rig(){const dir=mkdtempSync(join(tmpdir(),'bottle-notes-'));dirs.push(d
 it('local notes and read status survive server expiry and restart indefinitely',()=>{
  const {cache,clock,dir,note}=rig();cache.receive(note);cache.read(note.id);
  const reloaded=new NoteCache(dir,()=>clock.t);reloaded.load();expect(reloaded.all()[0]).toMatchObject({...note,readAt:clock.t});
- clock.t+=10*365*24*3_600_000;const archived=new NoteCache(dir,()=>clock.t);archived.load();expect(archived.all()).toEqual(reloaded.all());expect(readFileSync(cache.file,'utf8')).toContain(note.body);archived.forget(note.letterId);expect(archived.all()).toEqual([]);expect(readFileSync(cache.file,'utf8')).not.toContain(note.body);
+ clock.t+=10*365*24*3_600_000;const archived=new NoteCache(dir,()=>clock.t);archived.load();expect(archived.all()).toEqual(reloaded.all());expect(JSON.stringify(sqlRead(cache.file))).toContain(note.body);archived.forget(note.letterId);expect(archived.all()).toEqual([]);expect(JSON.stringify(sqlRead(cache.file))).not.toContain(note.body);
 });
 it('deleting all papers erases bodies immediately, suppressed redelivery survives restart but expires',()=>{
  const {cache,clock,dir,note}=rig();cache.receive(note);cache.forget();
- expect(readFileSync(cache.file,'utf8')).not.toContain(note.body);const next=new NoteCache(dir,()=>clock.t);next.load();next.receive(note);expect(next.all()).toEqual([]);
- clock.t+=NOTE_TTL_MS+1;next.prune();expect(readFileSync(cache.file,'utf8')).not.toContain(note.id);
+ expect(JSON.stringify(sqlRead(cache.file))).not.toContain(note.body);const next=new NoteCache(dir,()=>clock.t);next.load();next.receive(note);expect(next.all()).toEqual([]);
+ clock.t+=NOTE_TTL_MS+1;next.prune();expect(JSON.stringify(sqlRead(cache.file))).not.toContain(note.id);
 });
 it('deleting one correspondence preserves unrelated papers; duplicate transport cannot overwrite a read body',()=>{
  const {cache,note}=rig();cache.receive(note);cache.read(note.id);cache.receive({...note,body:'被重传修改的内容'});
@@ -22,7 +23,9 @@ it('deleting one correspondence preserves unrelated papers; duplicate transport 
 it('rejects oversized, expired, malformed and overlong-lived records, including persisted ones',()=>{
  const {cache,clock,dir,note}=rig();
  for(const value of [{...note,body:'字'.repeat(41)},{...note,expiresAt:'bad'},{...note,expiresAt:new Date(clock.t-1).toISOString()},{...note,expiresAt:new Date(clock.t+NOTE_TTL_MS+1).toISOString()},{...note,id:''}])expect(cache.receive(value)).toBeNull();
- writeFileSync(cache.file,JSON.stringify({schemaVersion:1,notes:[{...note,body:'字'.repeat(41)}]}));const next=new NoteCache(dir,()=>clock.t);next.load();expect(next.all()).toEqual([]);
+ const source=JSON.stringify({schemaVersion:1,notes:[{...note,body:'字'.repeat(41)}]});
+ writeFileSync(cache.file,source);const next=new NoteCache(dir,()=>clock.t);
+ expect(()=>next.load()).toThrow('损坏');expect(readFileSync(cache.file,'utf8')).toBe(source);
 });
 
 it('migrates older cache files even when their server expiry has already passed; late model delivery marks read',()=>{
@@ -38,7 +41,7 @@ it('outgoing pending and confirmed copies survive loading; deleting the correspo
  const pending=new NoteCache(dir,()=>clock.t);pending.load();expect(pending.outgoing(note.letterId)).toMatchObject({direction:'sent',delivery:'pending'});
  pending.confirmOutgoing(note.letterId);clock.t+=NOTE_TTL_MS*100;const next=new NoteCache(dir,()=>clock.t);next.load();
  expect(next.outgoing(note.letterId)).toMatchObject({body:'写下后也要留在信册。',delivery:'sent'});expect(next.all()).toHaveLength(2);next.forget(note.letterId);expect(next.all()).toEqual([]);
- expect(readFileSync(next.file,'utf8')).not.toContain('写下后也要留在信册。');
+ expect(JSON.stringify(sqlRead(next.file))).not.toContain('写下后也要留在信册。');
 });
 it('a local write failure rolls back both outgoing staging and incoming receipt before acknowledgement',()=>{
  const {cache,note}=rig();const fail=vi.spyOn(cache as any,'save').mockImplementation(()=>{throw Error('disk unavailable');});

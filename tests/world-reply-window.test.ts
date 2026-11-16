@@ -44,7 +44,7 @@ describe('World reply window from server quota', () => {
     await h.world.start(new FakeHost());
     // Quota survives a restart; wait for bootstrap to actually refresh it.
     await vi.waitFor(() => expect(quota.mock.calls.length).toBeGreaterThan(calls));
-    await h.world.pageDeps().refresh?.();
+    await Reflect.get(h.world,'syncSea').call(h.world);
   }
 
   it('shows a new 24-hour letter and counts down from its server deadline', async () => {
@@ -82,8 +82,8 @@ describe('World reply window from server quota', () => {
     await callTool(h.world, 'bottle_catch');
     expect(h.world.pageDeps().snapshot().held?.hoursLeft).toBe(72);
     tuning.replyWindowHours = 24;
-    h.clock.t += 6000;
-    await h.world.pageDeps().refresh?.();
+    h.clock.t += 10*60000;
+    await Reflect.get(h.world,'syncSea').call(h.world);
     expect(h.world.pageDeps().snapshot().quota?.reply_window_hours).toBe(24);
     expect(h.world.pageDeps().snapshot().held?.hoursLeft).toBe(72);
     expect((await h.world.pageDeps().dismiss()).ok).toBe(true);

@@ -128,8 +128,8 @@ describe('本地信箱页', () => {
 
   it('回信这个动作会告诉 World 是谁点的（卡片还是网页）', async () => {
     const d = deps();
-    await handlePage(d, 'POST', '/open', { surface: 'card' });
-    expect(d.open).toHaveBeenCalledWith('card');
+    await handlePage(d, 'POST', '/open', { surface: 'card', body:{letterId:'l_7'} });
+    expect(d.open).toHaveBeenCalledWith('card','l_7');
 
     await handlePage(d, 'POST', '/open');
     expect(d.open).toHaveBeenLastCalledWith('page');
@@ -164,9 +164,9 @@ describe('本地信箱页', () => {
   it('页面里没有可执行的外链，也不读别的东西', () => {
     const html = pageHtml();
     expect(html).not.toContain('<script src');
-    // External URLs are explicit feedback links, never automatically loaded assets.
+    // External URLs are explicit handbook, notes and feedback links, never auto-loaded assets.
     expect([...html.matchAll(/(?:src|href)=["'](https?:\/\/[^"']+)/g)].map(match => match[1]))
-      .toEqual(['https://github.com/Unnori/cortico-world-bottle-client/issues/new', 'https://docs.qq.com/form/page/DZm5DZ3d4V2JiUmt2']);
+      .toEqual(['https://bottle.sqnori.com/guide/', 'https://bottle.sqnori.com/notes/', 'https://github.com/Unnori/cortico-world-bottle-client/issues/new', 'https://docs.qq.com/form/page/DZm5DZ3d4V2JiUmt2']);
     expect(html).toContain('仍然寄出');
     expect(html).toContain('写出的信');
     expect(html).toContain('来客来信');
@@ -241,7 +241,8 @@ describe('本地信箱页', () => {
 
       const fromCard = await fetch(`${server.url}open`, {
         method: 'POST',
-        headers: { 'x-bottle': '1', 'x-bottle-surface': 'card' },
+        headers: { 'x-bottle': '1', 'x-bottle-surface': 'card', 'content-type':'application/json' },
+        body: JSON.stringify({letterId:'l_7'}),
       });
       expect(fromCard.status).toBe(200);
       expect(seen).toEqual(['card']);

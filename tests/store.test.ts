@@ -1,3 +1,4 @@
+import {readLocalDocument as sqlRead,writeLocalDocument as sqlWrite,withDatabase as sqlDb,LOCAL_DB_NAME} from '../world/local-db.ts';
 /**
  * 本机落盘的往返。存在的理由是一个真 bug：
  * `setDraft` 写的是 `{ draft }` 包装，而 `load()` 曾把根对象当草稿读，
@@ -63,7 +64,7 @@ describe('草稿往返', () => {
     const dir = freshDir();
     reload(dir).setLetterDraft({ kind: 'letter', body: '看看磁盘', at: 3 });
 
-    const raw = JSON.parse(readFileSync(join(dir, 'bottle-draft.json'), 'utf8')) as { letterDraft?: unknown };
+    const raw = sqlRead(join(dir, 'bottle-draft.json')) as { letterDraft?: unknown };
     expect(raw).toHaveProperty('letterDraft');
     expect(reload(dir).letterDraft?.body).toBe('看看磁盘');
   });
@@ -117,12 +118,11 @@ describe('草稿往返', () => {
     expect(reload(other).letterDraft).toBeNull();
   });
 
-  it('坏掉的 JSON 不炸，只当没有草稿', () => {
+  it('损坏的旧草稿会中止迁移，原文件保留', () => {
     const dir = freshDir();
     writeFileSync(join(dir, 'bottle-draft.json'), '{ 这不是 json', 'utf8');
-    expect(() => reload(dir)).not.toThrow();
-    expect(reload(dir).draft).toBeNull();
-    expect(reload(dir).letterDraft).toBeNull();
+    expect(() => reload(dir)).toThrow('损坏');
+    expect(readFileSync(join(dir,'bottle-draft.json'),'utf8')).toBe('{ 这不是 json');
   });
 });
 

@@ -1,3 +1,4 @@
+import {readLocalDocument as sqlRead} from '../world/local-db.ts';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {makeHarness,callTool,type Harness} from './helpers.ts';
@@ -22,7 +23,7 @@ it('receives and notifies without a browser; only paper text is automatic, deliv
  expect(h.db.notes).toHaveLength(0);expect(await page.notes!()).toMatchObject([{id,body:paper,read:false}]);
  expect(push).toHaveBeenCalledWith(expect.objectContaining({type:'bottle.note-arrived',origin:'external'}),{trigger:'debounce'});
  const [event]=await host.deliverDeferred(h.world);
- expect(event!.text).toContain(paper);expect(event!.text).toContain('Tell your partner');expect(event!.text).not.toContain(original);expect(event!.text).not.toContain(answer);expect(event!.text).not.toContain(id);
+ expect(event!.text).toContain(paper);expect(event!.text).toContain('请转告伙伴');expect(event!.text).not.toContain(original);expect(event!.text).not.toContain(answer);expect(event!.text).not.toContain(id);
  expect(await page.notes!()).toMatchObject([{id,read:true}]);
  await(h.world as any).refreshNotes();expect(host.deferred).toHaveLength(0);
 });
@@ -41,15 +42,15 @@ it('look together includes paper plus original title and reply, with read-only a
  expect(await callTool(h.world,'bottle_reply',{text:'不应回信'})).toContain('不能回');expect(await callTool(h.world,'bottle_note',{text:'不应起草'})).toContain('只有人邀请');
  const [event]=await host.deliverDeferred(h.world);expect(event!.type).toBe('bottle.note-reading');
  for(const text of [paper,original,answer,'随海风来'])expect(event!.text).toContain(text);
- expect(event!.text).toContain('Read and share your thoughts only');expect(event!.text).not.toContain(letterId);
+ expect(event!.text).toContain('只读和聊感想');expect(event!.text).not.toContain(letterId);
  expect(page.snapshot().received.find(n=>n.letterId===letterId)?.readCount).toBe(count);
  h.world.onTurnEnded();expect((h.world as any).authorized).toBeNull();
 });
 it('discarded events stay unread and may be retried, successful ones do not repeat',async()=>{
  const {id}=await incoming();await(h.world as any).refreshNotes();const queued=host.deferred.shift()!;
  const text=await queued.render();const event=await host.pushEvent({type:queued.type,source:'bottle',ts:new Date().toISOString(),meta:queued.meta,text:String(text)});
- h.world.onEventsSettled([event],'discarded');expect((await h.world.pageDeps().notes!())[0]!.read).toBe(false);
- expect(host.deferred.filter(e=>e.type==='bottle.note-arrived')).toHaveLength(1);await host.deliverDeferred(h.world);
+ h.world.onEventsSettled([event],'discarded');expect((await h.world.pageDeps().notes!())[0]!.read).toBe(false);await(h.world as any).refreshNotes();
+ await vi.waitFor(()=>expect(host.deferred.filter(e=>e.type==='bottle.note-arrived')).toHaveLength(1));await host.deliverDeferred(h.world);
  expect(await h.world.pageDeps().notes!()).toMatchObject([{id,read:true}]);
 });
 it('keeps server copy when local receipt fails; retries transport ACK without notifying twice',async()=>{
@@ -65,20 +66,20 @@ it('deleting correspondence removes paper bodies and cancels queued reading, fai
  vi.spyOn(client,'ackNote').mockRejectedValue(Error('offline'));await(h.world as any).refreshNotes();
  const queued=host.deferred[0]!;await page.forget(letterId);
  expect(await queued.render()).toBeNull();expect(await page.notes!()).toEqual([]);
- expect(readFileSync((h.world as any).receivedNotes.file,'utf8')).not.toContain(paper);
+ expect(JSON.stringify(sqlRead((h.world as any).receivedNotes.file))).not.toContain(paper);
  await h.world.stop();host=new FakeHost();await h.world.start(host);await(h.world as any).refreshNotes();expect(await page.notes!()).toEqual([]);
  // Body-free deletion receipts expire too.
  h.clock.t+=NOTE_TTL_MS+1;await(h.world as any).refreshNotes();
- expect(readFileSync((h.world as any).receivedNotes.file,'utf8')).not.toContain(id);
+ expect(JSON.stringify(sqlRead((h.world as any).receivedNotes.file))).not.toContain(id);
 });
 it('server expiry preserves together-reading; missing historical bodies get an honest explanation',async()=>{
  const {id}=await incoming(),page=h.world.pageDeps();await(h.world as any).refreshNotes();await host.deliverDeferred(h.world);
  (h.world as any).store.received=[];
  expect((await page.readNote!(id)).ok).toBe(true);const queued=host.deferred.at(-1)!;
- expect(await queued.render()).toContain('The original was not saved locally');
+ expect(await queued.render()).toContain('本机未保存原信');
  h.clock.t+=NOTE_TTL_MS+1;expect(await queued.render()).toBeNull();expect((await page.notes!())[0]?.body).toBe(paper);
  expect((await page.readNote!(id)).ok).toBe(true);const events=await host.deliverDeferred(h.world);expect(events.at(-1)!.text).toContain(paper);
- expect(readFileSync((h.world as any).receivedNotes.file,'utf8')).toContain(paper);
+ expect(JSON.stringify(sqlRead((h.world as any).receivedNotes.file))).toContain(paper);
 });
 it('a failed host enqueue leaves paper unread and retries later',async()=>{
  await incoming();const push=vi.spyOn(host,'pushDeferred').mockImplementationOnce(()=>{throw Error('queue unavailable');});
@@ -96,7 +97,7 @@ it('clearing the letterbook cancels queued note reading and removes local note b
  const {id}=await incoming(),page=h.world.pageDeps();await(h.world as any).refreshNotes();
  await page.readNote!(id);const queued=host.deferred.at(-1)!;
  expect((await page.forget()).ok).toBe(true);expect(await queued.render()).toBeNull();expect((h.world as any).authorized).toBeNull();
- expect(await page.notes!()).toEqual([]);expect(readFileSync((h.world as any).receivedNotes.file,'utf8')).not.toContain(paper);
+ expect(await page.notes!()).toEqual([]);expect(JSON.stringify(sqlRead((h.world as any).receivedNotes.file))).not.toContain(paper);
 });
 
 it('read papers remain attached to their original correspondence after years and a World restart',async()=>{

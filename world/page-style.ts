@@ -63,22 +63,10 @@ export const pageStyles = `
     --backdrop:#05050a99; --shadow:0 2px 4px #00000018,0 22px 60px #00000026;
     --slip-stock:linear-gradient(178deg,#2e2b24 0%,#292620 100%); --slip-ink:#f2e6c6; --slip-fold-color:#4a402c;
   }
-  :root[data-theme="coopanion"][data-host-theme="true"] {
-    --paper:var(--host-paper); --card:var(--host-sheet); --panel:var(--host-sheet-2); --soft:var(--host-sheet-3);
-    --ink:var(--host-ink); --muted:var(--host-ink-soft); --line:var(--host-line); --edge:var(--host-line-strong);
-    --accent:var(--host-accent); --seal:var(--host-accent); --sea:var(--host-ink-blue); --focus:var(--host-accent);
-    --on-accent:var(--host-on-accent); --on-sea:var(--host-ink);
-    --tint:var(--host-sheet-3); --active:color-mix(in srgb,var(--accent) 14%,var(--card));
-    --active-line:color-mix(in srgb,var(--accent) 50%,var(--line)); --sea-soft:var(--host-sheet-2);
-    --wash-a:transparent; --wash-b:transparent;
-    --warning-bg:color-mix(in srgb,var(--host-warn) 12%,var(--card)); --warning-line:color-mix(in srgb,var(--host-warn) 35%,var(--line)); --warning-text:var(--host-warn);
-    --info-bg:var(--host-sheet-2); --info-text:var(--host-ink-blue);
-    --danger-bg:color-mix(in srgb,var(--host-danger) 12%,var(--card)); --danger-text:var(--host-danger);
-  }
-  :root[data-theme="custom"] { --edge:var(--line); --focus:var(--accent); --tint:var(--soft); --active:var(--soft); --active-line:var(--accent); --sea-soft:var(--soft); --on-sea:var(--on-accent); --info-bg:var(--soft); --info-text:var(--sea); --wash-a:transparent; --wash-b:transparent; }
+  :root[data-theme="custom"], :root[data-theme="host"] { --edge:var(--line); --focus:var(--accent); --tint:var(--soft); --active:var(--soft); --active-line:var(--accent); --sea-soft:var(--soft); --on-sea:var(--on-accent); --info-bg:var(--soft); --info-text:var(--sea); --wash-a:transparent; --wash-b:transparent; }
   body#bottle-mailbox { isolation:isolate; }
   #mailbox-scenery { position:fixed; inset:0; z-index:-1; pointer-events:none; opacity:0; transition:opacity 360ms var(--ease); }
-  :root[data-background-visible="true"] #mailbox-scenery { opacity:var(--background-opacity,.18); }
+  :root[data-background-visible="true"] #mailbox-scenery { opacity:var(--background-opacity,.4); }
   .background-layer { position:absolute; inset:0; background-size:cover; background-position:center; opacity:0; transition:opacity 420ms var(--ease); }
   .background-layer.visible { opacity:1; }
   * { box-sizing:border-box; }
@@ -270,6 +258,12 @@ export const pageStyles = `
   .feedback-entry { display:inline-flex; align-items:center; justify-content:center; gap:6px; flex:none; border:1px solid var(--line); border-radius:9px; padding:9px 11px; background:transparent; color:var(--muted); font-size:12px; white-space:nowrap; }
   .feedback-entry .icon { width:15px; height:15px; }
   .feedback-entry:hover { color:var(--ink); border-color:var(--edge); background:var(--soft); }
+  .mailbox-links { display:flex; align-items:center; gap:12px; flex:none; }
+  .mailbox-links a,.mailbox-links .feedback-entry { color:var(--muted); font:inherit; font-size:11px; white-space:nowrap; }
+  .mailbox-links a { text-decoration:none; text-underline-offset:4px; padding:6px 0; }
+  .mailbox-links a:hover,.mailbox-links a:focus-visible { color:var(--ink); text-decoration:underline; }
+  .mailbox-links .feedback-entry { border:0; border-radius:4px; padding:6px 0; background:transparent; }
+  .mailbox-links .feedback-entry .icon { width:13px; height:13px; }
   .feedback-version { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; margin:18px 0; padding:14px 16px; border:2px solid var(--sea); border-radius:12px; background:var(--soft); color:var(--ink); }
   .feedback-version > span { font-size:13px; font-weight:600; }
   .feedback-version > strong { font-size:20px; color:var(--ink); overflow-wrap:anywhere; }
@@ -327,7 +321,6 @@ export const pageStyles = `
   .action-main strong { font-size:14px; letter-spacing:.03em; line-height:1.6; }
   .action-main small { font-size:10px; line-height:1.7; }
   .action-main.catch { color:var(--on-sea); }
-  :root[data-theme="coopanion"][data-host-theme="true"] .action-main.catch { background:var(--sea-soft); color:var(--accent-text,var(--sea)); border-color:var(--edge); }
   #action-note { max-width:none; font-size:11px; width:100%; padding-top:12px; border-top:1px dashed var(--line); }
   .invitation-settings { background:var(--panel); margin:0 0 26px; padding:15px 19px; border-style:solid; }
   .invitation-settings summary { font-weight:500; }
@@ -392,7 +385,6 @@ export const pageStyles = `
   .swatch-ocean { background:linear-gradient(155deg,#fffefa 50%,#4b60a2 51% 72%,#79b9da 73%); }
   .swatch-paper { background:linear-gradient(155deg,#fff8e8 50%,#946327 51% 72%,#70663c 73%); }
   .swatch-epistle { background:linear-gradient(155deg,#fdfbf5 0 44%,#f6f1e6 45% 66%,#3f4a8c 67% 82%,#9c3b30 83%); }
-  .swatch-coopanion { background:linear-gradient(155deg,var(--host-sheet,var(--card)) 50%,var(--host-accent,var(--seal)) 51% 72%,var(--host-ink-blue,var(--sea)) 73%); }
   body,button,input,summary,.card,.book,.mail,.mail-folders,.mail-symbol,.folder b,.original,.reply-quote,.toolbar,.invitation-settings,.theme-menu,.theme-check,.theme-chevron,.chip,.feedback-dialog,.feedback-path,.actor-switch,.masthead,.day-heading,.letter,.meta,.empty,.foot,.hero p,.eyebrow,.section-heading,.launch-heading,.date-tools label,.book-tools p,.mail-subject small,.folder-note,.folder-label {
     transition:background-color var(--motion) var(--ease),color var(--motion) var(--ease),border-color var(--motion) var(--ease),box-shadow var(--motion) var(--ease),transform 220ms var(--ease),opacity 200ms ease;
   }
@@ -638,7 +630,10 @@ export const pageStyles = `
   }
   @media(max-width:560px) {
     body#bottle-mailbox { padding:0 15px 40px; }
-    .masthead { padding:14px 0; }
+    .masthead { padding:14px 0; flex-wrap:wrap; row-gap:5px; }
+    .masthead-end { display:contents; }
+    .masthead-end .theme-picker { margin-left:auto; }
+    .mailbox-links { order:1; flex-basis:100%; justify-content:flex-end; }
     .brand-mark { width:38px; height:38px; }
     .brand h1 { font-size:17px; letter-spacing:.14em; }
     .hero { gap:0; padding:0 0 22px; }
@@ -669,6 +664,11 @@ export const pageStyles = `
 
   /* 「还在漂」这类状态沿用与读信状态同一种小药丸。 */
   .mail-status { flex:none; }
+  .date-tools { flex-wrap:wrap; min-width:0; max-width:100%; }
+  .letter-search { min-width:0; width:180px; max-width:100%; border:1px solid var(--line); border-radius:8px; padding:6px 8px; background:var(--card); color:var(--ink); font:inherit; }
+  .received-at,.mail-body .received-at,.card .received-at,.paper-slip .received-at { display:block; color:var(--muted); font-size:11px; font-weight:400; margin:4px 0 8px; }
+  @media(max-width:560px) { .letter-search { width:100%; } }
+
   ${slipGeometry}
   ${slipLayout}
   ${stationeryStyles}

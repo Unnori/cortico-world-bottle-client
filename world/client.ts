@@ -106,6 +106,10 @@ export class BottleClient {
     return parsed as T;
   }
 
+  sync(input: import('../shared/contract.ts').SyncReq): Promise<import('../shared/contract.ts').SyncRes> {
+    return this.call('POST','/sync',input);
+  }
+
   register(hash: string): Promise<RegisterRes> {
     return this.call<RegisterRes>('POST', '/register', { hash });
   }

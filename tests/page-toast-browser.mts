@@ -1,11 +1,10 @@
 /** Isolated local-browser regression; uses the shared web-access proxy. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { BUILTIN_PALETTES } from 'cortico/web/shared/theme.ts';
 import { pageHtml } from '../world/page-view.ts';
 import type { MailboxTheme } from '../world/theme.ts';
 
-const theme: MailboxTheme = { available: true, palettes: Object.values(BUILTIN_PALETTES)[0] };
+const theme: MailboxTheme = { available: true };
 const snapshot = { botName: '小满', online: true, quota: { bottles_left: 2, catches_left: 5, replies_left: 0 },
   draft: null, replyDraft: null, letterDraft: null, held: null, pendingAction: null, received: [], sent: [] };
 let rejectInvitation = true;
@@ -40,7 +39,7 @@ try {
   // its deliberately visibility-gated refresh runs in the proxy's background tab.
   await evaluate("Object.defineProperty(document,'hidden',{value:false,configurable:true}); document.dispatchEvent(new Event('visibilitychange')); true");
   await until("document.getElementById('hero-note').textContent.includes('小满')");
-  for (const palette of ['ocean', 'paper', 'epistle', 'coopanion']) {
+  for (const palette of ['ocean', 'paper', 'epistle']) {
     for (const mode of ['light', 'dark']) {
       await evaluate(`document.getElementById('theme-${palette}').click(); document.getElementById('mode-${mode}').click(); true`);
       await sleep(400);

@@ -8,7 +8,8 @@ import { DEFAULT_TUNING } from '../server/tuning.ts';
 import { createApi, sha256 } from '../server/app.ts';
 import { Db } from '../server/db.ts';
 import { REPLY_AUTO_SEND_MS, REPLY_DRAFT_RETRY_GRACE_MS } from '../shared/contract.ts';
-import type { LocalStore } from '../world/store.ts';
+import { LocalStore } from '../world/store.ts';
+import { withDatabase } from '../world/local-db.ts';
 
 let h: Harness | undefined;
 let host: FakeHost;
@@ -176,15 +177,52 @@ it('a lost reservation response recovers the same deadline and protects against 
   expect(h!.db.letterById(id)!.state).toBe('replied');
   expect(h!.clock.t).toBeGreaterThan(due);
 });
-it('a reservation never received before return expiry cannot leave a permanent local holding lock', async () => {
+it('an unreserved expired reply leaves the draft slot but keeps its unsent expression in the letterbook across restart', async () => {
   const id = await setup(); h!.clock.t += 23 * hour;
   blocked = '/reply/draft'; await draft();
+  const store = (h!.world as any).store as LocalStore;
+  store.setDraft({...store.draft!,stationery:{v:2,paper:'grid',decorations:[{doodle:'paper-plane',color:'#778899',x:20,y:30}]}});
+  const original = structuredClone(store.draft!);
   h!.clock.t += 2 * hour;
   await (h!.world as any).refreshQuota();
   expect(h!.db.letterById(id)!.state).toBe('floating');
   blocked = ''; await tick();
   expect(h!.world.pageDeps().snapshot().held).toBeNull();
   expect(h!.world.pageDeps().snapshot().replyDraft).toBeNull();
+  expect(h!.world.pageDeps().snapshot().received.find(row=>row.letterId===id)).toMatchObject({
+    outcome:'expired',unsentReplies:[{draftId:original.draftId,body:original.body,at:original.at,stationery:original.stationery}],
+  });
+  expect(h!.db.replies).toHaveLength(0);
+  await h!.world.stop(); await h!.world.start(host);
+  expect(h!.world.pageDeps().snapshot().replyDraft).toBeNull();
+  expect(h!.world.pageDeps().snapshot().received.find(row=>row.letterId===id)?.unsentReplies).toMatchObject([
+    {draftId:original.draftId,body:original.body,at:original.at,stationery:original.stationery},
+  ]);
+});
+it('retains an expired unreserved draft when saving its local failure record fails, then retries without sending',async()=>{
+  const id = await setup(); h!.clock.t += 23 * hour;
+  blocked = '/reply/draft'; await draft();
+  const store = (h!.world as any).store as LocalStore;
+  const original = structuredClone(store.draft!);
+  h!.clock.t += 2 * hour;
+  await (h!.world as any).refreshQuota();
+  withDatabase(h!.dir,db=>db.exec("CREATE TRIGGER fail_unsent_reply BEFORE INSERT ON local_records WHEN NEW.bucket='received' BEGIN SELECT RAISE(ABORT,'injected archive failure'); END"));
+  blocked = ''; await tick();
+  expect(store.draft).toEqual(original);
+  expect(store.held?.letterId).toBe(id);
+  expect(store.received.find(row=>row.letterId===id)?.unsentReplies).toBeUndefined();
+  const saved = new LocalStore(h!.dir); saved.load();
+  expect(saved.draft).toEqual(original);
+  expect(saved.held?.letterId).toBe(id);
+  expect(saved.received.find(row=>row.letterId===id)?.unsentReplies).toBeUndefined();
+  withDatabase(h!.dir,db=>db.exec('DROP TRIGGER fail_unsent_reply'));
+  h!.clock.t += 60_001; await tick();
+  expect(store.draft).toBeNull(); expect(store.held).toBeNull();
+  expect(store.received.find(row=>row.letterId===id)).toMatchObject({
+    outcome:'expired',unsentReplies:[{draftId:original.draftId,body:original.body,at:original.at}],
+  });
+  expect(calls).not.toContain('/reply');
+  expect(h!.db.replies).toHaveLength(0);
 });
 it('legacy server gets manual sending and no unsupported reservation requests', async () => {
   const id = await setup(); legacy = true;

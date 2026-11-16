@@ -148,7 +148,7 @@ export const starScript = String.raw`
     list.appendChild(starMemoryPanel());
     var enabled = state.starMemoryEnabled === true;
     var date = document.getElementById('letter-date').value;
-    var rows = starRows().filter(function (row) { return !date || dateKey(row.at) === date; });
+    var rows = starRows().filter(function (row) { return (!date || dateKey(row.at) === date) && matchesLetter({...row,category:'stars'}); });
     rows.forEach(function (row) {
       var article = el('article', 'mail star-row');
       var jump = el('button', 'star-open');

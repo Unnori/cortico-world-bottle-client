@@ -1,5 +1,6 @@
 /** Isolated local HTTP service + browser fixture. Never visits the live bottle service or actual mailbox. */
-import assert from 'node:assert/strict';import {mkdtempSync,mkdirSync,writeFileSync} from 'node:fs';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';
+import assert from 'node:assert/strict';
+import {gzipSync} from 'node:zlib';import {mkdtempSync,mkdirSync,writeFileSync} from 'node:fs';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';
 import {createBottleServer} from '../server/main.ts';import {makeHarness,callTool} from './helpers.ts';import {FakeHost} from './fake-host.ts';import {sha256} from '../server/app.ts';
 const dir=mkdtempSync(join(tmpdir(),'bottle-080-browser-')),service=createBottleServer({dataFile:join(dir,'server.json'),seedsDir:null});
 await new Promise<void>(done=>service.server.listen(0,'127.0.0.1',done));const base='http://127.0.0.1:'+(service.server.address() as any).port;
@@ -124,14 +125,17 @@ try{
  assert.equal(h.world.pageDeps().snapshot().stars?.find(s=>s.letterId===original)?.memoryActive,true);
  await h.world.pageDeps().starMemory!(original,false);
  const backup=await h.world.pageDeps().exportArchive!();assert.equal(backup.entries.some(e=>e.kind==='star'),true);
- await evaluate(`window.downloadBlob=null;window.downloadName=null;URL.createObjectURL=function(blob){window.downloadBlob=blob;return 'blob:test'};URL.revokeObjectURL=function(){};HTMLAnchorElement.prototype.click=function(){window.downloadName=this.download};document.getElementById('archive-export').click();true`);
- await until(`!!window.downloadBlob`);assert.match(await evaluate('downloadName'),/明文请勿转发/);assert.equal(await evaluate(`downloadBlob.text().then(t=>t.includes(${JSON.stringify(paper)}))`),false);
+
+ assert.equal(await evaluate("!!document.getElementById('device-data')&&!document.getElementById('archive-export')&&!document.getElementById('archive-import')"),true);
  await h.world.pageDeps().forget(undefined);assert.equal(h.world.pageDeps().snapshot().sent.length,0);
- await evaluate(`var doc=${JSON.stringify(backup)};var data=new DataTransfer();data.items.add(new File([JSON.stringify(doc)],'信册.json',{type:'application/json'}));var input=document.getElementById('archive-file');input.files=data.files;input.dispatchEvent(new Event('change'));true`);
- await until(`document.getElementById('toast').textContent.includes('合并了')`);assert.equal(h.world.pageDeps().snapshot().sent.length,3);assert.equal(h.world.pageDeps().snapshot().stars?.length,1);
- for(const theme of ['ocean','paper','epistle','coopanion','custom'])for(const mode of ['light','dark']){await evaluate(`document.getElementById('theme-${theme}').click();document.getElementById('mode-${mode}').click();true`);assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);}
+ const invoke=(method:string,input:any)=>h.world.webUi().invoke!('mailbox','data:'+method,[input]) as Promise<any>;
+ const bytes=gzipSync(JSON.stringify(backup)),upload=await invoke('begin',{size:bytes.length});
+ for(let offset=0;offset<bytes.length;offset+=upload.chunkBytes)await invoke('chunk',{id:upload.id,offset,data:bytes.subarray(offset,offset+upload.chunkBytes).toString('base64')});
+ const preview=await invoke('preview',{id:upload.id});await invoke('confirm',{id:preview.id,mode:'merge',backup:false});
+ assert.equal(h.world.pageDeps().snapshot().sent.length,3);assert.equal(h.world.pageDeps().snapshot().stars?.length,1);
+ for(const theme of ['ocean','paper','epistle','custom'])for(const mode of ['light','dark']){await evaluate(`document.getElementById('theme-${theme}').click();document.getElementById('mode-${mode}').click();true`);assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);}
  assert.deepEqual(await evaluate('testErrors'),[]);
- const out=resolve('../../scratch/bottle-080-evidence');mkdirSync(out,{recursive:true});await rpc('/screenshot?target='+tab+'&file='+encodeURIComponent(join(out,'mailbox.png')));
+ const out=resolve('../../scratch/bottle-080-evidence');mkdirSync(out,{recursive:true});if(process.argv.includes('--screenshot'))await rpc('/screenshot?target='+tab+'&file='+encodeURIComponent(join(out,'mailbox.png')));
  writeFileSync(join(out,'browser-result.json'),JSON.stringify({localHttpService:true,paperVisibleAck:true,twoStepReadReply:true,readStatusAndManualReturn:true,cooOnlyNoteDraft:true,authorToReplier:true,starConsentDialog:true,explicitMemoryConsent:true,repostCaught:true,offlineArchive:true,automaticPaperDelivery:true,paperReadState:true,localPaperSurvivesServerExpiry:true,paperTogetherReading:true,allEightThemes:true,errors:[]},null,2));
  console.log('PASS: local HTTP service, durable note receipt, automatic paper event, unread/read status and look together, two-step read/reply and manual return, Coo-only note and confirmation, repost catch, plaintext JSON backup/merge/stars, all themes, no browser errors.');
 }finally{if(tab)await rpc('/close?target='+tab).catch(()=>{});await h.stop();await service.close();}

@@ -1,8 +1,9 @@
 import { extrasHtml, archiveHtml, extrasScript, extrasStyles } from './page-extras.ts';
+import {deviceDataScript} from './page-device-data.ts';
 import { announcementDismissScript, announcementLinksScript } from './page-announcement.ts';
 import { WAKE_POLICIES } from './wake-policy.ts';
 import { DEFAULT_MY_FONT } from './default-font.ts';
-import { customPalettes } from './appearance.ts';
+import { customPalettes,cardAppearance } from './appearance.ts';
 import { customizationHtml, customizationScript } from './page-customization.ts';
 import { FEEDBACK_FORM_URL, WORLD_VERSION } from './feedback.ts';
 import { pageSoundScript, soundSettingsHtml } from './page-sound.ts';
@@ -13,9 +14,12 @@ import { pageStyles } from './page-style.ts';
 import type { MailboxTheme } from './theme.ts';
 
 /** 单文件页面。数据全部从 `/draft` 拿，这里只写骨架与交互。 */
-export function pageHtml(hostTheme: MailboxTheme = { available: false }): string {
-  const customJson = JSON.stringify(customPalettes(hostTheme.preference?.customColor ?? '#4b62a0'));
-  const themeJson = JSON.stringify(hostTheme).replace(/</g, '\\u003c');
+export function pageHtml(mailboxTheme: MailboxTheme = { available: false }): string {
+  const customJson = JSON.stringify(customPalettes(mailboxTheme.preference?.customColor ?? '#4b62a0'));
+  const themeJson = JSON.stringify(mailboxTheme).replace(/</g, '\\u003c');
+  const host=mailboxTheme.hostTheme??null;
+  const hostJson=JSON.stringify(host).replace(/</g,'\\u003c');
+  const hostPaletteJson=JSON.stringify(host?cardAppearance({theme:'host',mode:'system'},host).palettes[host.appearance]:{});
   return `<!doctype html>
 <html lang="zh-CN" data-theme="ocean">
 <head>
@@ -23,20 +27,21 @@ export function pageHtml(hostTheme: MailboxTheme = { available: false }): string
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>漂流瓶 · 信箱</title>
 <meta name="theme-color" content="#f0f4fb" id="browser-theme-color">
-<script type="application/json" id="host-theme">${themeJson}</script>
+<script type="application/json" id="mailbox-appearance">${themeJson}</script>
+<script type="application/json" id="host-theme">${hostJson}</script>
+<script type="application/json" id="host-palette">${hostPaletteJson}</script>
 <script type="application/json" id="custom-palettes">${customJson}</script>
 <script data-theme-init>
 (function(){
   var root=document.documentElement,theme='ocean',mode='system';
-  try{var saved=localStorage.getItem('bottle-theme');if(['ocean','paper','epistle','coopanion','custom'].indexOf(saved)>=0)theme=saved;
+  try{var saved=localStorage.getItem('bottle-theme');if(['ocean','paper','epistle','host','custom'].indexOf(saved)>=0)theme=saved;
     saved=localStorage.getItem('bottle-appearance');if(['system','light','dark'].indexOf(saved)>=0)mode=saved;}catch(e){}
-  try{var pref=JSON.parse(document.getElementById('host-theme').textContent).preference;if(pref&&['ocean','paper','epistle','coopanion','custom'].indexOf(pref.theme)>=0&&['system','light','dark'].indexOf(pref.mode)>=0){theme=pref.theme;mode=pref.mode;}}catch(e){}
+  try{var pref=JSON.parse(document.getElementById('mailbox-appearance').textContent).preference;if(pref&&['ocean','paper','epistle','host','custom'].indexOf(pref.theme)>=0&&['system','light','dark'].indexOf(pref.mode)>=0){theme=pref.theme;mode=pref.mode;}}catch(e){}
   root.dataset.theme=theme;root.dataset.mode=mode;
   var dark=mode==='dark'||(mode==='system'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);
   root.dataset.appearance=dark?'dark':'light';
+  try{if(theme==='host'){var host=JSON.parse(document.getElementById('host-theme').textContent);if(host){root.dataset.appearance=host.appearance;var colors=JSON.parse(document.getElementById('host-palette').textContent);Object.keys(colors).forEach(function(key){root.style.setProperty('--'+key,colors[key]);});}}}catch(e){}
   try{if(theme==='custom'){var custom=JSON.parse(document.getElementById('custom-palettes').textContent)[dark?'dark':'light'];Object.keys(custom).forEach(function(key){root.style.setProperty('--'+key,custom[key]);});}}catch(e){}
-  try{var host=JSON.parse(document.getElementById('host-theme').textContent);var palette=host.available&&host.palettes[dark?'dark':'light'];
-    var keys=['paper','sheet','sheet-2','sheet-3','ink','ink-soft','line','line-2','line-strong','accent','on-accent','ink-blue','ok','warn','danger'];if(palette&&keys.every(function(key){return /^#[0-9a-f]{6}$/i.test(palette[key]);})){root.dataset.hostTheme='true';keys.forEach(function(key){root.style.setProperty('--host-'+key,palette[key]);});}}catch(e){}
 })();
 </script>
 <link rel="icon" type="image/png" href="/icon.png">
@@ -61,14 +66,14 @@ ${readerHtml}
   <div class="masthead">
     <div class="brand"><span class="brand-mark"><img src="/icon.png" alt="" width="48" height="48"></span><div><h1>漂流瓶</h1><small>LETTERS FROM THE SEA</small></div></div>
     <div class="masthead-end"><div class="sub">一片海 · 一封信 · 一次相遇</div>
-      <button class="feedback-entry" id="feedback-entry" type="button" aria-haspopup="dialog" aria-controls="feedback-dialog"><svg class="icon" aria-hidden="true"><use href="#i-feedback"/></svg><span>反馈</span></button>
+      <nav class="mailbox-links" aria-label="海边小册与反馈"><a href="https://bottle.sqnori.com/guide/" target="_blank" rel="noopener noreferrer">使用小册</a><a href="https://bottle.sqnori.com/notes/" target="_blank" rel="noopener noreferrer">海边碎碎念</a><button class="feedback-entry" id="feedback-entry" type="button" aria-haspopup="dialog" aria-controls="feedback-dialog"><svg class="icon" aria-hidden="true"><use href="#i-feedback"/></svg><span>反馈</span></button></nav>
       <div class="theme-picker" id="theme-picker">
         <button class="theme-toggle" id="theme-toggle" type="button" aria-expanded="false" aria-controls="theme-menu" aria-label="切换信箱配色"><span class="theme-dot" aria-hidden="true"></span><span class="theme-toggle-label">信箱外观<span id="theme-name">潮蓝</span></span><svg class="theme-chevron" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <div class="theme-menu" id="theme-menu" role="group" aria-label="信箱配色" hidden><div class="theme-menu-heading"><strong>给信箱换一种心情</strong><span>信纸与灯光</span></div><div class="theme-options">
           <button id="theme-ocean" type="button" aria-pressed="true"><span class="theme-swatch swatch-ocean" aria-hidden="true"></span><span><strong>潮蓝</strong><small>海边的蓝</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
           <button id="theme-paper" type="button" aria-pressed="false"><span class="theme-swatch swatch-paper" aria-hidden="true"></span><span><strong>暖纸</strong><small>蜂蜜纸 · 棕墨</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
           <button id="theme-epistle" type="button" aria-pressed="false"><span class="theme-swatch swatch-epistle" aria-hidden="true"></span><span><strong>书信</strong><small>墨色与信笺</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
-          <button id="theme-coopanion" type="button" aria-pressed="false"><span class="theme-swatch swatch-coopanion" aria-hidden="true"></span><span><strong>Coopanion</strong><small>跟随桌宠配色</small></span><span class="theme-check" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 8 3 3 7-7"/></svg></span></button>
+          <button id="theme-host" type="button" aria-pressed="false"><span class="theme-swatch swatch-ocean" aria-hidden="true"></span><span><strong>宿主配色</strong><small>使用最近一次面板快照</small></span><span class="theme-check" aria-hidden="true">✓</span></button>
           </div><div class="appearance-settings"><p>明暗模式</p><div class="appearance-options" role="group" aria-label="明暗模式"><button id="mode-system" type="button" aria-pressed="true">跟随系统</button><button id="mode-light" type="button" aria-pressed="false">浅色</button><button id="mode-dark" type="button" aria-pressed="false">深色</button></div><small id="theme-sync-note" role="status">明暗可以自由选择，配色会为你记住。</small><small id="theme-card-note" role="status">桌面信笺也会换上相同配色。</small></div>
           <p id="my-font-current" class="theme-font-current" role="status">写信笔迹 · ${DEFAULT_MY_FONT.name}（默认）</p>
           ${customizationHtml}
@@ -93,7 +98,7 @@ ${readerHtml}
   </div>
   </div>
   <details class="invitation-settings"><summary>海边的邀请 · 间隔与次数</summary>
-    <p id="wake-note">本版后台只刷新信箱，不唤醒桌宠。写信与打捞由页面点击邀请。旧版自动邀请设置仅保留配置：写信、打捞间隔设为 2—24 小时，实际在 1—2 倍内随机（最长 24 小时），每天默认各 3 次，可设 1—24 次。待办提醒仅在手上有未处理来信时触发，默认每 30—60 分钟一次，每天最多 12 次，可设 3—20 次；没有来信或只有草稿时不提醒。自动补试计入上限，手动邀请不占上限。</p>
+    <p id="wake-note">定时写信与打捞邀请随下次对话或其他消息带入，不会单独唤醒；手动点击的邀请立即生效，桌宠可自由选择。写信、打捞间隔设为 2—24 小时，实际在 1—2 倍内随机（最长 24 小时），每天默认各 3 次，可设 1—24 次。待办提醒只随其他事件一起带入，不会单独唤醒，默认每 30—60 分钟一次，每天最多 12 次，可设 3—20 次；待办包括未处理来信和待寄草稿；实际送达后才开始下次间隔。自动补试计入上限，手动邀请不占上限。</p>
     <div id="wake-controls"><div class="invitation-row"><span id="wake-write-status">写信邀请</span><label>最短间隔 <input id="wake-write-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><label>每日上限 <input id="wake-write-limit" type="number" min="1" max="24" step="1" value="3"> 次</label><button class="btn" type="button" id="wake-write-save">调整</button><button class="btn" type="button" id="wake-write-toggle">暂停</button></div><div class="invitation-row"><span id="wake-catch-status">打捞邀请</span><label>最短间隔 <input id="wake-catch-hours" type="number" min="2" max="24" step="1" value="2"> 小时</label><label>每日上限 <input id="wake-catch-limit" type="number" min="1" max="24" step="1" value="3"> 次</label><button class="btn" type="button" id="wake-catch-save">调整</button><button class="btn" type="button" id="wake-catch-toggle">暂停</button></div><div class="invitation-row"><span id="wake-remind-status">待办提醒</span><label>最短间隔 <input id="wake-remind-hours" type="number" min="0.5" max="1" step="0.01" value="0.5"> 小时</label><label>每日上限 <input id="wake-remind-limit" type="number" min="3" max="20" step="1" value="12"> 次</label><button class="btn" type="button" id="wake-remind-save">调整</button><button class="btn" type="button" id="wake-remind-toggle">暂停</button></div></div>
   </details>
   ${soundSettingsHtml}
@@ -113,7 +118,7 @@ ${readerHtml}
         <p class="folder-note">有些相遇很短，<br>但一封信可以留很久。</p>
       </nav>
       <div class="mail-content">
-        <div class="book-tools"><div><h3 id="folder-title">来客来信</h3><p id="folder-description">海上来客留下的信，随潮水来到你身边。</p></div><div class="date-tools"><label for="letter-date">归档日期</label><span class="archive-date"><span id="letter-date-label" aria-hidden="true">选择日期</span><svg class="archive-date-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/></svg><input type="date" id="letter-date" aria-label="选择归档日期"></span><button class="link" type="button" id="clear-date">全部日期</button></div></div>
+        <div class="book-tools"><div><h3 id="folder-title">来客来信</h3><p id="folder-description">海上来客留下的信，随潮水来到你身边。</p></div><div class="date-tools"><label class="letter-search-label" for="letter-search">在信里找一找</label><input id="letter-search" class="letter-search" type="search" maxlength="200" placeholder="一行话、一个名字……" aria-label="在本机信册中寻找标题、正文或署名"><label for="letter-date">归档日期</label><span class="archive-date"><span id="letter-date-label" aria-hidden="true">选择日期</span><svg class="archive-date-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/></svg><input type="date" id="letter-date" aria-label="选择归档日期"></span><button class="link" type="button" id="clear-date">全部日期</button></div></div>
         <section id="mail-list" aria-label="按日期归档的信件"></section>
       </div>
     </div>
@@ -154,6 +159,8 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   var renderedState = '';
   var arrivalKeys = new Set();
   var deskKeys = new Set(), deskEntries = [], pendingDeskKey = null;
+  var hostSnapshot=JSON.parse(document.getElementById('host-theme').textContent||'null');
+  var hostColors=JSON.parse(document.getElementById('host-palette').textContent||'{}');
 
   function reducedMotion() { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
   function reveal(node) {
@@ -182,7 +189,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   ${readerScript}
   ${stationeryScript}
   ${starScript}
-  var themes = { custom: { name: '我的颜色', light: '#f0f4fb', dark: '#151d2e' }, ocean: { name: '潮蓝', light: '#f0f4fb', dark: '#151d2e' }, paper: { name: '暖纸', light: '#f2e6cc', dark: '#251e16' }, epistle: { name: '书信', light: '#f5f3ec', dark: '#1a1a20' }, coopanion: { name: 'Coopanion', light: '#f0f4fb', dark: '#151d2e' } };
+  var themes = { custom: { name: '我的颜色', light: '#f0f4fb', dark: '#151d2e' }, ocean: { name: '潮蓝', light: '#f0f4fb', dark: '#151d2e' }, paper: { name: '暖纸', light: '#f2e6cc', dark: '#251e16' }, epistle: { name: '书信', light: '#f5f3ec', dark: '#1a1a20' },host:{name:'宿主配色',light:'#f0f4fb',dark:'#151d2e'} };
   var themePicker = document.getElementById('theme-picker');
   var themeMenu = document.getElementById('theme-menu');
   var themeToggle = document.getElementById('theme-toggle');
@@ -190,30 +197,22 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   var appearanceMode = readPref('bottle-appearance', 'system');
   if (['system', 'light', 'dark'].indexOf(appearanceMode) < 0) appearanceMode = 'system';
   var darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
-  var hostTheme = null;
-  var themeSyncOk = false;
-  var themeSyncPending = false;
-  var themeSyncAt = 0;
-  var hostColorKeys = ['paper','sheet','sheet-2','sheet-3','ink','ink-soft','line','line-2','line-strong','accent','on-accent','ink-blue','ok','warn','danger'];
-  function acceptHostTheme(value) {
-    if (!value || !value.available || !value.palettes) return false;
-    if (!['light', 'dark'].every(function (mode) {
-      return value.palettes[mode] && hostColorKeys.every(function (key) { return /^#[0-9a-f]{6}$/i.test(value.palettes[mode][key]); });
-    })) return false;
-    hostTheme = value;
-    return true;
-  }
   var appearanceStarted = false;
   var appearanceSave = Promise.resolve();
   try {
-    var initialTheme = JSON.parse(document.getElementById('host-theme').textContent);
-    themeSyncOk = acceptHostTheme(initialTheme);
+    var initialTheme = JSON.parse(document.getElementById('mailbox-appearance').textContent);
     var saved = initialTheme.preference;
     if (saved && Object.prototype.hasOwnProperty.call(themes, saved.theme) && ['system','light','dark'].indexOf(saved.mode) >= 0) {
       currentTheme = saved.theme; appearanceMode = saved.mode; appearanceStarted = true;
       if (/^#[0-9a-f]{6}$/i.test(saved.customColor || '')) customColor = saved.customColor;
-      if (/^[a-f0-9]{64}\\.(png|jpg|webp)$/.test(saved.background || '')) backgroundId = saved.background;
-      if (typeof saved.backgroundTransparency === 'number') backgroundTransparency = Math.max(0,Math.min(100,saved.backgroundTransparency));
+      if (/^[a-f0-9]{64}\\.(png|jpg|webp)$/.test(saved.background || '')) {
+        backgroundId = saved.background;
+        // Older custom images implicitly used 82% transparency. A prior empty
+        // background adopts the new default rather than that legacy fallback.
+        backgroundTransparency = typeof saved.backgroundTransparency === 'number'
+          ? Math.max(0,Math.min(100,saved.backgroundTransparency))
+          : backgroundId === defaultBackground.id ? defaultBackground.transparency : 82;
+      }
       if (/^[a-f0-9]{64}\\.(ttf|otf|woff2?)$/.test(saved.myFont || '')) {myFontId=saved.myFont;myFontName=typeof saved.myFontName==='string'?saved.myFontName:'';}
       savePref('bottle-theme', currentTheme); savePref('bottle-appearance', appearanceMode);
     }
@@ -230,27 +229,18 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   function applyTheme(value, persist) {
     currentTheme = Object.prototype.hasOwnProperty.call(themes, value) ? value : 'ocean';
     var appearance = appearanceMode === 'system' ? (darkQuery && darkQuery.matches ? 'dark' : 'light') : appearanceMode;
+    if(currentTheme==='host'&&hostSnapshot)appearance=hostSnapshot.appearance;
     var root = document.documentElement;
-    root.dataset.theme = currentTheme; root.dataset.mode = appearanceMode; root.dataset.appearance = appearance; root.dataset.hostTheme = String(!!hostTheme);
-    var palette = hostTheme && hostTheme.palettes[appearance];
-    if (palette) hostColorKeys.forEach(function (key) { root.style.setProperty('--host-' + key, palette[key]); });
+    root.dataset.theme = currentTheme; root.dataset.mode = appearanceMode; root.dataset.appearance = appearance;
     document.getElementById('theme-name').textContent = themes[currentTheme].name;
-    document.getElementById('browser-theme-color').setAttribute('content', currentTheme === 'coopanion' && palette ? palette.paper : themes[currentTheme][appearance]);
+    document.getElementById('browser-theme-color').setAttribute('content', themes[currentTheme][appearance]);
     Object.keys(themes).forEach(function (key) { document.getElementById('theme-' + key).setAttribute('aria-pressed', String(key === currentTheme)); });
-    ['system', 'light', 'dark'].forEach(function (key) { document.getElementById('mode-' + key).setAttribute('aria-pressed', String(key === appearanceMode)); });
-    document.getElementById('theme-sync-note').textContent = currentTheme === 'coopanion'
-      ? themeSyncOk ? '已同步当前配色；明暗由上方选择。' : hostTheme ? '暂时无法同步，保留上次配色。' : '暂未取得 Coopanion 配色，先用潮蓝。'
-      : '明暗可以自由选择，配色会为你记住。';
+    ['system', 'light', 'dark'].forEach(function (key) { document.getElementById('mode-' + key).setAttribute('aria-pressed', String(key === appearanceMode));document.getElementById('mode-'+key).disabled=currentTheme==='host'&&!!hostSnapshot; });
+    document.getElementById('theme-sync-note').textContent = currentTheme==='host'?(hostSnapshot?'当前跟随：'+hostSnapshot.selectedId+'；明暗采用最近快照，从扩展面板重新打开信箱可更新。':'尚未采集宿主配色，先用潮蓝；请从扩展面板打开一次信箱。'):'明暗可以自由选择，配色会为你记住。';
     applyCustomization(appearance);
     if (currentTheme === 'custom' && customColors[appearance]) document.getElementById('browser-theme-color').setAttribute('content', customColors[appearance].paper);
+    if(currentTheme==='host'&&hostSnapshot&&hostColors.paper)document.getElementById('browser-theme-color').setAttribute('content',hostColors.paper);
     if (persist) { savePref('bottle-theme', currentTheme); syncAppearance(); }
-  }
-  function refreshHostTheme(force) {
-    if (currentTheme !== 'coopanion' || themeSyncPending || (!force && Date.now() - themeSyncAt < 5000)) return;
-    themeSyncPending = true; themeSyncAt = Date.now();
-    fetch('/theme').then(function (res) { if (!res.ok) throw new Error('theme unavailable'); return res.json(); }).then(function (value) {
-      themeSyncOk = acceptHostTheme(value); applyTheme(currentTheme, false);
-    }).catch(function () { themeSyncOk = false; applyTheme(currentTheme, false); }).then(function () { themeSyncPending = false; });
   }
   ['system', 'light', 'dark'].forEach(function (mode) {
     document.getElementById('mode-' + mode).onclick = function () { appearanceMode = mode; savePref('bottle-appearance', mode); applyTheme(currentTheme, false); syncAppearance(); };
@@ -269,7 +259,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     document.getElementById('theme-' + currentTheme).focus();
   };
   Object.keys(themes).forEach(function (key) {
-    document.getElementById('theme-' + key).onclick = function () { customColorRequest++; applyTheme(key, true); refreshHostTheme(true); document.getElementById('customization-note').textContent = '颜色和背景会保存在这只信箱，其他设备也能看到。'; };
+    document.getElementById('theme-' + key).onclick = function () { customColorRequest++; applyTheme(key, true); document.getElementById('customization-note').textContent = '颜色和背景会保存在这只信箱，其他设备也能看到。'; };
   });
   applyTheme(currentTheme, false);
   document.addEventListener('click', function (event) {
@@ -299,7 +289,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && !themeMenu.hidden) { event.preventDefault(); closeThemeMenu(true); }
   });
-  if (window.addEventListener) window.addEventListener('storage', function (event) { if (event.key === 'bottle-theme') { applyTheme(event.newValue, false); refreshHostTheme(true); }
+  if (window.addEventListener) window.addEventListener('storage', function (event) { if (event.key === 'bottle-theme') { applyTheme(event.newValue, false); }
     if (event.key === 'bottle-appearance') { appearanceMode = ['system','light','dark'].indexOf(event.newValue) >= 0 ? event.newValue : 'system'; applyTheme(currentTheme, false); } });
 
   function botName() { return state && state.botName || 'Coo'; }
@@ -447,11 +437,12 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
       card.appendChild(detail);
     }
 
+    card.appendChild(el('div','meta',draft.status||(draft.sendFailure?'已失效':draft.autoSendAt?(Date.now()>=draft.autoSendAt?'补寄中':'已安排定时寄出'):'待确认')));
     card.appendChild(el('div', 'meta', draft.chars + ' / 120 字'));
     if (!isLetter) {
       var minutes = draft.autoSendAt ? Math.max(0, Math.ceil((draft.autoSendAt - Date.now()) / 60000)) : null;
       card.appendChild(el('div', 'hint', draft.sendFailure ? '原信已回海或失效，补寄已停止。这份未寄出的回信仍保留在本机，可查看或放弃。' : draft.autoSendAt
-        ? minutes > 0 ? '约 ' + minutes + ' 分钟后自动寄出，也可以现在寄出。重写保留原倒计时，期间这只瓶子不会自动回海。' : '自动寄出中；暂时断网会保留草稿，连通后继续寄出。'
+        ? minutes > 0 ? '约 ' + minutes + ' 分钟后自动寄出，也可以现在寄出。重写保留原倒计时，期间这只瓶子不会自动回海。' : '补寄中：草稿仍保留，恢复连接后继续按原约定尝试。'
         : draft.autoSendPending ? '正在向海边确认自动寄出时间；确认后开始两小时倒计时。' : draft.sendPolicy === 'manual' ? '这封回信等待明确寄出，沿用原信有效期，不会自动寄出。' : '当前海边暂不支持自动寄出保护，请手动寄出这封回信。'));
     }
 
@@ -493,7 +484,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   function renderHeld(s) {
     var card = el('div', 'card');
     if (s.held.dead) return renderDeadHeld(s, card);
-    if (s.held.seed) return renderSeedHeld(s, card);
+    if (s.held.seed) {appendReceivedStamp(card,s.held.receivedAt);return renderSeedHeld(s, card);}
 
     var head = el('div', 'eyebrow', '捞到一封 · 来自 ');
     head.appendChild(el('span', 'who', s.held.from));
@@ -502,6 +493,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     card.appendChild(head);
     if (!s.held.topic) card.appendChild(el('h2', 'title', '还没决定要不要回'));
     card.appendChild(letterSheet({ topic: s.held.topic, body: s.held.body, fontId: s.held.fontId, signature: s.held.from, heading: 'h2', stationery: s.held.stationery }));
+    appendReceivedStamp(card,s.held.receivedAt);
     card.appendChild(el('div', 'meta', s.held.readAt ? botName() + '已经读过了' : s.held.hoursLeft > 0 ? '还有 ' + s.held.hoursLeft + ' 小时回海' : '等你决定如何处理'));
     if (s.held.readAt && s.held.hoursLeft > 0) card.appendChild(el('div', 'meta', '还有 ' + s.held.hoursLeft + ' 小时回海。'));
     // 今天回不了就直说，别让人点了「回信」才发现第 4 封被 429
@@ -751,7 +743,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     var last = wake && wake.history[wake.history.length - 1];
     var labels = { completed: '已处理', deferred: botName() + '选择暂不做', declined: '今天不再邀请', paused: '已暂停', uncompleted: botName() + '没有回应邀请…稍后再轻轻问一次。', failed: botName() + '没有回应邀请…今天先不打扰了。', cancelled: '条件变化，已取消', interrupted: '重启中断，已延后' };
     document.getElementById('wake-outcome').textContent = wake && wake.active
-      ? wake.active.phase === 'retry' ? botName() + '没有回应邀请…稍后再轻轻问一次。' : '已有一份邀请在等' + botName() + '选择。'
+      ? wake.active.phase==='queued'&&!wake.active.manual ? (wake.active.action==='remind'?'待办提醒':'定时邀请')+'已备好，等下次对话或其他消息时再带入。' : wake.active.phase === 'retry' ? botName() + '没有回应邀请…稍后再轻轻问一次。' : '已有一份邀请在等' + botName() + '选择。'
       : last ? '最近的' + (last.action === 'write' ? '写信邀请' : last.action === 'catch' ? '打捞邀请' : '待办提醒') + '：' + (last.result === 'deferred' && last.reason === 'no_idea' ? botName() + '暂时没有灵感，已选择暂不做；不算失败，也不补试' : last.reason === 'reminder_delivered' ? '提醒已送达，是否询问由' + botName() + '决定' : last.reason === 'queue_failed' ? '邀请暂时未能送达，请稍后再试。' : labels[last.result] || '已记录') : '小感受也值得写，形式随' + botName() + '，人说先放着就不催。';
   }
 
@@ -793,7 +785,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
 
   function readBadge(count) {
     count = Number.isSafeInteger(count) && count > 0 ? count : 0;
-    return el('span', 'mail-status ' + (count ? 'status-replied' : 'status-picked'), count ? '已读' + count + '次' : '尚未共读');
+    return el('span', 'mail-status ' + (count ? 'status-replied' : 'status-picked'), count ? '共读' + count + '次' : '尚未共读');
   }
 
   function bookEntries() {
@@ -810,6 +802,22 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     });
     return entries;
   }
+
+
+  function matchesLetter(entry) {
+    var query=document.getElementById('letter-search').value.trim().normalize('NFKC').toLocaleLowerCase();
+    if(!query)return true;
+    if(entry.category==='stars')return bookEntries().filter(function(row){return row.item.letterId===entry.letterId;}).some(matchesLetter);
+    var item=entry.item||entry;
+    var text=[item.topic,item.title,item.body,item.from,item.signature,item.myReply,
+      item.reply&&item.reply.body,item.reply&&item.reply.from].filter(Boolean).join(' ').normalize('NFKC').toLocaleLowerCase();
+    return query.split(/\\s+/).every(function(word){return text.indexOf(word)!==-1;});
+  }
+  function receivedStamp(at) {
+    if(typeof at!=='number'||!Number.isFinite(at)||at<=0)return null;
+    return el('small','received-at','收于 '+new Date(at).toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}));
+  }
+  function appendReceivedStamp(parent,at) {var stamp=receivedStamp(at);if(stamp)parent.appendChild(stamp);}
 
   function renderBook() {
     syncArchiveDate();
@@ -829,12 +837,12 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     document.getElementById('folder-description').textContent = folders[category][1];
     var list = document.getElementById('mail-list');
     // Quota / invite polling must not rebuild an unchanged letterbook and replay open animations.
-    var bookKey = JSON.stringify([category,document.getElementById('letter-date').value,entries,botName(),state.stars,state.starMemoryEnabled,state.held,starPending]);
+    var bookKey = JSON.stringify([category,document.getElementById('letter-date').value,document.getElementById('letter-search').value,entries,botName(),state.stars,state.starMemoryEnabled,state.held,starPending]);
     if(list._renderKey===bookKey){attachPapers();return;}
     document.getElementById('paper-parking').appendChild(paperComposer);
     list.innerHTML = '';
     if (category === 'stars') { renderStars(list); list._renderKey=bookKey; return; }
-    entries = visibleItems(entries.filter(function (entry) { return entry.category === category; }), function (entry) { return entry.at; });
+    entries = visibleItems(entries.filter(function (entry) { return entry.category === category && matchesLetter(entry); }), function (entry) { return entry.at; });
     var day = null;
     var group;
     entries.forEach(function (entry) {
@@ -854,7 +862,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     if (!entries.length) {
       var empty = el('div', 'empty empty-mail');
       empty.appendChild(icon(category === 'seed' ? 'post' : 'mail'));
-      empty.appendChild(el('div', 'big', document.getElementById('letter-date').value ? '这一天，没有留下信' : '这个信格还空着'));
+      empty.appendChild(el('div', 'big', document.getElementById('letter-date').value ? '这一天，没有留下信' : document.getElementById('letter-search').value ? '这几行字，暂时还没找到' : '这个信格还空着'));
       empty.appendChild(el('p', null, document.getElementById('letter-date').value ? '换一个日期，或者看看全部信件。' : '等下一次相遇，再把它好好收在这里。'));
       list.appendChild(empty);
     }
@@ -880,7 +888,12 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     summary.appendChild(subject);
     var badges = el('span', 'mail-badges');
     if (kind === 'sent') badges.appendChild(sentStateBadge(item));
-    else badges.appendChild(readBadge(isReply ? item.reply.readCount : item.readCount));
+    else {
+      var replied = kind === 'received' && item.outcome === 'replied';
+      var readCount = isReply ? item.reply.readCount : item.readCount;
+      if (replied) badges.appendChild(el('span', 'mail-status status-replied', '已回信'));
+      if (!replied || (Number.isSafeInteger(readCount) && readCount > 0)) badges.appendChild(readBadge(readCount));
+    }
     if(!entry.paperOnly)badges.appendChild(starButton(item.letterId));
     var paperBadge=el('span','paper-badge','附小纸条');paperBadge.hidden=true;badges.appendChild(paperBadge);
     summary.appendChild(badges);
@@ -891,9 +904,10 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     var body = el('div', 'mail-body');
     var labels = { caught: '还没回', replied: '回过信', dismissed: '扔回海里', sank: '裂开沉底', expired: '自己回海了', kept: '珍藏' };
     var head = el('div', 'head');
-    head.appendChild(el('span', null, entry.at ? (kind === 'sent' ? '寄出于 ' : '收于 ') + fmt(entry.at) : '留在信箱里的一页'));
+    if(kind==='sent')head.appendChild(el('span',null,entry.at?'寄出于 '+fmt(entry.at):'留在信箱里的一页'));
     head.appendChild(kind === 'sent' ? sentStateBadge(item) : el('span', null, kind === 'seed' ? '只需收好，不必回信' : isReply ? '回给你的' : (labels[item.outcome] || '看过')));
     body.appendChild(head);
+    appendReceivedStamp(body,isReply?item.reply.receivedAt:kind==='sent'?null:item.receivedAt);
     if(entry.paperOnly)body.appendChild(el('p','meta','这段往来的原信未保存在此设备，随信的小纸条仍在这里。'));
     else body.appendChild(letterSheet({ topic: !isReply ? item.topic : null, body: entry.body,
       fontId: isReply ? item.reply.fontId : kind === 'sent' ? null : item.fontId,
@@ -1002,7 +1016,6 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     clearTimeout(timer);
     if (document.hidden) { timer = setTimeout(refresh, 5000); return; }
     if (!appearanceStarted) { appearanceStarted = true; syncAppearance(); }
-    refreshHostTheme(false);
     refreshAnnouncement();
     refreshPapers();
     var sequence = ++refreshSequence;
@@ -1054,6 +1067,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     // Whole-field activation; keep the native picker as fallback on older/mobile browsers.
     if (typeof this.showPicker === 'function') { try { this.showPicker(); } catch (e) {} }
   };
+  document.getElementById('letter-search').oninput = function(){captureDetails();if(state)renderBook();};
   document.getElementById('letter-date').onchange = function () { syncArchiveDate(); captureDetails(); if (state) { renderBook(); reveal(document.getElementById('mail-list')); } };
   document.getElementById('clear-date').onclick = function () { captureDetails(); document.getElementById('letter-date').value = ''; syncArchiveDate(); if (state) { renderBook(); reveal(document.getElementById('mail-list')); } };
   document.getElementById('write-button').onclick = function () { run('/write', this, { actor: actor }); };
@@ -1088,6 +1102,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
   });
   setInterval(function () { if (state && !document.hidden) renderActionState(state.letterDraft); }, 1000);
   ${extrasScript}
+  ${deviceDataScript}
   refresh();
 })();
 </script>

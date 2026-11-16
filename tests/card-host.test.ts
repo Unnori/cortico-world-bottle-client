@@ -1,121 +1,114 @@
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { PassThrough } from 'node:stream';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { saveThemePreference } from '../world/theme.ts';
 import { MAILBOX_PALETTES } from '../world/appearance.ts';
 import { CardHost } from '../world/card.ts';
 import { waitingCard } from '../world/cards.ts';
 
 let dir = '';
-
+const hosts: CardHost[] = [];
 afterEach(() => {
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  for (const host of hosts.splice(0)) host.dispose();
+  if (dir) rmSync(dir, {recursive: true, force: true});
   dir = '';
 });
 
-function fakeChild(): EventEmitter & { kill: () => void } {
-  const child = new EventEmitter() as EventEmitter & { kill: () => void };
-  child.kill = () => undefined;
-  return child;
+function rig(extra: Partial<ConstructorParameters<typeof CardHost>[0]> = {}) {
+  dir = mkdtempSync(join(tmpdir(), 'bottle-card-'));
+  const child = Object.assign(new EventEmitter(), {kill: vi.fn(), stdout: new PassThrough()});
+  const spawn = vi.fn(() => child) as unknown as typeof import('node:child_process').spawn;
+  const host = new CardHost({dir, platform:'win32', spawnImpl:spawn, ...extra});
+  hosts.push(host);
+  const snapshot = () => JSON.parse(readFileSync(join(dir,'bottle-card.json'),'utf8'));
+  const cards = () => snapshot().cards as any[];
+  const show = (id: string, body = id) => host.show({...waitingCard('http://127.0.0.1:7796/','桌宠','reply',id), body});
+  return {host,child,spawn,snapshot,cards,show};
 }
 
-describe('卡片宿主', () => {
-  it('把规格写成 JSON，并用 powershell 拉起卡片脚本', () => {
-    dir = mkdtempSync(join(tmpdir(), 'bottle-card-'));
-    const calls: Array<{ command: string; args: readonly string[] }> = [];
-    const host = new CardHost({
-      dir,
-      platform: 'win32',
-      spawnImpl: ((command: string, args: readonly string[]) => {
-        calls.push({ command, args });
-        return fakeChild();
-      }) as unknown as typeof import('node:child_process').spawn,
-    });
-
-    expect(host.available).toBe(true);
-    expect(host.show(waitingCard('http://127.0.0.1:7796/'))).toBe(true);
-
-    const written = JSON.parse(readFileSync(join(dir, 'bottle-card.json'), 'utf8')) as {
-      body: string;
-      base: string;
-    };
-    expect(written.body).toContain('写好后，回信草稿就会放到这里。');
-    expect(written.base).toBe('http://127.0.0.1:7796');
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.command).toContain('powershell.exe');
-    expect(calls[0]!.args.join(' ')).toContain('card-host.ps1');
-    expect(calls[0]!.args.join(' ')).toContain('-Base http://127.0.0.1:7796');
-  });
-
-  it('再弹一张会先关掉上一张', () => {
-    dir = mkdtempSync(join(tmpdir(), 'bottle-card-'));
-    const killed: string[] = [];
-    let index = 0;
-    const host = new CardHost({
-      dir,
-      platform: 'win32',
-      spawnImpl: (() => {
-        const child = fakeChild();
-        const id = `child-${++index}`;
-        child.kill = () => killed.push(id);
-        return child;
-      }) as unknown as typeof import('node:child_process').spawn,
-    });
-
-    host.show(waitingCard('http://127.0.0.1:1/'));
-    host.show(waitingCard('http://127.0.0.1:1/'));
-    expect(killed).toEqual(['child-1']);
-  });
-
-  it('不是 Windows 就不假装能弹', () => {
-    dir = mkdtempSync(join(tmpdir(), 'bottle-card-'));
-    const host = new CardHost({ dir, platform: 'darwin' });
-    expect(host.available).toBe(false);
-    expect(host.show(waitingCard('http://127.0.0.1:1/'))).toBe(false);
-  });
+it('writes a complete snapshot and starts one hidden native stack host', () => {
+  const h = rig();
+  expect(h.host.available).toBe(true);
+  expect(h.show('a')).toBe(true);
+  expect(h.snapshot().version).toBe(2);
+  expect(h.cards()[0]).toMatchObject({key:'held:a',base:'http://127.0.0.1:7796',body:'a'});
+  expect(h.spawn).toHaveBeenCalledOnce();
+  const [command,args,options] = vi.mocked(h.spawn).mock.calls[0] as any;
+  expect(command).toContain('powershell.exe');
+  expect(args.join(' ')).toContain('card-stack-host.ps1');
+  expect(options).toMatchObject({windowsHide:true,stdio:['ignore','pipe','ignore']});
 });
 
+it('stacks new cards after old ones and updates an older card in place without restarting the host', () => {
+  const h = rig();
+  h.show('a','waiting'); h.show('b','newer');
+  h.show('a','draft ready');
+  expect(h.cards().map(card=>[card.key,card.body])).toEqual([['held:a','draft ready'],['held:b','newer']]);
+  expect(h.spawn).toHaveBeenCalledOnce();
+  expect(h.child.kill).not.toHaveBeenCalled();
+});
 
-it('卡片时长默认十秒，下张卡片读取热更新，零秒禁用自动关闭', () => {
-  dir = mkdtempSync(join(tmpdir(), 'bottle-card-timer-'));
-  const durations: string[] = [];
+it('closing one card keeps the others and an old close acknowledgement cannot remove its newer revision', async () => {
+  const h = rig();
+  h.show('a'); const old = h.cards()[0].revision;
+  h.show('b'); h.show('a','updated');
+  h.child.stdout.write(JSON.stringify({type:'closed',key:'held:a',revision:old})+'\n');
+  await new Promise(resolve=>setImmediate(resolve));
+  expect(h.cards().map(card=>card.key)).toEqual(['held:a','held:b']);
+  const current = h.cards()[0].revision;
+  h.child.stdout.write(JSON.stringify({type:'closed',key:'held:a',revision:current})+'\n');
+  await new Promise(resolve=>setImmediate(resolve));
+  expect(h.cards().map(card=>card.key)).toEqual(['held:b']);
+  expect(readFileSync(join(dir,'bottle-card.json'),'utf8')).not.toContain('updated');
+  h.show('a','another update');
+  expect(h.cards().map(card=>card.key)).toEqual(['held:a','held:b']);
+});
+
+it('reads hot timeout settings per notification including disabled automatic closing', () => {
   let seconds = 10;
-  const host = new CardHost({ dir, platform: 'win32', autoCloseSec: () => seconds,
-    spawnImpl: ((_command: string, args: readonly string[]) => {
-      durations.push(args[args.indexOf('-AutoCloseMs') + 1]!);
-      return fakeChild();
-    }) as unknown as typeof import('node:child_process').spawn,
-  });
-  host.show(waitingCard('http://127.0.0.1:7796/'));
-  seconds = 30;
-  host.show(waitingCard('http://127.0.0.1:7796/'));
-  seconds = 0;
-  host.show(waitingCard('http://127.0.0.1:7796/'));
-  expect(durations).toEqual(['10000', '30000', '0']);
-  const data = JSON.parse(readFileSync(join(dir, 'bottle-card.json'), 'utf8'));
-  expect(data.body).toContain('写好后，回信草稿就会放到这里。');
+  const h = rig({autoCloseSec:()=>seconds});
+  h.show('a'); seconds=30; h.show('b'); seconds=0; h.show('c');
+  expect(h.cards().map(card=>card.autoCloseMs)).toEqual([10000,30000,0]);
 });
 
-it('卡片规格带上保存的明暗与配色，启动前也有正确的深色回退', () => {
-  dir = mkdtempSync(join(tmpdir(),'bottle-card-colors-'));
+it('supplies saved appearance and only the requested local sound per card', () => {
+  const h = rig();
   saveThemePreference(dir,{theme:'paper',mode:'dark'});
-  const host = new CardHost({dir,platform:'win32',spawnImpl:(() => fakeChild()) as any});
-  host.show(waitingCard('http://127.0.0.1:7796/'));
-  const spec = JSON.parse(readFileSync(join(dir,'bottle-card.json'),'utf8'));
-  expect(spec.appearance.preference).toEqual({theme:'paper',mode:'dark'});
-  expect(spec.appearance.palettes.dark).toEqual(MAILBOX_PALETTES.paper.dark);
+  const spec=waitingCard('http://127.0.0.1:7796/','桌宠','reply','a');
+  const sound={path:join(dir,'incoming.wav'),volume:0.4,fadeOutMs:250};
+  h.host.show(spec,sound);
+  expect(h.cards()[0].sound).toEqual(sound);
+  expect(h.cards()[0].appearance.preference).toEqual({theme:'paper',mode:'dark'});
+  expect(h.cards()[0].appearance.palettes.dark).toEqual(MAILBOX_PALETTES.paper.dark);
+  h.host.show(spec);
+  expect(h.cards()[0].sound).toBeNull();
 });
 
+it('bounds native history and cleans all temporary private text on shutdown', () => {
+  const h = rig();
+  for(let i=0;i<25;i++)h.show(String(i));
+  expect(h.cards()).toHaveLength(20);
+  expect(h.cards()[0].key).toBe('held:5');
+  h.host.dispose();
+  expect(h.child.kill).toHaveBeenCalledOnce();
+  expect(existsSync(join(dir,'bottle-card.json'))).toBe(false);
+  expect(existsSync(join(dir,'bottle-card.json.tmp'))).toBe(false);
+});
 
-it('serializes only the supplied local notification sound and clears it on silent cards',()=>{
-  dir=mkdtempSync(join(tmpdir(),'bottle-card-sound-'));
-  const host=new CardHost({dir,platform:'win32',spawnImpl:(()=>fakeChild()) as unknown as typeof import('node:child_process').spawn});
-  const sound={path:join(dir,'incoming.wav'),volume:0.4,fadeOutMs:250};
-  host.show(waitingCard('http://127.0.0.1:7796/'),sound);
-  expect(JSON.parse(readFileSync(join(dir,'bottle-card.json'),'utf8')).sound).toEqual(sound);
-  host.show(waitingCard('http://127.0.0.1:7796/'));
-  expect(JSON.parse(readFileSync(join(dir,'bottle-card.json'),'utf8')).sound).toBeNull();host.dispose();
+it('falls back after an early host failure and ignores an already disposed child', () => {
+  const h=rig();
+  h.show('a');h.child.emit('exit',1);
+  expect(h.host.available).toBe(false);
+  expect(h.cards()).toEqual([]);
+  expect(h.show('b')).toBe(false);
+});
+
+it('does not spawn native windows on non-Windows platforms', () => {
+  const h = rig({platform:'darwin'});
+  expect(h.host.available).toBe(false);
+  expect(h.show('a')).toBe(false);
+  expect(h.spawn).not.toHaveBeenCalled();
 });

@@ -5,12 +5,14 @@
  * 文件名都以 `bottle-` 开头：`ctx.dataDir` 是 Core 和所有 World 共用的。
  */
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { LOCAL_DB_NAME, readLocalDocument, writeLocalDocument, withDatabase, localBackups, localTransaction, writeDocumentTo } from './local-db.ts';
 import type { Stationery } from '../shared/contract.ts';
 import { storedStationery } from '../shared/stationery.ts';
 
 export type DraftKind = 'letter' | 'reply';
+export interface DeliveryReceipt { letterId: string; at: number }
 
 export interface LocalDraft {
   /** External attribution only; never evidence of human approval. Deleted with draft. */
@@ -24,6 +26,10 @@ export interface LocalDraft {
   autoSendAt?: number;
   /** Confirmed delivery became impossible; body stays local until discard/delete/clear. */
   sendFailure?: 'expired';
+  /** Remote delivery is confirmed; only local archival may be retried. Removed with this draft. */
+  deliveryReceipt?: DeliveryReceipt;
+  /** A non-idempotent send started; an unknown result must not trigger another delivery. */
+  deliveryPending?: true;
   topic?: string;
   kind: DraftKind;
   /** kind 为 reply 时，这是被回的那一封。 */
@@ -37,6 +43,8 @@ export interface LocalDraft {
 /** 捞起来、还没决定的那一封。正文只给页面看，永远不进工具回执。 */
 /** readAt 随 held 在寄出/收好/归还/删除时清除，不传给下一位收信人。 */
 export interface LocalHeld {
+  /** Actual durable local reception; absent in older records. Deleted with correspondence. */
+  receivedAt?:number;
   readAt?: number;
   caughtBy?: 'bot' | 'human' | 'bridge';
   catchSource?: string;
@@ -65,6 +73,8 @@ export interface LocalHeld {
 }
 /** 别人回给我的一封。只读，没有选项。 */
 export interface LocalReply {
+  /** Actual durable local reception; absent in older records. Deleted with correspondence. */
+  receivedAt?:number;
   readCount?: number;
   lastReadAt?: number;
   letterId: string;
@@ -92,6 +102,8 @@ export type ReceivedOutcome = 'caught' | 'replied' | 'dismissed' | 'sank' | 'exp
 
 /** 我捞到过的信。outcome 记的是这件事最后怎么收场。 */
 export interface ReceivedLetter {
+  /** Actual durable local reception; absent in older records. Deleted with correspondence. */
+  receivedAt?:number;
   /** Expired expressions, never sendable; removed by explicit discard or correspondence deletion/clear. */
   unsentReplies?: Array<Pick<LocalDraft,'draftId'|'body'|'at'|'stationery'>>;
   /** Latest catch; at remains the date first collected in the letterbook. */
@@ -127,12 +139,7 @@ export function readingCount(value: unknown): number {
 }
 
 function readJson<T>(path: string): T | null {
-  try {
-    if (!existsSync(path)) return null;
-    return JSON.parse(readFileSync(path, 'utf8')) as T;
-  } catch {
-    return null;
-  }
+  return readLocalDocument(path) as T | null;
 }
 
 /**
@@ -151,10 +158,7 @@ export function lastStoreWriteError(): string | null {
 
 function writeJson(path: string, value: unknown): void {
   try {
-    mkdirSync(dirname(path), { recursive: true });
-    const temporary = path + '.tmp';
-    try { writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 }); renameSync(temporary, path); }
-    finally { try { unlinkSync(temporary); } catch {} }
+    writeLocalDocument(path,value);
     lastWriteError = null;
   } catch (error) {
     // 仍然不打断主流程（一次 UI 动作不该因为磁盘满而整条失败），
@@ -201,18 +205,22 @@ export class LocalStore {
   private readonly stateFile: string;
   /** 页面会把这个路径念给人类听：信是明文存在这里的。 */
   readonly letterbookFile: string;
+  private readonly bookDocument: string;
   /** 卡片宿主写的那一份，也是明文；清记录时一并删掉。 */
   private readonly cardFile: string;
 
-  constructor(dir: string) {
+  constructor(private readonly dir: string) {
     this.identityFile = join(dir, 'bottle-id.json');
     this.draftFile = join(dir, 'bottle-draft.json');
     this.stateFile = join(dir, 'bottle-state.json');
-    this.letterbookFile = join(dir, 'bottle-letterbook.json');
+    this.letterbookFile = join(dir, LOCAL_DB_NAME);
+    this.bookDocument = join(dir, 'bottle-letterbook.json');
     this.cardFile = join(dir, 'bottle-card.json');
   }
 
   load(): void {
+    withDatabase(this.dir,()=>undefined); // Failed migration must never look like an empty letterbook.
+    this.identity=null;
     // Restarting the same World instance must not keep records removed on disk.
     this.held = null;
     this.draft = null;
@@ -251,6 +259,10 @@ export class LocalStore {
         revision: Number.isSafeInteger(value.revision) && value.revision! > 0 ? value.revision : 1,
         sendPolicy: kind === 'reply' && value.sendFailure !== 'expired' && value.autoSendKey && value.sendPolicy !== 'manual' ? 'delayed' : 'manual',
         ...(kind === 'reply' && value.sendFailure === 'expired' ? {sendFailure:'expired' as const} : {}),
+        ...(value.deliveryReceipt && typeof value.deliveryReceipt.letterId === 'string' && value.deliveryReceipt.letterId &&
+          Number.isFinite(value.deliveryReceipt.at) && value.deliveryReceipt.at >= 0
+          ? {deliveryReceipt:{letterId:value.deliveryReceipt.letterId,at:value.deliveryReceipt.at}} : {}),
+        ...(value.deliveryPending === true ? {deliveryPending:true as const} : {}),
         ...(kind === 'reply' && typeof value.letterId === 'string' ? { letterId: value.letterId } : {}),
         body: value.body,
         ...(kind === 'letter' && typeof value.topic === 'string' && value.topic ? { topic: value.topic } : {}),
@@ -281,7 +293,7 @@ export class LocalStore {
       replies?: Array<Partial<LocalReply>>;
       sent?: Array<Partial<SentLetter>>;
       received?: Array<Partial<ReceivedLetter>>;
-    }>(this.letterbookFile);
+    }>(this.bookDocument);
     const held = book?.held;
     if (held && typeof held.letterId === 'string' && typeof held.body === 'string') {
       this.held = {
@@ -292,6 +304,7 @@ export class LocalStore {
         ...(typeof held.catchSource === 'string' && held.catchSource.length <= 64 ? {catchSource:held.catchSource} : {}),
         caughtAt: Number(held.caughtAt ?? 0),
         windowUntil: Number(held.windowUntil ?? 0),
+        ...(typeof held.receivedAt==='number'&&Number.isFinite(held.receivedAt)&&held.receivedAt>0?{receivedAt:held.receivedAt}:{}),
         ...(typeof held.readAt === 'number' && Number.isFinite(held.readAt) && held.readAt > 0 ? { readAt: held.readAt } : {}),
         ...(held.seed === true ? { seed: true } : {}),
         ...(held.dead === true ? { dead: true } : {}),
@@ -312,6 +325,7 @@ export class LocalStore {
         from: typeof item.from === 'string' ? item.from : '一位陌生人',
         body: item.body,
         at: Number(item.at ?? 0),
+        ...(typeof item.receivedAt==='number'&&Number.isFinite(item.receivedAt)&&item.receivedAt>0?{receivedAt:item.receivedAt}:{}),
         readCount: readingCount(item.readCount),
         ...(typeof item.lastReadAt === 'number' && Number.isFinite(item.lastReadAt) && item.lastReadAt > 0 ? { lastReadAt: item.lastReadAt } : {}),
       }));
@@ -331,6 +345,7 @@ export class LocalStore {
         from: typeof item.from === 'string' ? item.from : '一位陌生人',
         body: item.body,
         at: Number(item.at ?? 0),
+        ...(typeof item.receivedAt==='number'&&Number.isFinite(item.receivedAt)&&item.receivedAt>0?{receivedAt:item.receivedAt}:{}),
         readCount: readingCount(item.readCount),
         ...(typeof item.lastReadAt === 'number' && Number.isFinite(item.lastReadAt) && item.lastReadAt > 0 ? { lastReadAt: item.lastReadAt } : {}),
         outcome: normalizeOutcome(item.outcome),
@@ -344,6 +359,11 @@ export class LocalStore {
         ...myReplyStationeryField(item.myReplyStationery),
         ...(Array.isArray(item.unsentReplies)?{unsentReplies:item.unsentReplies.filter(r=>typeof r?.draftId==='string' && typeof r.body==='string' && Number.isFinite(r.at)).map(r=>({draftId:r.draftId,body:r.body,at:r.at,...stationeryField(r.stationery)}))}:{}),
       }));
+    // A confirmed send never needs another network call, including after a restart.
+    for (const draft of [this.letterDraft, this.draft]) if (draft?.deliveryReceipt) {
+      try { this.commitDelivery(draft, draft.deliveryReceipt); }
+      catch { /* Keep the receipt and original draft until local storage is writable again. */ }
+    }
   }
 
   /** Imported records follow normal letter deletion/clear; no separate retained import history. */
@@ -438,7 +458,8 @@ export class LocalStore {
     if (!this.held) return true;
     const want = this.held.letterId;
     this.saveLetterbook();
-    const disk = readJson<{ held?: { letterId?: unknown } }>(this.letterbookFile);
+    let disk:{held?:{letterId?:unknown}}|null;
+    try{disk=readJson<{ held?: { letterId?: unknown } }>(this.bookDocument);}catch{return false;}
     const got = disk?.held?.letterId;
     return typeof got === 'string' && got === want;
   }
@@ -455,6 +476,104 @@ export class LocalStore {
     this.saveLetterbook();
   }
 
+  setDeliveryPending(draft: LocalDraft, pending: boolean): void {
+    const current = this.deliveryDraft(draft), previous = current.deliveryPending, previousOriginal = draft.deliveryPending;
+    if (pending) {current.deliveryPending = true; draft.deliveryPending = true;}
+    else {delete current.deliveryPending; delete draft.deliveryPending;}
+    try {
+      writeLocalDocument(this.draftFile, {draft:this.draft, letterDraft:this.letterDraft});
+      lastWriteError = null;
+    } catch (error) {
+      if (previous) current.deliveryPending = previous; else delete current.deliveryPending;
+      if (previousOriginal) draft.deliveryPending = previousOriginal; else delete draft.deliveryPending;
+      lastWriteError = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
+  }
+
+  /** Persist the remote receipt before atomically archiving the text and clearing its draft. */
+  commitDelivery(draft: LocalDraft, receipt: DeliveryReceipt): void {
+    if (!receipt.letterId || !Number.isFinite(receipt.at) || receipt.at < 0 ||
+        draft.kind === 'reply' && receipt.letterId !== draft.letterId) throw Error('寄送回执不完整，原稿已保留。');
+    const current = this.deliveryDraft(draft);
+    current.deliveryReceipt = { ...receipt };
+    draft.deliveryReceipt = { ...receipt };
+    try {
+      // This small durable receipt also prevents another send if the larger history write fails.
+      writeLocalDocument(this.draftFile, { draft:this.draft, letterDraft:this.letterDraft });
+      let sent = this.sent, received = this.received, held = this.held;
+      if (draft.kind === 'letter') {
+        if (!sent.some(row => row.letterId === receipt.letterId)) sent = [{
+          letterId:receipt.letterId, body:draft.body, at:receipt.at,
+          ...(draft.topic ? {topic:draft.topic} : {}), ...(draft.stationery ? {stationery:draft.stationery} : {}),
+        }, ...sent];
+      } else {
+        const original = this.receivedOriginal(receipt.letterId);
+        const record: ReceivedLetter = {...original, outcome:'replied', myReply:draft.body};
+        if (draft.stationery) record.myReplyStationery = draft.stationery;
+        else delete record.myReplyStationery;
+        received = this.replaceReceived(record);
+        if (held?.letterId === receipt.letterId) held = null;
+      }
+      this.commitCorrespondence({sent, received, held,
+        draft:this.draft === current ? null : this.draft,
+        letterDraft:this.letterDraft === current ? null : this.letterDraft});
+    } catch (error) {
+      lastWriteError = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
+  }
+
+  private deliveryDraft(draft: LocalDraft): LocalDraft {
+    const slot = draft.kind === 'letter' ? this.letterDraft : this.draft;
+    return slot && slot.draftId === draft.draftId && slot.revision === draft.revision &&
+      slot.kind === draft.kind && slot.letterId === draft.letterId && slot.body === draft.body && slot.topic === draft.topic
+      ? slot : draft;
+  }
+
+  /** An unsuccessful reservation expires into a retained expression, never an active draft. */
+  expireUnreservedReply(draft: LocalDraft): void {
+    if (this.draft !== draft || draft.kind !== 'reply' || !draft.letterId || !draft.draftId || draft.deliveryReceipt)
+      throw Error('回信稿已变化，请重新读取。');
+    const original = this.receivedOriginal(draft.letterId);
+    const unsentReplies = [...(original.unsentReplies ?? [])];
+    if (!unsentReplies.some(row => row.draftId === draft.draftId)) unsentReplies.push({
+      draftId:draft.draftId, body:draft.body, at:draft.at, ...(draft.stationery ? {stationery:draft.stationery} : {}),
+    });
+    this.commitCorrespondence({sent:this.sent,
+      received:this.replaceReceived({...original, outcome:'expired', unsentReplies}),
+      held:this.held?.letterId === draft.letterId ? null : this.held,
+      draft:null, letterDraft:this.letterDraft});
+  }
+
+  private receivedOriginal(letterId: string): ReceivedLetter {
+    const original = this.received.find(row => row.letterId === letterId);
+    if (original) return original;
+    const held = this.held;
+    if (!held || held.letterId !== letterId) throw Error('原信记录无法保存，回信稿已保留。');
+    const {caughtAt,windowUntil,readAt,caughtBy,catchSource,dead,...letter} = held;
+    return {...letter, at:caughtAt, outcome:'caught'};
+  }
+
+  private replaceReceived(record: ReceivedLetter): ReceivedLetter[] {
+    return this.received.some(row => row.letterId === record.letterId)
+      ? this.received.map(row => row.letterId === record.letterId ? record : row) : [record, ...this.received];
+  }
+
+  private commitCorrespondence(next: Pick<LocalStore,'sent'|'received'|'held'|'draft'|'letterDraft'>): void {
+    try {
+      localTransaction(this.dir, db => {
+        writeDocumentTo(db, 'bottle-letterbook.json', {held:next.held, replies:this.replies, sent:next.sent, received:next.received});
+        writeDocumentTo(db, 'bottle-draft.json', {draft:next.draft, letterDraft:next.letterDraft});
+      });
+      Object.assign(this, next);
+      lastWriteError = null;
+    } catch (error) {
+      lastWriteError = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
+  }
+
   addReceived(letter: ReceivedLetter): void {
     const existing = this.received.find((item) => item.letterId === letter.letterId);
     if (existing) {
@@ -463,6 +582,7 @@ export class LocalStore {
       existing.from = letter.from;
       existing.outcome = letter.outcome;
       if (letter.lastCaughtAt) existing.lastCaughtAt = letter.lastCaughtAt;
+      if (letter.receivedAt) existing.receivedAt = letter.receivedAt;
       if (letter.seed === true) existing.seed = true;
       if (letter.signature) existing.signature = letter.signature;
       if (letter.topic) existing.topic = letter.topic;
@@ -517,7 +637,7 @@ export class LocalStore {
   }
 
   private saveLetterbook(): void {
-    writeJson(this.letterbookFile, {
+    writeJson(this.bookDocument, {
       held: this.held,
       replies: this.replies,
       sent: this.sent,
@@ -540,7 +660,7 @@ export class LocalStore {
     this.replies = [];
     this.saveLetterbook();
     this.dropCardFile();
-    return '本机保存的信件记录清空了。';
+    return '本机保存的信件记录清空了。'+this.backupNotice();
   }
 
   /** 删掉一条记录；寄出的信连同挂在它下面的回信一起删。 */
@@ -551,7 +671,7 @@ export class LocalStore {
     this.replies = this.replies.filter((item) => item.letterId !== letterId);
     const after = this.sent.length + this.received.length + this.replies.length;
     if (after !== before) this.saveLetterbook();
-    return after === before ? '这一条已经不在了。' : '这一条记录删掉了。';
+    return (after === before ? '这一条已经不在了。' : '这一条记录删掉了。')+this.backupNotice();
   }
 
   clear(): string {
@@ -564,8 +684,10 @@ export class LocalStore {
     writeJson(this.draftFile, { draft: null, letterDraft: null });
     this.saveLetterbook();
     this.dropCardFile();
-    return '本机草稿、手里那封信和信箱都清空了；身份和服务端上的记录还在。';
+    return '本机草稿、手里那封信和信箱都清空了；身份和服务端上的记录还在。'+this.backupNotice();
   }
+
+  private backupNotice():string{return localBackups(this.dir).length?'迁移或覆盖前的备份仍保留，可在「数据迁移与备份」中删除。':'';}
 
   /** 卡片那份 JSON 里也有正文，清记录时不能留着。 */
   private dropCardFile(): void {

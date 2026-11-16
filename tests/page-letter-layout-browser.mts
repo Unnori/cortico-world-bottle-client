@@ -1,16 +1,15 @@
 import { feedbackQr, WORLD_VERSION, FEEDBACK_FORM_URL } from '../world/feedback.ts';
-/** Run with the shared web-access proxy: pnpm exec tsx tests/page-letter-layout-browser.mts. */
+/** Shared web-access proxy; --no-screenshots runs all DOM/layout assertions without image exports. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { BUILTIN_PALETTES } from 'cortico/web/shared/theme.ts';
 import { pageHtml } from '../world/page-view.ts';
 import { soundLibrary, soundOptions, packSound, DEFAULT_SOUND_PACK } from '../world/sound.ts';
 import type { PageSnapshot } from '../world/page.ts';
 import type { MailboxTheme } from '../world/theme.ts';
 
-const theme: MailboxTheme = { available: true, palettes: Object.values(BUILTIN_PALETTES)[0] };
+const theme: MailboxTheme = { available: true };
 const body = '第一行留给海风。\nhttps://example.test/' + 'a'.repeat(85) + '\n最后一行保留原来的换行。';
 const snapshot: PageSnapshot = {
   wake: { version: 1, day: '2026-11-03', lastInviteAt: 0, active: null, lanes: {
@@ -84,7 +83,7 @@ try {
   console.log('PASS: isolated sound menus, shared root options, both new defaults, and real WAV decoding');
   for (const width of [1040, 390]) {
     await evaluate(`document.getElementById('mailbox').style.width='${width}px'; true`);
-    for (const palette of ['ocean', 'paper', 'epistle', 'coopanion']) {
+    for (const palette of ['ocean', 'paper', 'epistle']) {
       for (const mode of ['light', 'dark']) {
         await inMailbox(`document.getElementById('theme-${palette}').click(); document.getElementById('mode-${mode}').click(); true`);
         for (const category of ['reply', 'received', 'sent']) {
@@ -100,7 +99,7 @@ try {
             assert.deepEqual(metrics.badgeTexts,['收到回信'],label+': only delivery status, no reading counter');
             assert.equal(metrics.together,false,label+': original cannot be read separately');
           }else{
-            assert.deepEqual(metrics.badgeTexts,[category==='reply'?'已读1次':'已读2次'],label+': incoming reading count remains');
+            assert.deepEqual(metrics.badgeTexts,category==='reply'?['共读1次']:['已回信','共读2次'],label+': independent reply and reading badges');
           }
           assert.equal(metrics.paddingLeft, width > 560 ? Math.min(24,Math.max(12,width*.02)) : 10, label + ': responsive inset');
           assert.equal(metrics.paddingRight, metrics.paddingLeft, label + ': equal insets');
@@ -124,9 +123,9 @@ try {
         assert.equal(extras.overflow,false,`${width} ${palette}/${mode}: sound settings fit`);
         assert.equal(extras.inset,true,`${width} ${palette}/${mode}: sound select within viewport`);
         assert.ok(extras.optionCount>=4,'pack/local/silent sources');
-        assert.ok(extras.badges.some((b:any)=>b.text==='已读2次'),'read count visible');
+        assert.ok(extras.badges.some((b:any)=>b.text==='共读2次'),'read count visible');
         assert.ok(extras.badges.some((b:any)=>b.text==='尚未共读'),'unread badge visible');
-        assert.notEqual(extras.badges[0].color,extras.badges[1].color,'green and yellow statuses differ');
+        assert.notEqual(extras.badges.find((b:any)=>b.text==='共读2次').color,extras.badges.find((b:any)=>b.text==='尚未共读').color,'green and yellow statuses differ');
         assert.ok(extras.badges.every((b:any)=>b.box.left>=0&&b.box.right<=width),'badges stay within viewport');
         assert.notEqual(extras.color,extras.background,'sound control text is legible');
         const invitation = await inMailbox(`(()=>{
@@ -214,6 +213,7 @@ try {
   console.log('PASS: selected local sound survives reload in IndexedDB without being uploaded');
   await inMailbox("Object.defineProperty(document,'hidden',{value:false,configurable:true}); document.dispatchEvent(new Event('visibilitychange')); true");
   await until("document.getElementById('hero-note').textContent.includes('小满') && !!document.querySelector('.mail')");
+  if (!process.argv.includes('--no-screenshots')) {
   const output = resolve('../../scratch/bottle-letter-layout');
   mkdirSync(output, { recursive: true });
   await evaluate("document.getElementById('mailbox').style.height='720px'; document.getElementById('mailbox').style.width='390px'; true");
@@ -237,6 +237,7 @@ try {
   await evaluate("document.getElementById('mailbox').style.width='1040px'; true");
   await inMailbox("document.getAnimations().forEach(a=>a.finish()); document.querySelector('.mail').scrollIntoView({block:'start',behavior:'instant'}); true");
   await rpc('/screenshot?target=' + tab + '&file=' + encodeURIComponent(resolve(output, 'desktop.png')));
+  }
 } finally {
   if (tab) await rpc('/close?target=' + tab).catch(() => undefined);
   server.closeAllConnections();

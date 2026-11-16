@@ -685,6 +685,9 @@ export function createApi(db: Db, options: ApiOptions = {}): Api {
     }
     if (letter.state !== 'caught') return fail(404, 'not_found', '这一封已经不在你手上了。');
 
+    const tide = currentTuning().tideOut;
+    if (tide.blockReply) return fail(409, 'conflict', tide.text || '海面正在退潮，回信暂未寄出，请稍后再试。');
+
     const parsed = checkBody(payload?.body);
     if (!parsed.ok) return fail(400, 'bad_request', bodyProblem(parsed.reason, parsed.chars));
 

@@ -1,3 +1,4 @@
+import {writeLocalDocument as sqlWrite} from '../world/local-db.ts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -5,7 +6,49 @@ import { tmpdir } from 'node:os';
 import { WakeScheduler, localDay, type WakeAction } from '../world/wake.ts';
 
 const HOUR = 3_600_000;
+
+it('counts and schedules piggyback reminders only from actual delivery, not queue/render time',()=>{
+  const h=setup(),eligible={write:false,catch:false,remind:true};
+  h.wake.check(eligible,true);h.clock.t+=HOUR;const task=h.wake.check(eligible,true)!;
+  expect(task.action).toBe('remind');const scheduled=h.wake.snapshot().lanes.remind.nextAt;
+  h.clock.t+=2*HOUR;
+  expect(h.wake.check(eligible,true)).toBeNull();expect(h.wake.snapshot().lanes.remind.count).toBe(0);
+  expect(h.wake.render(task.id,true)).toBe(true);expect(h.wake.snapshot().lanes.remind.count).toBe(0);
+  expect(h.wake.snapshot().lanes.remind.nextAt).toBe(scheduled);
+  h.clock.t+=60000;h.wake.settled(task.id,'delivered');
+  const delivered=h.clock.t;expect(h.wake.snapshot().lanes.remind.count).toBe(1);
+  expect(h.wake.snapshot().lanes.remind.nextAt).toBe(delivered+HOUR/2);
+  h.clock.t+=60000;h.wake.turnEnded();
+  expect(h.wake.snapshot().lanes.remind.nextAt).toBe(delivered+HOUR/2);
+});
+
+it('cancels obsolete queued reminders and permits an eligible explicit invitation without a stale slot',()=>{
+  const h=setup(),eligible={write:false,catch:false,remind:true};
+  h.wake.check(eligible,true);h.clock.t+=HOUR;const reminder=h.wake.check(eligible,true)!;
+  const invite=h.wake.invite('write',true);expect(invite?.action).toBe('write');
+  expect(h.wake.render(reminder.id,true)).toBe(false);expect(h.wake.snapshot().lanes.remind.count).toBe(0);
+  const other=setup();other.wake.check(eligible,true);other.clock.t+=HOUR;other.wake.check(eligible,true);
+  other.wake.check({...eligible,remind:false},true);expect(other.wake.snapshot().active).toBeNull();
+});
+
+it('retains reminder delivery time across midnight and restart without creating a second immediate reminder',()=>{
+  const h=setup(),eligible={write:false,catch:false,remind:true};
+  h.clock.t+=23*HOUR;h.wake.check(eligible,true);h.clock.t+=45*60000;
+  const task=h.wake.check(eligible,true)!;h.wake.render(task.id,true);h.wake.settled(task.id,'delivered');h.wake.turnEnded();
+  const delivered=h.clock.t;h.clock.t+=16*60000;const restored=h.make();
+  expect(restored.snapshot().lanes.remind.lastDeliveredAt).toBe(delivered);
+  expect(restored.check(eligible,true)).toBeNull();
+});
 const dirs: string[] = [];
+
+it('a blocked manual action keeps the queued automatic task; a valid manual action replaces it without budget use',()=>{
+  const h=setup(),eligible={write:true,catch:false};h.wake.check(eligible,true);h.clock.t+=2*HOUR;
+  const automatic=h.wake.check(eligible,true)!;h.wake.pause('catch',true);
+  expect(h.wake.invite('catch',true)).toBeNull();expect(h.wake.snapshot().active?.id).toBe(automatic.id);
+  h.wake.pause('catch',false);const manual=h.wake.invite('catch',true)!;
+  expect(manual.manual).toBe(true);expect(manual.id).not.toBe(automatic.id);expect(h.wake.render(automatic.id,true)).toBe(false);
+  expect(h.wake.render(manual.id,true)).toBe(true);expect(h.wake.snapshot().lanes.write.count).toBe(0);expect(h.wake.snapshot().lanes.catch.count).toBe(0);
+});
 afterEach(() => { dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); });
 function setup(random = () => 0) {
   const dir = mkdtempSync(join(tmpdir(), 'bottle-wake-')); dirs.push(dir);
@@ -310,7 +353,7 @@ describe('仅来信待办使用半小时提醒节奏', () => {
     const h = setup();
     const saved = h.wake.snapshot();
     Object.assign(saved.lanes.remind, { intervalHours: 2, dayLimit: 12, count: 7, paused: true, nextAt: h.clock.t + 4 * HOUR });
-    writeFileSync(h.file, JSON.stringify(saved));
+    sqlWrite(h.file,saved);
     const restored = h.make();
     expect(restored.snapshot().lanes.remind).toMatchObject({ intervalHours: 0.5, dayLimit: 12, count: 7, paused: true, nextAt: h.clock.t + 0.5 * HOUR });
     expect(restored.check(eligible, true)).toBeNull();

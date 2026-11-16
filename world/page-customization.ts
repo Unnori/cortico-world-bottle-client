@@ -1,4 +1,5 @@
 import { DEFAULT_MY_FONT } from './default-font.ts';
+import { DEFAULT_BACKGROUND } from './background.ts';
 
 export const customizationHtml = `
   <details class="customization-settings" id="customization-settings">
@@ -12,7 +13,7 @@ export const customizationHtml = `
       <section class="customization-section">
         <div class="customization-heading"><label for="background-file">信箱背景</label><button id="background-remove" type="button" disabled>恢复默认</button></div>
         <label class="asset-upload" for="background-file"><span class="asset-thumb" id="background-preview" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m3 17 6-6 4 4 3-3 5 5"/><circle cx="16" cy="8" r="1"/></svg></span><span class="asset-copy"><strong id="background-label">选择一张风景</strong><small>PNG / JPEG / WebP · 最大 8 MB</small></span><span class="asset-plus" aria-hidden="true">＋</span><input class="asset-input" id="background-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
-        <div id="background-options" class="background-options" hidden><div class="customization-heading"><label for="background-transparency">背景透明度</label><output id="background-transparency-value" for="background-transparency">82%</output></div><input id="background-transparency" type="range" min="0" max="100" step="1" value="82"><div class="range-captions"><span>清晰</span><span>淡出</span></div></div>
+        <div id="background-options" class="background-options" hidden><div class="customization-heading"><label for="background-transparency">背景透明度</label><output id="background-transparency-value" for="background-transparency">${DEFAULT_BACKGROUND.transparency}%</output></div><input id="background-transparency" type="range" min="0" max="100" step="1" value="${DEFAULT_BACKGROUND.transparency}"><div class="range-captions"><span>清晰</span><span>淡出</span></div></div>
       </section>
       <section class="customization-section">
         <div class="customization-heading"><label for="my-font-file">自定义我的字体</label><button id="my-font-remove" type="button" disabled>恢复默认</button></div>
@@ -25,7 +26,8 @@ export const customizationHtml = `
   </details>`;
 
 export const customizationScript = String.raw`
-  var customColor = '#4b62a0', backgroundId = null, backgroundTransparency = 82;
+  var defaultBackground = ${JSON.stringify(DEFAULT_BACKGROUND)};
+  var customColor = '#4b62a0', backgroundId = defaultBackground.id, backgroundTransparency = defaultBackground.transparency;
   var defaultMyFont = ${JSON.stringify(DEFAULT_MY_FONT)};
   var myFontId = null, myFontName = '', backgroundBusy = false, myFontBusy = false;
   var customColors = JSON.parse(document.getElementById('custom-palettes').textContent || '{}');
@@ -159,14 +161,15 @@ export const customizationScript = String.raw`
     image.src=url;
   }
   function applyCustomization(appearance) {
-    var root = document.documentElement, palette = customColors[appearance] || {};
-    Object.keys(palette).forEach(function (key) { root.style.setProperty('--' + key, currentTheme === 'custom' ? palette[key] : ''); });
+    var root = document.documentElement, palette = currentTheme==='host'?hostColors:(customColors[appearance] || {});
+    var keys=Object.keys(customColors[appearance]||{}).concat(Object.keys(hostColors));
+    keys.forEach(function (key) { root.style.setProperty('--' + key, currentTheme === 'custom'||currentTheme==='host' ? (palette[key]||'') : ''); });
     root.dataset.customBackground = backgroundId ? 'true' : 'false';
     root.style.setProperty('--mailbox-background', backgroundId ? 'url("/background/' + backgroundId + '")' : 'none');
     root.style.setProperty('--custom-color', customColor);
     document.getElementById('custom-color').value = customColor;
     document.getElementById('custom-color-value').textContent=customColor.toUpperCase();
-    document.getElementById('background-remove').disabled = !backgroundId || backgroundBusy;
+    document.getElementById('background-remove').disabled = backgroundBusy || (backgroundId === defaultBackground.id && backgroundTransparency === defaultBackground.transparency);
     document.getElementById('background-label').textContent=backgroundBusy?'正在放入风景…':backgroundId?'换一张风景':'选择一张风景';
     var preview=document.getElementById('background-preview');
     if(preview.style)preview.style.backgroundImage=backgroundId?'url("/background/'+backgroundId+'")':'';
@@ -182,6 +185,7 @@ export const customizationScript = String.raw`
     backgroundTransparency=Math.max(0,Math.min(100,Number(this.value)||0));
     document.getElementById('background-transparency-value').textContent=backgroundTransparency+'%';
     document.documentElement.style.setProperty('--background-opacity',String((100-backgroundTransparency)/100));
+    document.getElementById('background-remove').disabled = backgroundBusy || (backgroundId === defaultBackground.id && backgroundTransparency === defaultBackground.transparency);
   };
   document.getElementById('background-transparency').onchange=function(){this.oninput();syncAppearance();};
   document.getElementById('custom-color').onchange = function () {
@@ -211,7 +215,8 @@ export const customizationScript = String.raw`
       .then(function(){input.disabled=false;input.value='';backgroundBusy=false;applyCustomization(document.documentElement.dataset.appearance);});
   };
   document.getElementById('background-remove').onclick = function () {
-    backgroundId = null; applyTheme(currentTheme, false); syncAppearance();
+    backgroundId = defaultBackground.id; backgroundTransparency = defaultBackground.transparency;
+    applyTheme(currentTheme, false); syncAppearance();
     document.getElementById('customization-note').textContent = '已恢复信箱原来的背景。';
   };
   document.getElementById('my-font-file').onchange=function(){

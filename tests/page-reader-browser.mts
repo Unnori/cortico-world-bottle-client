@@ -5,7 +5,6 @@ import { createServer } from 'node:http';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { BUILTIN_PALETTES } from 'cortico/web/shared/theme.ts';
 import { pageHtml, pageHandler, type PageSnapshot, type PageDeps } from '../world/page.ts';
 import { LetterFonts } from '../world/fonts.ts';
 
@@ -24,7 +23,7 @@ const snapshot: PageSnapshot = {
   online: true, quota: { bottles_left: 2, catches_left: 2, replies_left: 2 }, botName: '小满',
 };
 const fonts = new LetterFonts(directory), ok = async () => ({ ok: true });
-const theme = { available: true as const, palettes: Object.values(BUILTIN_PALETTES)[0] };
+const theme = { available: true as const };
 const deps: PageDeps = { snapshot: () => fonts.decorate(snapshot), theme: async () => theme, request: ok, send: ok, rewrite: ok, dismiss: ok, keep: ok, peruse: ok, discard: ok, open: ok, forget: ok };
 const handler = pageHandler(deps);
 const server = createServer((req, res) => {
@@ -54,7 +53,7 @@ try {
   const stableSizes = "['.brand h1','#write-button','.mail-subject strong','.mail-body .head','#reader-toggle'].map(s=>{const n=document.querySelector(s);return n?getComputedStyle(n).fontSize:null})";
   for (const width of [1320, 390, 320]) {
     await evaluate(`document.getElementById('mailbox').style.width='${width}px';true`);
-    for (const palette of ['ocean', 'paper', 'epistle', 'coopanion', 'custom']) for (const mode of ['light', 'dark']) {
+    for (const palette of ['ocean', 'paper', 'epistle', 'custom']) for (const mode of ['light', 'dark']) {
       await mailbox(`document.getElementById('theme-${palette}').click();document.getElementById('mode-${mode}').click();document.getAnimations().forEach(a=>a.finish());true`);
       const before = await mailbox(stableSizes);
       await mailbox("document.getElementById('reader-toggle').click();true");

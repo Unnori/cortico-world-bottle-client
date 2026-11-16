@@ -1,3 +1,4 @@
+import {readLocalDocument as sqlRead} from '../world/local-db.ts';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {makeHarness,callTool,type Harness} from './helpers.ts';
 import {readFileSync} from 'node:fs';
@@ -51,7 +52,7 @@ it('draft has no disk copy and is removed on discard, expiry, record deletion an
 it('World mailbox panel exposes the same offline merge backup operations',async()=>{
  await correspondence();const ui=h.world.webUi();const archive=await ui.invoke!('mailbox','archiveExport',[]) as any;
  expect(archive.schemaVersion).toBe(2);expect(archive.entries.some((e:any)=>e.kind==='reply')).toBe(true);
- expect(await ui.invoke!('mailbox','archiveImport',[archive])).toMatchObject({ok:true});
+ expect(await ui.invoke!('mailbox','archiveImport',[archive])).toMatchObject({ok:false,message:expect.stringContaining('先比较')});
  expect(await ui.invoke!('mailbox','archiveImport',[{schemaVersion:99}])).toMatchObject({ok:false});
 });
 it('catch receipt includes actual signature and existing title without contact substitution',async()=>{
@@ -69,7 +70,7 @@ it('only Coo replaces a draft after a rewrite invitation; invalid output keeps t
  const first=page.snapshot().noteDraft!,quota=page.snapshot().quota!.catches_left;
  h.clock.t+=60_000;
  const result=await handlePage(page,'POST','/note/rewrite',{body:{letterId:id},surface:'remote'});
- expect(result.json).toMatchObject({ok:true});expect(host.last('bottle.note-request')!.text).toContain('rewrite your previous draft');
+ expect(result.json).toMatchObject({ok:true});expect(host.last('bottle.note-request')!.text).toContain('重写一张纸条');
  expect(page.snapshot()).toMatchObject({noteRewriting:true,noteDraft:first});
  expect((await page.note!(id)).ok).toBe(false);
  expect(await callTool(h.world,'bottle_note',{text:'海'.repeat(41)})).toContain('1—40');
@@ -104,14 +105,14 @@ it('sent papers persist under their correspondence after refresh, restart and se
  await page.requestNote!(id,'page');await callTool(h.world,'bottle_note',{text:body});
  expect((await page.note!(id)).ok).toBe(true);
  const row=(await page.notes!())[0]!;expect(row).toMatchObject({letterId:id,body,from:'Coo',direction:'sent',delivery:'sent'});
- expect(readFileSync((h.world as any).receivedNotes.file,'utf8')).toContain(body);
+ expect(JSON.stringify(sqlRead((h.world as any).receivedNotes.file))).toContain(body);
  expect(page.snapshot().noteDraft).toBeNull();expect((await page.requestNote!(id,'page')).ok).toBe(false);
  const quota=page.snapshot().quota!.catches_left;expect((await page.note!(id)).ok).toBe(true);expect(page.snapshot().quota!.catches_left).toBe(quota);
  h.clock.t+=10*365*24*3_600_000;await h.world.stop();host=new FakeHost();await h.world.start(host);
  expect(await page.notes!()).toMatchObject([{letterId:id,body,direction:'sent',delivery:'sent'}]);
  expect(host.deferred.filter(e=>e.type==='bottle.note-arrived')).toHaveLength(0);
  expect((await page.readNote!(row.id)).ok).toBe(true);expect((await host.deliverDeferred(h.world))[0]!.text).toContain(body);h.world.onTurnEnded();
- await page.forget(id);expect(await page.notes!()).toEqual([]);expect(readFileSync((h.world as any).receivedNotes.file,'utf8')).not.toContain(body);
+ await page.forget(id);expect(await page.notes!()).toEqual([]);expect(JSON.stringify(sqlRead((h.world as any).receivedNotes.file))).not.toContain(body);
 });
 it('cannot contact the server if the confirmed outgoing body cannot be saved locally',async()=>{
  const id=await correspondence(),page=h.world.pageDeps();await page.requestNote!(id,'page');await callTool(h.world,'bottle_note',{text:'要先记下来再寄。'});
@@ -159,7 +160,7 @@ it('two independent World clients retain their own copy after recipient ACK dele
    h.clock.t+=NOTE_TTL_MS+1;peer.clock.t=h.clock.t;await h.world.stop();await peer.world.stop();host=new FakeHost();peerHost=new FakeHost();await h.world.start(host);await peer.world.start(peerHost);
    expect(await h.world.pageDeps().notes!()).toMatchObject([{body,letterId:id,direction:'sent'}]);expect(await peer.world.pageDeps().notes!()).toMatchObject([{body,letterId:id,read:true}]);
    expect(host.deferred.filter(e=>e.type==='bottle.note-arrived')).toHaveLength(0);expect(peerHost.deferred.filter(e=>e.type==='bottle.note-arrived')).toHaveLength(0);
-   expect(readFileSync((h.world as any).receivedNotes.file,'utf8')).toContain(body);expect(readFileSync((peer.world as any).receivedNotes.file,'utf8')).toContain(body);
+   expect(JSON.stringify(sqlRead((h.world as any).receivedNotes.file))).toContain(body);expect(JSON.stringify(sqlRead((peer.world as any).receivedNotes.file))).toContain(body);
  }finally{await peer.stop();}
 });
 

@@ -1,3 +1,5 @@
+import {dirname} from 'node:path';
+import {readLocalDocument as sqlRead,writeLocalDocument as sqlWrite,withDatabase as sqlDb,LOCAL_DB_NAME} from '../world/local-db.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, readFileSync, unlinkSync, rmdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -116,11 +118,11 @@ describe('star collection and explicit consent', () => {
   it('a failed per-letter revocation can be retried even when its effective flag is already off', async () => {
     await enable();
     const stars = Reflect.get(h.world, 'stars') as LetterStars;
-    unlinkSync(stars.file); mkdirSync(stars.file);
+    sqlDb(dirname(stars.file),db=>db.exec("CREATE TRIGGER fail_consent BEFORE UPDATE ON local_records WHEN NEW.bucket='star' BEGIN SELECT RAISE(ABORT,'injected consent persistence failure'); END"));
     expect((await page().starMemory!('incoming', false)).ok).toBe(false);
     expect(await memory(1)).not.toContain(secretBody);
     expect(stars.needsSave()).toBe(true);
-    rmdirSync(stars.file);
+    sqlDb(dirname(stars.file),db=>db.exec('DROP TRIGGER fail_consent'));
     expect((await page().starMemory!('incoming', false)).ok).toBe(true);
     const reloaded = new LetterStars(h.dir); reloaded.load();
     expect(reloaded.get('incoming')?.memorySelected).toBe(false);
@@ -130,11 +132,11 @@ describe('star collection and explicit consent', () => {
   it('failed global cleanup is retried and re-enabling is denied until the revocation is saved', async () => {
     await enable();
     const stars = Reflect.get(h.world, 'stars') as LetterStars;
-    unlinkSync(stars.file); mkdirSync(stars.file);
+    sqlDb(dirname(stars.file),db=>db.exec("CREATE TRIGGER fail_consent BEFORE UPDATE ON local_records WHEN NEW.bucket='star' BEGIN SELECT RAISE(ABORT,'injected consent persistence failure'); END"));
     expect((await page().starMemorySetting!(false)).ok).toBe(false);
     expect((await page().starMemorySetting!(true)).ok).toBe(false);
     expect(h.cfg.starMemoryEnabled).toBe(false);
-    rmdirSync(stars.file);
+    sqlDb(dirname(stars.file),db=>db.exec('DROP TRIGGER fail_consent'));
     expect((await page().starMemorySetting!(false)).ok).toBe(true);
     const reloaded = new LetterStars(h.dir); reloaded.load();
     expect(reloaded.get('incoming')?.memorySelected).toBe(false);
@@ -145,7 +147,7 @@ describe('star collection and explicit consent', () => {
   it('native re-enable throws before framework persistence when a dirty denial cannot be saved', async () => {
     await enable();
     const stars = Reflect.get(h.world, 'stars') as LetterStars;
-    unlinkSync(stars.file); mkdirSync(stars.file);
+    sqlDb(dirname(stars.file),db=>db.exec("CREATE TRIGGER fail_consent BEFORE UPDATE ON local_records WHEN NEW.bucket='star' BEGIN SELECT RAISE(ABORT,'injected consent persistence failure'); END"));
     h.cfg.starMemoryEnabled = false;
     const persistRequestedTrue = vi.fn();
     expect(() => { h.cfg.starMemoryEnabled = true; persistRequestedTrue(); }).toThrow();
@@ -157,9 +159,9 @@ describe('star collection and explicit consent', () => {
   it.each([true, false])('World restart never reloads stale consent after failed revoke, storage recovered=%s', async recovered => {
     await enable();
     const stars = Reflect.get(h.world, 'stars') as LetterStars;
-    unlinkSync(stars.file); mkdirSync(stars.file);
+    sqlDb(dirname(stars.file),db=>db.exec("CREATE TRIGGER fail_consent BEFORE UPDATE ON local_records WHEN NEW.bucket='star' BEGIN SELECT RAISE(ABORT,'injected consent persistence failure'); END"));
     expect((await page().starMemory!('incoming', false)).ok).toBe(false);
-    if (recovered) rmdirSync(stars.file);
+    if (recovered) sqlDb(dirname(stars.file),db=>db.exec('DROP TRIGGER fail_consent'));
     await h.world.stop(); await h.world.start(host);
     expect(await memory(1)).not.toContain(secretBody);
     expect(page().snapshot().stars?.[0]?.memorySelected).toBe(false);
@@ -210,7 +212,7 @@ describe('star collection and explicit consent', () => {
     expect(page().snapshot().stars).toHaveLength(1);
     expect(await host.deliverDeferred(h.world)).toHaveLength(0);
     expect(JSON.parse((await memory(1)).split('\n').slice(1).join('\n')).original.body).toBe(secretBody);
-    expect(readFileSync(join(h.dir, 'bottle-stars.json'), 'utf8')).not.toContain(secretBody);
+    expect(JSON.stringify(sqlRead(join(h.dir, 'bottle-stars.json')))).not.toContain(secretBody);
   });
 
   it('sent letter and its later reply are a single star, preferring reply navigation', async () => {
@@ -285,7 +287,7 @@ describe('star collection and explicit consent', () => {
   it('cannot authorize a letter if consent persistence fails', async () => {
     const stars = new LetterStars(join(h.dir, 'broken-consent'));
     stars.set('test', true, h.clock.t);
-    unlinkSync(stars.file); mkdirSync(stars.file);
+    sqlDb(dirname(stars.file),db=>db.exec("CREATE TRIGGER fail_consent BEFORE UPDATE ON local_records WHEN NEW.bucket='star' BEGIN SELECT RAISE(ABORT,'injected consent persistence failure'); END"));
     expect(() => stars.select('test', true)).toThrow();
     expect(stars.get('test')?.memorySelected).toBe(false);
   });

@@ -1,3 +1,4 @@
+import {readLocalDocument as sqlRead,writeLocalDocument as sqlWrite,withDatabase as sqlDb,LOCAL_DB_NAME} from '../world/local-db.ts';
 import { createHash } from 'node:crypto';
 import { DEFAULT_MY_FONT } from '../world/default-font.ts';
 import { saveMyFont, readMyFont, MY_FONT_MAX_BYTES } from '../world/my-font.ts';
@@ -6,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { LetterFonts, fontLibrary, fontAsset } from '../world/fonts.ts';
-import { saveBackground, readBackground, BACKGROUND_MAX_BYTES } from '../world/background.ts';
+import { saveBackground, readBackground, BACKGROUND_MAX_BYTES, DEFAULT_BACKGROUND } from '../world/background.ts';
 import { customPalettes, isThemePreference, cardAppearance } from '../world/appearance.ts';
 import { readThemePreference, saveThemePreference } from '../world/theme.ts';
 import { handlePage, startPageServer, type PageSnapshot, type PageDeps, type PageServer } from '../world/page.ts';
@@ -22,31 +23,31 @@ function deps(dir: string): PageDeps {
  return {snapshot:()=>fonts.decorate(snapshot()),request:ok,send:ok,rewrite:ok,dismiss:ok,keep:ok,peruse:ok,discard:ok,open:ok,forget:ok,
    myFont:id=>readMyFont(dir,id), uploadMyFont:input=>saveMyFont(dir,input),
    background:id=>readBackground(dir,id), uploadBackground:input=>saveBackground(dir,input),
-   appearance:async pref=>{if(pref)saveThemePreference(dir,pref);return cardAppearance(readThemePreference(dir)??{theme:'ocean',mode:'system'},{available:false});}};
+   appearance:async pref=>{if(pref)saveThemePreference(dir,pref);return cardAppearance(readThemePreference(dir)??{theme:'ocean',mode:'system'});}};
 }
 function fakeFonts(dir: string, names: string[]) { const folder=join(dir,'fonts');mkdirSync(folder,{recursive:true});for(const name of names)writeFileSync(join(folder,name),Buffer.from('0001000000000000','hex'));return folder; }
 it('同一来信人在手中、归档与回信使用同一字体，重启及导入不会改变旧字典',()=>{
  const dir=temp(), folder=fakeFonts(dir,['a.ttf','b.ttf']);const fonts=new LetterFonts(dir,folder), first=fonts.decorate(snapshot());
  expect(first.held!.fontId).toBe(first.received[0].fontId);expect(first.sent[0].reply!.fontId).toBe(first.held!.fontId);
  expect(first.received[1].fontId).not.toBe(first.held!.fontId);
- const before=JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8'));
+ const before=sqlRead(join(dir,'bottle-font-map.json'));
  fakeFonts(dir,['c.ttf']); const expanded=snapshot();expanded.received.push({letterId:'new',from:'贝壳',body:'新信',at:'',outcome:'kept'});
  const result=new LetterFonts(dir,folder).decorate(expanded);
  expect(result.received.slice(0,2)).toEqual(first.received);
  expect(result.received[2].fontId).toBe(fontLibrary(folder).find(f=>f.name==='c.ttf')!.id);
- expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments).toMatchObject(before.assignments);
+ expect(sqlRead(join(dir,'bottle-font-map.json')).assignments).toMatchObject(before.assignments);
  const original=fontLibrary(folder).find(f=>f.id===first.held!.fontId)!;unlinkSync(original.path);
  const repaired=new LetterFonts(dir,folder).decorate(snapshot());
  expect(repaired.held!.fontId).toBeTruthy();expect(repaired.held!.fontId).not.toBe(original.id);
  expect(repaired.received[0].fontId).toBe(repaired.held!.fontId);expect(repaired.sent[0].reply!.fontId).toBe(repaired.held!.fontId);
  expect(new LetterFonts(dir,folder).decorate(snapshot())).toEqual(repaired);
  const untouched=createHash('sha256').update('visitor:海风').digest('hex');
- expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments[untouched]).toBe(before.assignments[untouched]);
+ expect(sqlRead(join(dir,'bottle-font-map.json')).assignments[untouched]).toBe(before.assignments[untouched]);
 });
 it('损坏字典保留原文件并回退；空字体池不制造无效映射',()=>{
  const dir=temp(),folder=fakeFonts(dir,[]);expect(new LetterFonts(dir,folder).decorate(snapshot())).toEqual(snapshot());
- fakeFonts(dir,['a.ttf']);writeFileSync(join(dir,'bottle-font-map.json'),'{broken');
- expect(new LetterFonts(dir,folder).decorate(snapshot())).toEqual(snapshot());expect(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).toBe('{broken');
+ fakeFonts(dir,['a.ttf']);sqlWrite(join(dir,'bottle-font-map.json'),{version:99});
+ expect(new LetterFonts(dir,folder).decorate(snapshot())).toEqual(snapshot());expect(sqlRead(join(dir,'bottle-font-map.json'))).toEqual({version:99});
 });
 it('默认字库仅含远程元数据，不从本机提供字体文件',()=>{
  const fonts=fontLibrary();expect(fonts.length).toBeGreaterThanOrEqual(9);
@@ -61,13 +62,13 @@ it('图片以内容摘要保存，允许新设备读取，拒绝 SVG、超限与
 });
 function contrast(a:string,b:string):number{const lum=(x:string)=>[1,3,5].map(i=>parseInt(x.slice(i,i+2),16)/255).map(c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4).reduce((sum,c,i)=>sum+c*[.2126,.7152,.0722][i],0);return(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05);}
 it.each(['#ffffff','#000000','#ffff00','#00ff00','#ff0000','#0000ff','#ff00ff','#666666','#757575','#777777'])('自定义 %s 保持浅深色文字对比且卡片使用同一色板',color=>{
- const palettes=customPalettes(color);expect(cardAppearance({theme:'custom',mode:'dark',customColor:color},{available:false}).palettes).toEqual(palettes);
+ const palettes=customPalettes(color);expect(cardAppearance({theme:'custom',mode:'dark',customColor:color}).palettes).toEqual(palettes);
  for(const p of Object.values(palettes)){expect(contrast(p.ink,p.card)).toBeGreaterThanOrEqual(4.5);expect(contrast(p.muted,p.card)).toBeGreaterThanOrEqual(4.5);expect(p.accent).toBe(color);expect(p.seal).toBe(color);expect(p.sea).toBe(color);expect(contrast(p['accent-text']!,p.card)).toBeGreaterThanOrEqual(4.5);expect(contrast(p['on-accent'],p.accent)).toBeGreaterThanOrEqual(4.5);}
 });
 it('自定义偏好保存并能恢复；未知字段不落盘，危险颜色与背景被拒绝',()=>{
  const dir=temp(),pref={theme:'custom' as const,mode:'system' as const,customColor:'#ad6850',background:'a'.repeat(64)+'.png'};
  saveThemePreference(dir,{...pref,secret:'ignored'} as any);expect(readThemePreference(dir)).toEqual(pref);
- expect(readFileSync(join(dir,'bottle-appearance.json'),'utf8')).not.toContain('secret');
+ expect(JSON.stringify(sqlRead(join(dir,'bottle-appearance.json')))).not.toContain('secret');
  saveThemePreference(dir,{theme:'paper',mode:'light'});expect(readThemePreference(dir)).toEqual({...pref,theme:'paper',mode:'light'});
  for(const value of [{...pref,customColor:'url(https://bad)'},{...pref,background:'../config.json'}])expect(isThemePreference(value)).toBe(false);
 });
@@ -77,6 +78,11 @@ it('真实 HTTP 单独允许背景上传大请求；其他动作仍限制 4 KiB'
  expect((await post('background',{data:image.toString('base64')},{})).status).toBe(403);
  const uploaded=await post('background',{data:image.toString('base64')});expect(uploaded.status).toBe(200);const {id}=await uploaded.json() as {id:string};
  const retrieved=await fetch(server.url+'background/'+id);expect(Buffer.from(await retrieved.arrayBuffer()).equals(image)).toBe(true);
+ const defaultImage=await fetch(server.url+'background/'+DEFAULT_BACKGROUND.id);
+ expect(defaultImage.status).toBe(200);expect(defaultImage.headers.get('content-type')).toBe('image/webp');
+ const bytes=Buffer.from(await defaultImage.arrayBuffer());
+ expect(createHash('sha256').update(bytes).digest('hex')+'.webp').toBe(DEFAULT_BACKGROUND.id);
+ expect(bytes.equals(readFileSync(new URL('../world/backgrounds/default.webp',import.meta.url)))).toBe(true);
  expect((await post('send',{data:'x'.repeat(5000)})).status).toBe(400);
  expect((await handlePage(d,'GET','/palette/ee9955')).status).toBe(200);
 });
@@ -84,11 +90,13 @@ it('局域网字体、背景与上传沿用配对鉴权，已配对设备可加�
  const d=deps(temp()),server=await startLanServer(d,{port:0,pairing:new LanPairing('fixture-token')});servers.push(server);
  const base='http://127.0.0.1:'+server.port;
  const font=fontLibrary().find(f=>f.name==='Yozai-Regular.ttf')!;
- for(const path of ['/fonts/'+font.id,'/background/'+'a'.repeat(64)+'.png','/palette/aa8877'])expect((await fetch(base+path)).status).toBe(401);
+ for(const path of ['/fonts/'+font.id,'/background/'+'a'.repeat(64)+'.png','/background/'+DEFAULT_BACKGROUND.id,'/palette/aa8877'])expect((await fetch(base+path)).status).toBe(401);
  const headers={'x-bottle':'1',origin:base,'content-type':'application/json'};
  expect((await fetch(base+'/background',{method:'POST',headers,body:'{}'})).status).toBe(401);
  const paired=await fetch(base+'/pair',{method:'POST',headers,body:JSON.stringify({token:'fixture-token'})});expect(paired.status).toBe(200);
  const cookie=paired.headers.get('set-cookie')!.split(';')[0];
+ const defaultImage=await fetch(base+'/background/'+DEFAULT_BACKGROUND.id,{headers:{cookie}});
+ expect(defaultImage.status).toBe(200);expect(Buffer.from(await defaultImage.arrayBuffer()).equals(readBackground('',DEFAULT_BACKGROUND.id)!.bytes)).toBe(true);
  const response=await fetch(base+'/fonts/'+font.id,{headers:{cookie}});expect(response.status).toBe(404);expect(font.url).toContain('https://fontsforletters.sqnori.com/fonts/');
  const uploaded=await fetch(base+'/background',{method:'POST',headers:{...headers,cookie},body:JSON.stringify({data:image.toString('base64')})});expect(uploaded.status).toBe(200);
  const {id}=await uploaded.json() as {id:string};const downloaded=await fetch(base+'/background/'+id,{headers:{cookie}});expect(Buffer.from(await downloaded.arrayBuffer()).equals(image)).toBe(true);
@@ -98,9 +106,9 @@ it('种子信按署名区分，重洗只在停止后主动移走字典才发生'
  const dir=temp(),folder=fakeFonts(dir,['a.ttf','b.ttf']);const value=snapshot();value.held=null;value.sent=[];
  value.received=value.received.map((item,i)=>({...item,from:'海边邮局',seed:true,signature:i?'守灯人':'船夫'}));
  const first=new LetterFonts(dir,folder).decorate(value);expect(first.received[0].fontId).not.toBe(first.received[1].fontId);
- const file=join(dir,'bottle-font-map.json');expect(Object.keys(JSON.parse(readFileSync(file,'utf8')).assignments)).toHaveLength(2);
- unlinkSync(file); const next=new LetterFonts(dir,folder).decorate(value);expect(next.received.every(item=>item.fontId)).toBe(true);
- expect(Object.keys(JSON.parse(readFileSync(file,'utf8')).assignments)).toHaveLength(2);
+ const file=join(dir,'bottle-font-map.json');expect(Object.keys(JSON.parse(JSON.stringify(sqlRead(file))).assignments)).toHaveLength(2);
+ sqlWrite(file,{version:1,assignments:{}}); const next=new LetterFonts(dir,folder).decorate(value);expect(next.received.every(item=>item.fontId)).toBe(true);
+ expect(Object.keys(JSON.parse(JSON.stringify(sqlRead(file))).assignments)).toHaveLength(2);
 });
 
 it('我的字体与随机字体池分离，限制格式大小与路径，保存在本机部署数据',()=>{
@@ -167,7 +175,7 @@ it('转换后的字体沿用旧名称、资源 ID 和字典值，隔离目录不
  expect(fonts).toHaveLength(1);expect(fonts[0]).toMatchObject({name,id,mime:'font/woff2'});
  expect(fontAsset(id,folder)!.bytes.equals(bytes)).toBe(true);
  expect(new LetterFonts(dir,folder).decorate(snapshot()).held!.fontId).toBe(id);
- expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments[key]).toBe(name);
+ expect(sqlRead(join(dir,'bottle-font-map.json')).assignments[key]).toBe(name);
  // User-imported original wins without allocating a second logical font.
  writeFileSync(join(folder,name),Buffer.from('0001000000000000','hex'));
  expect(fontLibrary(folder)).toHaveLength(1);expect(fontLibrary(folder)[0].path).toBe(join(folder,name));
@@ -177,7 +185,7 @@ it('移出授权未确认字体时只替换失效绑定，并保存可用笔迹'
  const key=createHash('sha256').update('visitor:灯塔').digest('hex');
  writeFileSync(join(dir,'bottle-font-map.json'),JSON.stringify({version:1,assignments:{[key]:'unverified.ttf'}}));
  expect(new LetterFonts(dir,folder).decorate(snapshot()).held!.fontId).toBe(fontLibrary(folder)[0].id);
- expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments[key]).toBe('safe.ttf');
+ expect(sqlRead(join(dir,'bottle-font-map.json')).assignments[key]).toBe('safe.ttf');
 });
 
 it('真实 HTTP 只接受有限的公开缓存摘要，LAN 未配对不能读取或改绑',async()=>{

@@ -343,3 +343,11 @@ export const REPLY_WINDOW_HOURS = 72;
  * 这里只是兜底默认值。
  */
 export const MAX_THROWS = 8;
+
+/** Authenticated, state-changing single round trip. Older endpoints remain available. */
+export interface SyncReq { noteAcks?:string[]; systemMailAck?:string; receiveSystemMail?:boolean }
+export interface SyncRes {
+  syncVersion:1; quota:Quota; mailbox:MailboxRes; notes:NotesRes;
+  systemMail:(Extract<MailTakeRes,{empty:false}> & LetterRes)|null;
+  noteAcks:string[];
+}

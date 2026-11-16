@@ -1,6 +1,7 @@
-import { readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync, lstatSync } from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import {putAsset,getAsset} from './local-db.ts';
+
+import { createHash } from 'node:crypto';
+
 import { FONT_TYPES } from './fonts.ts';
 export const MY_FONT_MAX_BYTES = 32 * 1024 * 1024;
 export const MY_FONT_ID = /^[a-f0-9]{64}\.(ttf|otf|woff2?)$/;
@@ -13,17 +14,10 @@ export function saveMyFont(dataDir: string, input: unknown): { id:string; name:s
   if (!mime || bytes.length < 12 || bytes.length > MY_FONT_MAX_BYTES) throw new Error('Invalid font');
   const id=createHash('sha256').update(bytes).digest('hex')+'.'+EXTENSIONS[mime];
   const label=typeof name==='string' ? name.split(/[\\/]/).pop()!.replace(/[\x00-\x1f\x7f]/g,'').slice(0,120) : '';
-  const dir=join(dataDir,'bottle-my-fonts');mkdirSync(dir,{recursive:true});
-  const file=join(dir,id),temp=file+'.'+randomUUID()+'.tmp';
-  try {writeFileSync(temp,bytes);renameSync(temp,file);} finally {try{unlinkSync(temp);}catch{}}
+  putAsset(dataDir,{kind:'font',id,name:label||'我的字体.'+EXTENSIONS[mime],mime,bytes,metadata:{}});
   return {id,name:label || '我的字体.'+EXTENSIONS[mime]};
 }
 export function readMyFont(dataDir:string,id:string): {bytes:Buffer;mime:string}|null {
   if (!MY_FONT_ID.test(id)) return null;
-  try {
-    const file=join(dataDir,'bottle-my-fonts',id),stat=lstatSync(file);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MY_FONT_MAX_BYTES) return null;
-    const bytes=readFileSync(file),mime=FONT_TYPES[bytes.subarray(0,4).toString('hex')];
-    return mime ? {bytes,mime} : null;
-  } catch {return null;}
+  const asset=getAsset(dataDir,'font',id);return asset?{bytes:asset.bytes,mime:asset.mime}:null;
 }

@@ -49,7 +49,7 @@ it.skipIf(process.platform!=='win32')('parses both native scripts and verifies f
   // Match the native card launcher; do not depend on the caller's PowerShell policy.
   const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',`
     $ErrorActionPreference='Stop'
-    foreach($file in @('world/card-host.ps1','world/card-sound.ps1')) {
+    foreach($file in @('world/card-host.ps1','world/card-stack-host.ps1','world/card-sound.ps1')) {
       $tokens=$null; $errors=$null
       [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) $file),[ref]$tokens,[ref]$errors)
       if($errors.Count -gt 0){throw ($errors | Out-String)}

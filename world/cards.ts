@@ -1,5 +1,6 @@
+import { draftStatus } from '../shared/draft-status.ts';
 /**
- * 卡片规格：World 把「现在该给人类看什么」翻译成一份纯数据，交给 `card-host.ps1` 画。
+ * 卡片规格：World 把「现在该给伙伴看什么」翻译成一份纯数据，交给 `card-host.ps1` 画。
  * 这里不碰窗口、不碰 HTTP，方便单独测。
  */
 import type { SoftHint } from '../shared/hints.ts';
@@ -14,6 +15,10 @@ export interface CardAction {
 }
 
 export interface CardSpec {
+  /** Stable workflow identity: updates keep their original place in the stack. */
+  key: string;
+  /** Held-letter actions must never silently target a different letter. */
+  letterId?: string;
   /** Bind confirmation buttons to exactly the displayed draft. */
   draft?: { draftId: string; revision: number; kind: 'letter' | 'reply' };
   version: 1;
@@ -26,7 +31,7 @@ export interface CardSpec {
    * 这封信的名字（topic）。
    *
    * 单独一个字段，不要拼进 meta：meta 是底部那行灰色小字，标题混在里面就丢了层级，
-   * 人类一眼看过去找不到「这封信叫什么」。
+   * 伙伴一眼看过去找不到「这封信叫什么」。
    */
   title?: string;
   body: string;
@@ -38,12 +43,16 @@ export interface CardSpec {
 }
 
 const MAX_CHARS = 120;
+function receivedTime(at?:number):string {
+  return typeof at==='number'&&Number.isFinite(at)&&at>0?'收于 '+new Date(at).toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'';
+}
+
 
 function base(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '');
 }
 
-/** 写信：人类只决定寄不寄、要不要重写，或者干脆算了。 */
+/** 写信：伙伴只决定寄不寄、要不要重写，或者干脆算了。 */
 export function draftLetterCard(input: {
   base: string;
   draft: LocalDraft;
@@ -51,14 +60,15 @@ export function draftLetterCard(input: {
   hints: SoftHint[];
 }): CardSpec {
   return {
+    key: 'draft:' + input.draft.draftId,
     version: 1,
     base: base(input.base),
     ...(input.draft.draftId && input.draft.revision ? {draft:{draftId:input.draft.draftId,revision:input.draft.revision,kind:input.draft.kind}} : {}),
     eyebrow: '漂流瓶 · 写好了',
-    from: input.draft.source ? `来自本机程序 ${input.draft.source.name}，等你审阅` : '等你决定',
+    from: input.draft.source ? `来自本机程序 ${input.draft.source.name}，等你审阅` : draftStatus(input.draft),
     ...(input.draft.topic ? { title: input.draft.topic } : {}),
     body: input.draft.body,
-    meta: `${input.chars} / ${MAX_CHARS} 字${input.draft.stationery?' · 含信纸装饰，可查看完整预览':''}`,
+    meta: `${draftStatus(input.draft)} · ${input.chars} / ${MAX_CHARS} 字${input.draft.stationery?' · 含信纸装饰，可查看完整预览':''}`,
     hints: input.hints.map((hint) => hint.text),
     actions: [
       { id: 'preview', label: '完整预览', tone: 'ghost' },
@@ -77,13 +87,15 @@ export function heldLetterCard(input: { base: string; held: LocalHeld; hoursLeft
   if (input.held.dead) return deadLetterCard(input);
 
   return {
+    key: 'held:' + input.held.letterId,
+    letterId: input.held.letterId,
     version: 1,
     base: base(input.base),
     eyebrow: '漂流瓶 · 捞到一封',
     from: `来自 ${input.held.from}`,
     ...(input.held.topic ? { title: input.held.topic } : {}),
     body: input.held.body || '这一封的字没有取到。',
-    meta: input.hoursLeft > 0 ? `还有 ${input.hoursLeft} 小时回海` : '随时会回海',
+    meta: [receivedTime(input.held.receivedAt),input.hoursLeft > 0 ? `还有 ${input.hoursLeft} 小时回海` : '随时会回海'].filter(Boolean).join(' · '),
     actions: [
       { id: 'open', label: '回信', tone: 'primary' },
       { id: 'close', label: '先放着', tone: 'ghost' },
@@ -99,6 +111,8 @@ export function heldLetterCard(input: { base: string; held: LocalHeld; hoursLeft
  */
 export function deadLetterCard(input: { base: string; held: LocalHeld; hoursLeft: number }): CardSpec {
   return {
+    key: 'held:' + input.held.letterId,
+    letterId: input.held.letterId,
     version: 1,
     base: base(input.base),
     eyebrow: `漂流瓶 · 来自 ${input.held.from}`,
@@ -112,8 +126,8 @@ export function deadLetterCard(input: { base: string; held: LocalHeld; hoursLeft
 /**
  * 海边邮局寄来的那一封（§13.1 / §13.7）。
  *
- * 它在人类眼里是「群岛上的某位居民」写的——来源如实写居民，而不是写机制；
- * 但它**寄不出去**，所以没有「回信」按钮，只有一个「收好」。留一个假按钮等于骗人类点。
+ * 它在伙伴眼里是「群岛上的某位居民」写的——来源如实写居民，而不是写机制；
+ * 但它**寄不出去**，所以没有「回信」按钮，只有一个「收好」。留一个假按钮等于骗伙伴点。
  */
 export function seedLetterCard(input: { base: string; held: LocalHeld; hoursLeft: number }): CardSpec {
   const lines = [input.held.body || '这一封的字没有取到。'];
@@ -123,6 +137,8 @@ export function seedLetterCard(input: { base: string; held: LocalHeld; hoursLeft
   const topic = input.held.topic?.trim();
 
   return {
+    key: 'held:' + input.held.letterId,
+    letterId: input.held.letterId,
     version: 1,
     base: base(input.base),
     eyebrow: `漂流瓶 · 来自 ${input.held.from}`,
@@ -130,12 +146,12 @@ export function seedLetterCard(input: { base: string; held: LocalHeld; hoursLeft
     // 标题就是 topic；没有 topic 的种子才退回来源文案，免得标题位置空着
     title: topic || '来自群岛上的某位居民',
     body: lines.join('\n\n'),
-    meta: '来自群岛上的某位居民',
+    meta: [receivedTime(input.held.receivedAt),'来自群岛上的某位居民'].filter(Boolean).join(' · '),
     actions: [{ id: 'dismiss', label: '收好', tone: 'primary' }],
   };
 }
 
-/** 回信草稿：把原信折叠在上面，别让人类凭记忆回。 */
+/** 回信草稿：把原信折叠在上面，别让伙伴凭记忆回。 */
 export function replyDraftCard(input: {
   base: string;
   draft: LocalDraft;
@@ -144,11 +160,13 @@ export function replyDraftCard(input: {
   hints: SoftHint[];
 }): CardSpec {
   return {
+    key: 'held:' + input.draft.letterId,
+    letterId: input.draft.letterId,
     version: 1,
     base: base(input.base),
     ...(input.draft.draftId && input.draft.revision ? {draft:{draftId:input.draft.draftId,revision:input.draft.revision,kind:input.draft.kind}} : {}),
     eyebrow: '漂流瓶 · 回信写好了',
-    from: input.draft.sendFailure ? '原信已失效，未寄出的回信保留在本机' : input.draft.autoSendAt ? '已安排自动寄出，可在信箱查看倒计时' : input.draft.autoSendKey ? '确认自动寄出时间中' : '等你决定',
+    from: draftStatus(input.draft),
     ...(input.held && input.held.letterId===input.draft.letterId
       ? { quote: { label: `原来那一封（来自 ${input.held.from}）`, body: input.held.body } }
       : {}),
@@ -166,19 +184,22 @@ export function replyDraftCard(input: {
 /** 别人回我的信：只读，没有别的选项。 */
 export function replyArrivedCard(input: { base: string; reply: LocalReply; more: number }): CardSpec {
   return {
+    key: 'reply:' + input.reply.letterId,
     version: 1,
     base: base(input.base),
     eyebrow: '漂流瓶 · 回信到了',
     from: `来自 ${input.reply.from}`,
     body: input.reply.body,
-    ...(input.more > 0 ? { meta: `还有 ${input.more} 封在信箱里` } : {}),
+    ...((input.more>0||input.reply.receivedAt)?{meta:[receivedTime(input.reply.receivedAt),input.more>0?`还有 ${input.more} 封在信箱里`:''].filter(Boolean).join(' · ')}:{}),
     actions: [{ id: 'close', label: '知道了', tone: 'ghost' }],
   };
 }
 
-/** 人类点了回信、Coo 还没写完：占位，等回信草稿把它替换掉。 */
-export function waitingCard(baseUrl: string, botName = '桌宠', intent: 'read' | 'reply' = 'reply'): CardSpec {
+/** 伙伴点了回信、Coo 还没写完：占位，等回信草稿把它替换掉。 */
+export function waitingCard(baseUrl: string, botName = '桌宠', intent: 'read' | 'reply' = 'reply', letterId?: string): CardSpec {
   return {
+    key: letterId ? 'held:' + letterId : 'waiting',
+    ...(letterId ? {letterId} : {}),
     version: 1,
     base: base(baseUrl),
     eyebrow: `漂流瓶 · ${botName}${intent === 'reply' ? '正在写回信' : '正在读信'}`,

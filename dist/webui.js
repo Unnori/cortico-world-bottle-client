@@ -26,6 +26,28 @@ export function reachableMailbox(links, hostname) {
         return urls.find(url => local(new URL(url).hostname)) ?? urls[0] ?? null;
     return urls.find(url => new URL(url).hostname === hostname) ?? urls.find(url => !local(new URL(url).hostname)) ?? null;
 }
+// Browser-observed tokens only; never import the host's internal theme module.
+export const HOST_THEME_KEYS = ['paper', 'sheet', 'sheet-2', 'sheet-3', 'ink', 'ink-soft', 'line', 'line-strong', 'accent', 'on-accent', 'ink-blue', 'ok', 'warn', 'danger'];
+export async function captureHostTheme(ctx) {
+    const view = ctx.root.ownerDocument.defaultView;
+    if (!view?.getComputedStyle)
+        return null;
+    const response = await view.fetch('/api/theme', { credentials: 'same-origin', signal: ctx.signal });
+    if (!response.ok)
+        throw new Error('Host theme unavailable');
+    const payload = await response.json(), theme = payload.theme ?? payload;
+    const style = view.getComputedStyle(ctx.root), palette = {};
+    for (const key of HOST_THEME_KEYS) {
+        const value = style.getPropertyValue('--' + key).trim();
+        if (/^#[0-9a-f]{6}$/i.test(value))
+            palette[key] = value.toLowerCase();
+    }
+    if (!Object.keys(palette).length)
+        throw new Error('Host colors unavailable');
+    const scheme = style.colorScheme.trim();
+    const appearance = scheme === 'dark' || scheme === 'light' ? scheme : theme.mode === 'dark' || theme.mode === 'light' ? theme.mode : view.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return { selectedId: theme.selectedId ?? payload.defaultScheme ?? 'unknown', appearance, palette, at: Date.now(), hostVersion: payload.hostVersion ?? 'unknown' };
+}
 export async function mountMailbox(ctx) {
     const zh = ctx.language === 'zh' || ctx.language === 'zh-Hant';
     const t = zh ? {
@@ -46,10 +68,43 @@ export async function mountMailbox(ctx) {
     const copy = ui.h('div', 'bottle-mailbox-copy');
     copy.append(ui.h('h2', null, t.title), ui.h('p', null, t.description));
     let url = null;
+    let opening = false;
     const botName = zh ? '桌宠' : 'the companion';
-    const button = ui.button(t.open, { variant: 'primary', onClick: () => {
-            if (url && !ctx.signal.aborted)
-                ctx.root.ownerDocument.defaultView?.open(url, '_blank', 'noopener,noreferrer');
+    const button = ui.button(t.open, { variant: 'primary', onClick: async () => {
+            if (!url || ctx.signal.aborted || opening)
+                return;
+            opening = true;
+            const target = url, view = ctx.root.ownerDocument.defaultView;
+            // Reserve a blank window during the click; navigate only after the snapshot is saved.
+            const popup = view?.open('about:blank', '_blank');
+            if (popup) {
+                popup.opener = null;
+                try {
+                    const meta = popup.document.createElement('meta');
+                    meta.name = 'referrer';
+                    meta.content = 'no-referrer';
+                    popup.document.head.append(meta);
+                }
+                catch { /* No content is opened yet. */ }
+            }
+            button.disabled = true;
+            try {
+                const snapshot = await captureHostTheme(ctx);
+                if (snapshot && !ctx.signal.aborted)
+                    await ctx.invoke('hostTheme', [snapshot]);
+            }
+            catch { /* Keep the previous theme snapshot or the built-in fallback. */ }
+            finally {
+                opening = false;
+                if (ctx.signal.aborted)
+                    popup?.close();
+                else if (popup && !popup.closed)
+                    popup.location.replace(target);
+                else
+                    view?.open(target, '_blank', 'noopener,noreferrer');
+                if (!ctx.signal.aborted)
+                    button.disabled = !url;
+            }
         } });
     button.classList.add('bottle-open-mailbox');
     button.disabled = true;
@@ -106,7 +161,7 @@ export async function mountMailbox(ctx) {
         invitations.append(row);
         return { action, label, toggle, hours, limit, save };
     });
-    invitations.append(ui.h('p', 'bottle-wake-outcome', zh ? '写信、打捞默认每天各 3 次，间隔 2—24 小时并随机延长；待办提醒默认每天 12 次（可设 3—20 次），有待处理来信或待寄草稿时每 30—60 分钟轻声提醒。包含自动补试，手动邀请不占上限。配置页顶栏为快照，信箱页签每 5 秒同步。' : 'Writing/catching default to 3/day, with a randomized 2–24 hour minimum. Reminders default to 12/day (3–20), every 30–60 minutes only while incoming mail or unsent drafts remain. Retries count; manual invitations are separate. Header snapshots sync every 5 seconds on this tab.'));
+    invitations.append(ui.h('p', 'bottle-wake-outcome', zh ? '定时写信与打捞邀请随下次对话或其他消息带入，不单独唤醒；手动点击的邀请立即生效。写信、打捞默认每天各 3 次，间隔 2—24 小时并随机延长；待办提醒默认每天 12 次（可设 3—20 次），有待处理来信或待寄草稿时每 30—60 分钟轻声提醒。包含自动补试，手动邀请不占上限。配置页顶栏为快照，信箱页签每 5 秒读取本机状态；去海边同步按设置间隔，默认 10 分钟一次。' : 'Scheduled writing/catching invitations join the next conversation or other event without waking on their own. Manual invitations remain immediate. Writing/catching default to 3/day, with a randomized 2–24 hour minimum. Reminders default to 12/day (3–20), every 30–60 minutes only while incoming mail or unsent drafts remain. Retries count; manual invitations are separate. This tab reads local status every 5 seconds; sea synchronization follows your configured interval, 10 minutes by default.'));
     const outcome = ui.h('p', 'bottle-wake-outcome');
     invitations.append(outcome);
     ctx.root.append(invitations);
@@ -151,15 +206,17 @@ export async function mountMailbox(ctx) {
         });
         const last = wake?.history.at(-1);
         const labels = zh ? {
-            completed: '已经处理', deferred: botName + '选择暂不做', declined: '今天不再邀请', paused: '已按人的选择暂停',
+            completed: '已经处理', deferred: botName + '选择暂不做', declined: '今天不再邀请', paused: '已按伙伴的选择暂停',
             uncompleted: botName + '没有回应邀请…稍后再轻轻问一次。', failed: botName + '没有回应邀请…今天先不打扰了。', cancelled: '条件变化，已取消', interrupted: '重启中断，已延后',
-        } : { completed: 'Completed', deferred: 'Deferred by the bot', declined: 'Declined for today', paused: 'Paused by the human',
+        } : { completed: 'Completed', deferred: 'Deferred by the bot', declined: 'Declined for today', paused: 'Paused by the partner',
             uncompleted: 'No result; one bounded retry', failed: 'Retry exhausted; stopped for today', cancelled: 'Conditions changed', interrupted: 'Interrupted by restart; delayed' };
         const active = wake?.active;
         if (active) {
-            outcome.textContent = active.phase === 'retry'
-                ? (zh ? botName + '没有回应邀请…稍后再轻轻问一次。' : 'No result in the last turn; one retry is scheduled.')
-                : (zh ? '已有一份邀请在等' + botName + '选择，写不写、捞不捞都由' + botName + '。' : 'One invitation is pending. The bot may still decline.');
+            outcome.textContent = active.phase === 'queued' && !active.manual
+                ? (zh ? (active.action === 'remind' ? '待办提醒' : '定时邀请') + '已备好，等下次对话或其他消息时再带入。' : 'Ready for the next conversation or other event; this does not wake the companion on its own.')
+                : active.phase === 'retry'
+                    ? (zh ? botName + '没有回应邀请…稍后再轻轻问一次。' : 'No result in the last turn; one retry is scheduled.')
+                    : (zh ? '已有一份邀请在等' + botName + '选择，写不写、捞不捞都由' + botName + '。' : 'One invitation is pending. The bot may still decline.');
             return;
         }
         const result = last?.result === 'deferred' && last.reason === 'no_idea' ? (zh ? botName + '暂时没有灵感，已选择暂不做；不算失败，也不补试' : 'No inspiration right now; voluntarily deferred, not a failure or retry') : last?.reason === 'reminder_delivered' ? (zh ? '提醒已送达，是否询问由' + botName + '决定' : 'Reminder delivered; the bot chooses whether to ask') : last?.reason === 'queue_failed' ? (zh ? '邀请未能送达，今天不再尝试' : 'Could not deliver; stopped for today') : last ? (labels[last.result] ?? last.result) : '';
@@ -373,79 +430,7 @@ export async function mountMailbox(ctx) {
             }
         }
     }
-    // Keep backup controls after invitations and pairing, using the existing World RPC.
-    const archive = ui.h('footer', 'bottle-archive');
-    const archiveActions = ui.h('div', 'bottle-archive-actions');
-    const exportButton = ui.h('button', 'bottle-archive-button', zh ? '导出信册' : 'Export letterbook');
-    const importButton = ui.h('button', 'bottle-archive-button', zh ? '导入信册' : 'Import letterbook');
-    exportButton.type = importButton.type = 'button';
-    const archiveFile = ui.h('input');
-    archiveFile.type = 'file';
-    archiveFile.accept = 'application/json,.json';
-    archiveFile.hidden = true;
-    const archiveResult = ui.h('p', 'bottle-archive-result');
-    archiveResult.setAttribute('role', 'status');
-    const busyArchive = (busy) => { exportButton.disabled = importButton.disabled = busy; };
-    exportButton.onclick = async () => {
-        if (ctx.signal.aborted || exportButton.disabled)
-            return;
-        busyArchive(true);
-        try {
-            const data = await ctx.invoke('archiveExport');
-            if (ctx.signal.aborted)
-                return;
-            const href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' }));
-            const cleanup = ctx.own({ dispose: () => URL.revokeObjectURL(href) });
-            const link = ui.h('a');
-            link.href = href;
-            link.download = (zh ? '漂流瓶信册-明文请勿转发-' : 'letterbook-plaintext-do-not-share-') + new Date().toISOString().slice(0, 10) + '.json';
-            archive.append(link);
-            link.click();
-            link.remove();
-            ctx.timeout(() => cleanup.dispose(), 1000);
-            archiveResult.textContent = zh ? '明文备份已导出，请妥善保管。' : 'Plaintext backup exported. Keep it safe.';
-        }
-        catch {
-            if (!ctx.signal.aborted)
-                archiveResult.textContent = zh ? '未能导出，请稍后再试。' : 'Export failed. Please try again.';
-        }
-        finally {
-            if (!ctx.signal.aborted)
-                busyArchive(false);
-        }
-    };
-    importButton.onclick = () => { if (!ctx.signal.aborted)
-        archiveFile.click(); };
-    archiveFile.onchange = async () => {
-        const file = archiveFile.files?.[0];
-        if (!file || ctx.signal.aborted || importButton.disabled)
-            return;
-        busyArchive(true);
-        try {
-            if (file.size > 32 * 1024 * 1024) {
-                archiveResult.textContent = zh ? '信册文件不能超过 32 MiB。' : 'The file must be under 32 MiB.';
-                return;
-            }
-            const data = JSON.parse(await file.text());
-            if (ctx.signal.aborted)
-                return;
-            const result = await ctx.invoke('archiveImport', [data]);
-            if (!ctx.signal.aborted)
-                archiveResult.textContent = result.message;
-        }
-        catch {
-            if (!ctx.signal.aborted)
-                archiveResult.textContent = zh ? '未能导入，请检查信册文件后重试。' : 'Import failed. Check your letterbook file and retry.';
-        }
-        finally {
-            archiveFile.value = '';
-            if (!ctx.signal.aborted)
-                busyArchive(false);
-        }
-    };
-    archiveActions.append(exportButton, importButton);
-    archive.append(archiveActions, ui.h('p', null, zh ? '备份含信件正文，是明文文件，请妥善保管，别随意转发。导入会合并信册，本机已有记录优先。' : 'Backups contain plaintext letters. Keep them private. Import merges records; local entries take priority.'), archiveFile, archiveResult);
-    ctx.root.append(archive);
+    mountDataManager(ctx);
     let pending = false;
     const refresh = async () => {
         if (pending || ctx.signal.aborted)
@@ -482,7 +467,7 @@ export async function mountMailbox(ctx) {
             if (ctx.signal.aborted)
                 return;
             url = reachableMailbox(status.links ?? (status.url ? [{ href: status.url }] : []), ctx.root.ownerDocument.defaultView?.location?.hostname);
-            button.disabled = !url;
+            button.disabled = opening || !url;
             note.textContent = url ? t.ready + (headerFailed ? (zh ? ' 顶栏暂未同步，稍后会重试。' : ' Header sync failed; retrying shortly.') : '') : t.unavailable;
         }
         catch {
@@ -503,6 +488,203 @@ export async function mountMailbox(ctx) {
     await refresh();
     if (!ctx.signal.aborted)
         ctx.interval(() => { void refresh(); }, 5000);
+}
+/** Dedicated human data card. Never send file contents through config, memo or logs. */
+export function mountDataManager(ctx) {
+    const zh = ctx.language === 'zh' || ctx.language === 'zh-Hant', ui = ctx.ui;
+    const card = ui.h('section', 'bottle-data-card');
+    card.id = 'bottle-data-manager';
+    const heading = ui.h('h3', null, zh ? '数据迁移与备份' : 'Data migration and backup');
+    const status = ui.h('p', 'bottle-data-note', zh ? '正在检查本机保存方式…' : 'Checking local storage…');
+    status.setAttribute('role', 'status');
+    const check = ui.button(zh ? '检查迁移状态' : 'Check migration', { onClick: () => { void refreshData(); } });
+    const types = ui.h('fieldset', 'bottle-data-types');
+    types.append(ui.h('legend', null, zh ? '这次想带走什么' : 'Choose what to back up'));
+    const labels = zh ? { letters: '信件与回信', notes: '小纸条', system: '系统来信', drafts: '未寄草稿', stars: '星标', doodles: '自定义涂鸦', fonts: '自定义字体与笔迹', sounds: '自定义音效', theme: '主题与背景', preferences: '阅读与设备偏好' } : { letters: 'Letters and replies', notes: 'Short notes', system: 'System letters', drafts: 'Unsent drafts', stars: 'Stars', doodles: 'Custom doodles', fonts: 'Custom fonts and assignments', sounds: 'Custom sounds', theme: 'Theme and background', preferences: 'Reading and device preferences' };
+    const checks = Object.entries(labels).map(([id, label]) => { const row = ui.h('label'), input = ui.h('input'); input.type = 'checkbox'; input.checked = true; input.value = id; row.append(input, ui.h('span', null, label)); types.append(row); return input; });
+    const actions = ui.h('div', 'bottle-data-actions');
+    const exportButton = ui.button(zh ? '导出备份' : 'Export backup', { variant: 'primary', onClick: () => { void run(async () => { const selected = checks.filter(i => i.checked).map(i => i.value); await download(await invoke('export', selected)); notice.textContent = zh ? '备份已下载，请妥善保管。' : 'Backup downloaded. Keep it private.'; }); } });
+    const picker = ui.h('input');
+    picker.type = 'file';
+    picker.hidden = true;
+    picker.accept = '.bottle-backup,.json,application/json,application/gzip';
+    const importButton = ui.button(zh ? '选择备份，先比较' : 'Choose backup and compare', { onClick: () => picker.click() });
+    const notice = ui.h('p', 'bottle-data-note');
+    notice.setAttribute('role', 'status');
+    notice.setAttribute('aria-live', 'polite');
+    const comparison = ui.h('section', 'bottle-data-comparison');
+    comparison.hidden = true;
+    comparison.setAttribute('aria-label', zh ? '导入前比较' : 'Compare before import');
+    const saved = ui.h('details', 'bottle-data-saved');
+    saved.append(ui.h('summary', null, zh ? '本机保留的迁移与覆盖前备份' : 'Saved migration and replacement backups'));
+    const savedList = ui.h('div', 'bottle-data-backups');
+    saved.append(savedList);
+    const soundArea = ui.h('div', 'bottle-data-sounds');
+    actions.append(exportButton, importButton);
+    card.append(heading, status, check, types, actions, picker, notice, comparison, ui.h('p', 'bottle-data-help', zh ? '备份含明文正文，请勿随意转发。内置音效不重复打包；只存在手机或浏览器里的自选音效，请先在那台设备的信箱中点「收集本设备素材」。' : 'Backups contain plaintext letters. Built-in sounds are excluded. First collect browser-only custom sounds from the mailbox on that device.'), saved, soundArea);
+    ctx.root.append(card);
+    let busy = false, previewId = null, transferId = null;
+    const invoke = (method, input) => ctx.invoke('data:' + method, input === undefined ? [] : [input]);
+    function disable(value) { busy = value; card.querySelectorAll('button').forEach(b => b.disabled = value); checks.forEach(c => c.disabled = value); card.setAttribute('aria-busy', String(value)); }
+    async function run(action) { if (busy || ctx.signal.aborted)
+        return; disable(true); notice.textContent = zh ? '正在处理，请稍候…' : 'Working…'; try {
+        await action();
+    }
+    catch (e) {
+        if (!ctx.signal.aborted)
+            notice.textContent = e instanceof Error ? e.message : (zh ? '没有完成，原有数据仍保留。' : 'Could not complete. Existing data is preserved.');
+    }
+    finally {
+        if (!ctx.signal.aborted)
+            disable(false);
+    } }
+    function bytesToBase64(bytes) { let binary = ''; for (let i = 0; i < bytes.length; i += 8192)
+        binary += String.fromCharCode(...bytes.subarray(i, i + 8192)); return btoa(binary); }
+    async function download(item) {
+        transferId = item.id;
+        const pieces = [];
+        let offset = 0;
+        try {
+            while (offset < item.size) {
+                if (ctx.signal.aborted)
+                    throw Error('Cancelled');
+                const result = await invoke('download', { id: item.id, offset });
+                const data = Uint8Array.from(atob(result.data), c => c.charCodeAt(0));
+                if (!data.length)
+                    throw Error('Download interrupted');
+                pieces.push(data);
+                offset += data.length;
+                notice.textContent = (zh ? '正在下载备份 ' : 'Downloading backup ') + Math.round(offset / item.size * 100) + '%';
+            }
+            const blob = new Blob(pieces, { type: 'application/gzip' }), href = URL.createObjectURL(blob), link = ui.h('a');
+            link.href = href;
+            link.download = item.name;
+            link.hidden = true;
+            card.append(link);
+            link.click();
+            link.remove();
+            const resource = ctx.own({ dispose: () => URL.revokeObjectURL(href) });
+            ctx.timeout(() => resource.dispose(), 1000);
+        }
+        finally {
+            await invoke('cancel', { id: item.id }).catch(() => { });
+            transferId = null;
+        }
+    }
+    async function refreshData() {
+        try {
+            const data = await invoke('status');
+            if (ctx.signal.aborted)
+                return;
+            const migration = data.migration?.files ? ((zh ? '；旧版 ' : '; migrated ') + data.migration.files + (zh ? ' 份数据已迁入，迁移前备份已保留' : ' source files; original backup retained')) : '';
+            status.textContent = (zh ? '当前使用 SQLite，信件共 ' : 'Using SQLite. Letters: ') + (data.counts?.total ?? 0) + (zh ? ' 封' : '') + migration;
+            if (data.retainedSources?.length)
+                status.textContent += zh ? '；少量旧文件尚未清理，当前以数据库为准。' : '; some old files remain; the database is authoritative.';
+            savedList.replaceChildren();
+            for (const backup of data.backups ?? []) {
+                const row = ui.h('div', 'bottle-data-backup-row'), text = ui.h('span', null, (backup.id.startsWith('migration-') ? (zh ? '迁移前备份' : 'Before migration') : (zh ? '覆盖前备份' : 'Before replacement')) + ' ' + new Date(backup.at).toLocaleString());
+                const get = ui.button(zh ? '下载' : 'Download', { onClick: () => { void run(async () => { await download(await invoke('backup', { id: backup.id })); }); } });
+                let armed = false;
+                const remove = ui.button(zh ? '删除' : 'Delete', { onClick: () => { if (!armed) {
+                        armed = true;
+                        remove.textContent = zh ? '再次点击，删除这份备份' : 'Click again to delete this backup';
+                        return;
+                    } void run(async () => { await invoke('removeBackup', { id: backup.id }); await refreshData(); notice.textContent = zh ? '这份本机备份已删除，当前信册未改动。' : 'Saved backup deleted. Current letters are unchanged.'; }); } });
+                row.append(text, get, remove);
+                savedList.append(row);
+            }
+            if (!data.backups?.length)
+                savedList.append(ui.h('p', null, zh ? '这里还没有保留的备份。' : 'No saved backups.'));
+            soundArea.replaceChildren();
+            if (data.sounds?.length) {
+                const label = ui.h('label', null, zh ? '已保存的自定义音效' : 'Saved custom sounds'), select = ui.h('select');
+                for (const sound of data.sounds) {
+                    const option = ui.h('option', null, sound.name);
+                    option.value = sound.id;
+                    select.append(option);
+                }
+                label.append(select);
+                soundArea.append(label);
+                for (const kind of ['incoming', 'reply'])
+                    soundArea.append(ui.button(zh ? (kind === 'incoming' ? '用于桌面来信' : '用于桌面回信') : (kind === 'incoming' ? 'Use for desktop incoming' : 'Use for desktop replies'), { onClick: () => { void run(async () => { await ctx.invoke('data:applySound', [{ kind, id: select.value }]); notice.textContent = zh ? '已用于下一次桌面提示，网页设备设置不变。' : 'Applied to future desktop notifications. Browser settings are unchanged.'; }); } }));
+            }
+        }
+        catch (e) {
+            if (!ctx.signal.aborted)
+                status.textContent = e instanceof Error ? e.message : (zh ? '无法读取保存状态，原数据未改动。' : 'Could not read storage status. Existing data is unchanged.');
+        }
+    }
+    picker.onchange = () => {
+        const file = picker.files?.[0];
+        picker.value = '';
+        if (!file)
+            return;
+        void run(async () => {
+            if (file.size > 128 * 1024 * 1024)
+                throw Error(zh ? '请选择不超过 128 MiB 的备份。' : 'Choose a backup under 128 MiB.');
+            if (previewId) {
+                await invoke('cancel', { id: previewId });
+                previewId = null;
+            }
+            comparison.hidden = true;
+            const upload = await invoke('begin', { size: file.size });
+            transferId = upload.id;
+            try {
+                for (let offset = 0; offset < file.size; offset += upload.chunkBytes) {
+                    const bytes = new Uint8Array(await file.slice(offset, offset + upload.chunkBytes).arrayBuffer());
+                    await invoke('chunk', { id: upload.id, offset, data: bytesToBase64(bytes) });
+                    notice.textContent = (zh ? '正在读取备份 ' : 'Reading backup ') + Math.round((offset + bytes.length) / file.size * 100) + '%';
+                }
+                const result = await invoke('preview', { id: upload.id });
+                transferId = null;
+                if (ctx.signal.aborted)
+                    return;
+                previewId = result.id;
+                showComparison(result);
+                notice.textContent = zh ? '文件已检查，尚未导入。请在下方选择使用哪份数据。' : 'File checked. Nothing imported yet. Choose how to use it below.';
+            }
+            catch (e) {
+                await invoke('cancel', { id: upload.id }).catch(() => { });
+                transferId = null;
+                throw e;
+            }
+        });
+    };
+    function showComparison(data) {
+        comparison.replaceChildren();
+        comparison.hidden = false;
+        comparison.append(ui.h('h4', null, zh ? '先看看两份信册' : 'Compare the two letterbooks'));
+        const table = ui.h('table'), thead = ui.h('thead'), head = ui.h('tr');
+        for (const text of [zh ? '信件数量' : 'Letter count', zh ? '本机现有' : 'Current', zh ? '备份带来' : 'In backup'])
+            head.append(ui.h('th', null, text));
+        thead.append(head);
+        table.append(thead);
+        const body = ui.h('tbody');
+        for (const [key, name] of Object.entries(zh ? { sent: '寄出的信', received: '收到的信', reply: '收到的回信', system: '系统来信', total: '合计' } : { sent: 'Sent', received: 'Received', reply: 'Replies', system: 'System', total: 'Total' })) {
+            const row = ui.h('tr');
+            row.append(ui.h('th', null, name), ui.h('td', null, String(data.current[key])), ui.h('td', null, String(data.incoming[key])));
+            body.append(row);
+        }
+        table.append(body);
+        comparison.append(table);
+        comparison.append(ui.h('p', null, (zh ? '这次包含：' : 'Included: ') + (data.categories ?? []).map((c) => labels[c.id] ?? c.label).join('、')), ui.h('p', 'bottle-data-help', zh ? '替换只影响备份包含的类别。正在处理的信件会保留；本机有草稿时不能用替换撤销原稿。' : 'Replacement affects only included categories. Active letters remain protected; existing drafts must be handled first.'));
+        const backupLabel = ui.h('label', 'bottle-data-backup-choice'), backup = ui.h('input');
+        backup.type = 'checkbox';
+        backup.checked = true;
+        backupLabel.append(backup, ui.h('span', null, zh ? '替换前，先备份将被替换的数据' : 'Save the current data before replacement'));
+        comparison.append(backupLabel);
+        const buttons = ui.h('div', 'bottle-data-actions');
+        buttons.append(ui.button(zh ? '保留本机，不导入' : 'Keep current, cancel import', { onClick: () => { void run(async () => { await invoke('cancel', { id: previewId }); previewId = null; comparison.hidden = true; notice.textContent = zh ? '已保留本机数据，没有导入。' : 'Current data kept. Nothing imported.'; }); } }));
+        for (const mode of ['merge', 'replace'])
+            buttons.append(ui.button(zh ? (mode === 'merge' ? '合并，本机已有优先' : '使用备份，替换所选类别') : (mode === 'merge' ? 'Merge, keep existing records' : 'Replace included categories'), { variant: mode === 'merge' ? 'primary' : undefined, onClick: () => { void run(async () => { const result = await invoke('confirm', { id: previewId, mode, backup: backup.checked }); notice.textContent = result.message; previewId = null; comparison.hidden = true; await refreshData(); }); } }));
+        comparison.append(buttons);
+        comparison.tabIndex = -1;
+        comparison.focus({ preventScroll: true });
+    }
+    ctx.own({ dispose: () => { if (transferId)
+            ctx.notifyOnUnmount?.('data:cancel', [{ id: transferId }]); if (previewId)
+            ctx.notifyOnUnmount?.('data:cancel', [{ id: previewId }]); } });
+    ctx.timeout(() => { void refreshData(); }, 0);
 }
 const bundle = { panels: { mailbox: { mount: mountMailbox } } };
 export default bundle;

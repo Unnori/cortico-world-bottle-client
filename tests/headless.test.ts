@@ -398,6 +398,8 @@ it('unknown new-letter response retains draft and does not automatically repeat 
   const original={...store().letterDraft};
   expect(await call('bottle_send_draft',original)).toContain('寄送结果待确认');
   await Reflect.get(h.world,'checkAutoReply').call(h.world);
-  expect(throws).toBe(1);expect(store().letterDraft).toEqual(original);
+  expect(throws).toBe(1);expect(store().letterDraft).toEqual({...original,deliveryPending:true});
+  expect(await call('bottle_send_draft',original)).toContain('不能重复投递');
+  expect(throws).toBe(1);
   expect(h.db.letters.filter(r=>r.body==='结果未知的原文')).toHaveLength(1);
 });

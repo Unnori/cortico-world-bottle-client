@@ -49,7 +49,7 @@ try{
  assert.equal(await inMail("!!document.querySelector('textarea#paper-body,[contenteditable=true]#paper-body')"),false);
  for(const width of [1040,390,320]){
   await evaluate(`document.getElementById('mailbox').style.width='${width}px';true`);
-  for(const theme of ['ocean','paper','epistle','coopanion'])for(const mode of ['light','dark']){
+  for(const theme of ['ocean','paper','epistle'])for(const mode of ['light','dark']){
    await inMail(`document.getElementById('theme-${theme}').click();document.getElementById('mode-${mode}').click();true`);await pause(280);
    const result=await inMail(`(()=>{const r=s=>document.querySelector(s).getBoundingClientRect();const a=r('.mail-body>.letter-sheet'),b=r('.reply-quote .letter-sheet'),f=r('.mail-foot'),t=r('.paper-tray');return {overflow:document.documentElement.scrollWidth>innerWidth,aligned:Math.abs(a.left-b.left)<1&&Math.abs(a.right-b.right)<1,paperAfter:t.top>=f.bottom,centered:Array.from(document.querySelectorAll('.paper-slot > .paper-slip')).every(n=>{const p=n.getBoundingClientRect();return Math.abs((p.left+p.right)-(t.left+t.right))<2}),animation:getComputedStyle(document.getElementById('paper-compose')).animationName,original:document.querySelector('.reply-quote .letter').textContent,reply:document.querySelector('.mail-body>.letter-sheet .letter').textContent}})()`);
    assert.deepEqual(result,{overflow:false,aligned:true,paperAfter:true,centered:true,animation:'none',original,reply},JSON.stringify({width,theme,mode,result}));

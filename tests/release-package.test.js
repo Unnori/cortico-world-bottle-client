@@ -7,8 +7,9 @@ function fixture() {
   const js = Buffer.from('export default {};\n'), css = Buffer.from('body{}\n');
   const hash = bytes => createHash('sha256').update(bytes).digest('hex').slice(0, 12);
   const manifest = { name: 'cortico-world-bottle', version: '0.8.0', cortico: { webUiClient: `dist/webui-${hash(js)}.js`, webUiStyle: `dist/webui-${hash(css)}.css` } };
-  const entries = new Map(['package.json', 'README.md', 'CHANGELOG.md', 'describe.json', 'world/index.ts', 'world/definition.ts', 'world/world.ts', 'world/ENV_PROMPT.md', 'world/icon.png', 'world/card-host.ps1', 'world/card-sound.ps1', 'world/sounds/incoming/incoming_default.wav', 'world/sounds/reply/reply_default.wav', 'shared/contract.ts', 'shared/stationery.ts', 'shared/text.ts', 'shared/hints.ts', 'shared/ago.ts'].map(file => ['package/' + file, Buffer.from('')]));
+  const entries = new Map(['package.json', 'README.md', 'CHANGELOG.md', 'describe.json', 'world/index.ts', 'world/definition.ts', 'world/world.ts', 'world/ENV_PROMPT.md', 'world/icon.png', 'world/card-host.ps1', 'world/card-stack-host.ps1', 'world/card-sound.ps1', 'world/sounds/incoming/incoming_default.wav', 'world/sounds/reply/reply_default.wav', 'shared/contract.ts', 'shared/stationery.ts', 'shared/text.ts', 'shared/hints.ts', 'shared/ago.ts','shared/draft-status.ts'].map(file => ['package/' + file, Buffer.from('')]));
   entries.set('package/' + manifest.cortico.webUiClient, js); entries.set('package/' + manifest.cortico.webUiStyle, css);
+  for(const file of ['world/local-db.ts','world/data-backup.ts','world/user-assets.ts','world/builtin-assets.json','world/backgrounds/default.webp'])entries.set('package/'+file,Buffer.from(''));
   entries.set('package/world/fonts/catalog.json', Buffer.from(JSON.stringify({ baseUrl: 'https://fontsforletters.sqnori.com/', fonts: [{}] })));
   entries.set('package/world/index.ts', Buffer.from("import { BOTTLE } from './definition.ts'; export default BOTTLE;"));
   return { manifest, entries, run: files => checkReleaseFiles(files ?? [...entries.keys()], manifest, name => entries.get(name)) };
@@ -22,6 +23,9 @@ it.each(['tests/private.test.ts', 'server/db.ts', 'backups/snapshot.json', 'scra
 it('rejects duplicate, missing runtime files and altered hashed assets', () => {
   const h = fixture(); expect(() => h.run([...h.entries.keys(), 'package/world/index.ts'])).toThrow('Duplicate');
   h.entries.delete('package/world/card-host.ps1'); expect(() => h.run()).toThrow('Missing runtime file');
+  h.entries.set('package/world/card-host.ps1', Buffer.from(''));
+  h.entries.delete('package/world/card-stack-host.ps1'); expect(() => h.run()).toThrow('Missing runtime file: world/card-stack-host.ps1');
+  h.entries.set('package/world/card-stack-host.ps1', Buffer.from(''));
   h.entries.set('package/world/card-host.ps1', Buffer.from('')); h.entries.set('package/' + h.manifest.cortico.webUiStyle, Buffer.from('changed')); expect(() => h.run()).toThrow('digest mismatch');
 });
 it('rejects a runtime import whose source is not in the tarball', () => {

@@ -3,8 +3,11 @@
 # 由 World 启动，读一份 JSON，画一张纸，按钮把动作回传给本地信箱服务，然后自己关。
 # 显示、回传、关闭；新来信/回信可以播放一次本机音效，不读取网络音频。
 param(
-  [Parameter(Mandatory = $true)][string]$Data,
+  [string]$Data = '',
   [Parameter(Mandatory = $true)][string]$Base,
+  # The stack host creates an isolated module for each card in the same process.
+  [object]$SpecInput = $null,
+  [switch]$Managed,
   # 没人理它时多久自己收起；调试时可以传小一点。
   [int]$AutoCloseMs = 10000,
   # 开发用：把窗口真实的样子截一张 PNG，然后照常运行。
@@ -45,7 +48,7 @@ function Brush([string]$hex) {
   return [System.Windows.Media.SolidColorBrush]::new($color)
 }
 
-$spec = Get-Content -LiteralPath $Data -Raw -Encoding UTF8 | ConvertFrom-Json
+$spec = if ($SpecInput) { $SpecInput } else { Get-Content -LiteralPath $Data -Raw -Encoding UTF8 | ConvertFrom-Json }
 $script:baseUrl = $Base.TrimEnd('/')
 $script:themeKeys = @('paper','card','ink','muted','line','accent','seal','sea','soft','panel','on-accent','warning-bg','warning-line','warning-text','danger-text')
 $script:themeData = $null
@@ -60,6 +63,7 @@ function Accept-Appearance($candidate) {
 function Apply-Appearance {
   if (-not $script:themeData) { return }
   $mode = $script:themeData.preference.mode
+  if ($script:themeData.resolvedAppearance -in @('light','dark')) { $mode = $script:themeData.resolvedAppearance }
   if ($mode -eq 'system') {
     $mode = 'light'
     try { if ((Get-ItemPropertyValue -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name AppsUseLightTheme -ErrorAction Stop) -eq 0) { $mode = 'dark' } } catch { }
@@ -82,7 +86,7 @@ function Apply-Appearance {
   }
 }
 Accept-Appearance $spec.appearance
-try { Accept-Appearance (Invoke-RestMethod -Uri ($script:baseUrl + '/appearance') -TimeoutSec 1 -UseBasicParsing) } catch { }
+if (-not $Managed) { try { Accept-Appearance (Invoke-RestMethod -Uri ($script:baseUrl + '/appearance') -TimeoutSec 1 -UseBasicParsing) } catch { } }
 Apply-Appearance
 
 $script:busy = $false
@@ -285,8 +289,17 @@ $status.Visibility = 'Collapsed'
 $script:status = $status
 $stack.Children.Add($status) | Out-Null
 
+function Stop-CardClosing {
+  foreach ($timer in @($script:closeTimer, $script:late)) { if ($timer) { $timer.Stop() } }
+  # A click can arrive during the closing fade. Keep its receipt readable too.
+  if ($script:win.IsLoaded) {
+    $script:win.BeginAnimation([System.Windows.Window]::OpacityProperty, $null)
+    $script:win.Opacity = 1
+  }
+}
+
 function Close-Soon([int]$ms) {
-  if ($script:closeTimer) { $script:closeTimer.Stop() }
+  Stop-CardClosing
   $script:closeTimer = New-Object System.Windows.Threading.DispatcherTimer
   $script:closeTimer.Interval = [TimeSpan]::FromMilliseconds($ms)
   $script:closeTimer.Add_Tick({
@@ -304,6 +317,9 @@ function Close-Soon([int]$ms) {
 function Invoke-CardAction([string]$id) {
   if ($script:busy) { return }
   if ($id -eq 'close') { Close-Soon 0; return }
+  # Once someone interacts, only an explicit successful close receipt or their
+  # own close action may dismiss this card. Failures stay visible for review.
+  Stop-CardClosing
   if ($id -eq 'preview') {
     if ($spec.draft -and $spec.draft.draftId) {
       $previewUrl = $script:baseUrl + '/?draft=' + [Uri]::EscapeDataString([string]$spec.draft.draftId) + '&revision=' + [string]$spec.draft.revision
@@ -314,6 +330,7 @@ function Invoke-CardAction([string]$id) {
 
   $script:busy = $true
   foreach ($b in $script:buttons) { $b.IsEnabled = $false }
+  $client = $null
   try {
     # 不用 Invoke-RestMethod：它可能走系统代理，回环地址不该经过代理。
     $client = New-Object System.Net.WebClient
@@ -325,6 +342,10 @@ function Invoke-CardAction([string]$id) {
     if ($id -in @('send', 'rewrite', 'discard') -and $spec.draft) {
       $client.Headers.Add('content-type', 'application/json')
       $payload = @{ draftId = [string]$spec.draft.draftId; revision = [int]$spec.draft.revision; kind = [string]$spec.draft.kind } | ConvertTo-Json -Compress
+    }
+    if ($id -in @('open', 'read', 'dismiss', 'keep') -and $spec.letterId) {
+      $client.Headers.Add('content-type', 'application/json')
+      $payload = @{ letterId = [string]$spec.letterId } | ConvertTo-Json -Compress
     }
     $raw = $client.UploadString("$($script:baseUrl)/$id", 'POST', $payload)
     $res = $raw | ConvertFrom-Json
@@ -344,10 +365,12 @@ function Invoke-CardAction([string]$id) {
     foreach ($b in $script:buttons) { $b.IsEnabled = $true }
     $script:busy = $false
   } catch {
-    $script:status.Text = '信箱没回音，稍后再试。'
+    $script:status.Text = if ($id -eq 'send') { '未收到寄送结果，请打开信箱核对草稿和已发出记录，先不要重复投递。' } else { '信箱没回音，稍后再试。' }
     $script:status.Visibility = 'Visible'
     foreach ($b in $script:buttons) { $b.IsEnabled = $true }
     $script:busy = $false
+  } finally {
+    if ($client) { $client.Dispose() }
   }
 }
 
@@ -413,7 +436,11 @@ foreach ($action in @($spec.actions)) {
 }
 $stack.Children.Add($actions) | Out-Null
 
-$card.Child = $stack
+$scroll = New-Object System.Windows.Controls.ScrollViewer
+$scroll.VerticalScrollBarVisibility = 'Auto'
+$scroll.MaxHeight = [Math]::Max(120, [System.Windows.SystemParameters]::WorkArea.Height - 130)
+$scroll.Content = $stack
+$card.Child = $scroll
 $shell.Children.Add($card) | Out-Null
 $win.Content = $shell
 
@@ -424,8 +451,10 @@ $win.Add_ContentRendered({
   if ($PreviewOnly) { return }
   if (-not $script:soundStarted) { $script:soundStarted = $true; Start-BottleSound $spec.sound }
   $wa = [System.Windows.SystemParameters]::WorkArea
-  $script:win.Left = [Math]::Max($wa.Left + 12, $wa.Right - $script:win.ActualWidth - 20)
-  $script:win.Top = [Math]::Max($wa.Top + 12, $wa.Bottom - $script:win.ActualHeight - 20)
+  if (-not $Managed) {
+    $script:win.Left = [Math]::Max($wa.Left + 12, $wa.Right - $script:win.ActualWidth - 20)
+    $script:win.Top = [Math]::Max($wa.Top + 12, $wa.Bottom - $script:win.ActualHeight - 20)
+  }
 
   $fade = [System.Windows.Media.Animation.DoubleAnimation]::new(0, 1, [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(300)))
   $easeOpacity = New-Object System.Windows.Media.Animation.CubicEase
@@ -466,8 +495,13 @@ $script:themeTimer.Add_Tick({
     $script:themeRequest = $script:themeClient.GetStringAsync($script:baseUrl + '/appearance')
   }
 })
-$script:themeTimer.Start()
-$win.Add_Closed({ Stop-BottleSound; $script:themeTimer.Stop(); $script:themeClient.Dispose() })
+if (-not $Managed) { $script:themeTimer.Start() }
+$win.Add_Closed({
+  Stop-BottleSound
+  $script:themeTimer.Stop()
+  $script:themeClient.Dispose()
+  foreach ($timer in @($script:closeTimer, $script:late, $script:shotTimer, $script:autoTimer)) { if ($timer) { $timer.Stop() } }
+})
 
 # 人类一直不理它也别永远压在最上面：默认十秒自己收起，0 为保持显示。
 if ($AutoCloseMs -gt 0) { Close-Soon $AutoCloseMs }
@@ -500,6 +534,7 @@ if ($AutoAction) {
   $script:autoTimer.Start()
 }
 
+if ($Managed) { return }
 $app = New-Object System.Windows.Application
 $app.ShutdownMode = 'OnMainWindowClose'
 $app.Run($win) | Out-Null

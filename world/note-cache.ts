@@ -1,10 +1,11 @@
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
+
 import { join, dirname } from 'node:path';
 import { NOTE_TTL_MS, type ReceivedNote } from '../shared/contract.ts';
 import { checkNote } from '../shared/text.ts';
+import { readLocalDocument, writeLocalDocument } from './local-db.ts';
 
 /** expiresAt describes server retention only; it never expires this local copy. */
-export interface LocalNote extends ReceivedNote { readAt?: number; direction?: 'sent'; delivery?: 'pending' | 'sent' | 'unconfirmed'; imported?: true }
+export interface LocalNote extends ReceivedNote { receivedAt?:number; readAt?: number; direction?: 'sent'; delivery?: 'pending' | 'sent' | 'unconfirmed'; imported?: true }
 interface ForgottenNote { id:string; letterId:string; expiresAt:string }
 
 /** Local archive: body and readAt remain until the human deletes the correspondence or
@@ -23,11 +24,12 @@ export class NoteCache {
   load():void {
     this.records.clear();this.forgotten.clear();
     try {
-      const data=JSON.parse(readFileSync(this.file,'utf8'));
+      const data=readLocalDocument(this.file);
+      if(!data)return;
       if(data.schemaVersion!==1)return;
       for(const value of Array.isArray(data.notes)?data.notes:[]) {
         const note=this.valid(value);if(!note)continue;
-        this.records.set(note.id,{...note,...(value.direction==='sent'?{direction:'sent' as const,delivery:value.delivery==='pending'?'pending' as const:value.delivery==='unconfirmed'?'unconfirmed' as const:'sent' as const}:{}),...(value.imported===true?{imported:true as const}:{}),...(typeof value.readAt==='number'&&Number.isFinite(value.readAt)&&value.readAt>0?{readAt:value.readAt}:{})});
+        this.records.set(note.id,{...note,...(typeof value.receivedAt==='number'&&Number.isFinite(value.receivedAt)&&value.receivedAt>0?{receivedAt:value.receivedAt}:{}),...(value.direction==='sent'?{direction:'sent' as const,delivery:value.delivery==='pending'?'pending' as const:value.delivery==='unconfirmed'?'unconfirmed' as const:'sent' as const}:{}),...(value.imported===true?{imported:true as const}:{}),...(typeof value.readAt==='number'&&Number.isFinite(value.readAt)&&value.readAt>0?{readAt:value.readAt}:{})});
       }
       for(const value of Array.isArray(data.forgotten)?data.forgotten:[]){
         if(value&&this.id(value.id)&&this.id(value.letterId)&&typeof value.expiresAt==='string'&&Date.parse(value.expiresAt)>this.now()){
@@ -36,7 +38,7 @@ export class NoteCache {
       }
       // Migrate older seven-day caches without expiring any locally archived paper.
       this.save();
-    } catch(error) { if(existsSync(this.file)&&!(error instanceof SyntaxError))throw error; }
+    } catch(error) { throw error; }
   }
   private id(value:unknown):value is string{return typeof value==='string'&&value.length>0&&value.length<=256;}
   private valid(value:unknown,fromServer=false):ReceivedNote|null {
@@ -51,7 +53,7 @@ export class NoteCache {
     const note=this.valid(value,true);if(!note)return null;
     // Save even an existing note again before ACK: a previous disk write may have failed.
     const added=!this.forgotten.has(note.id)&&!this.records.has(note.id);
-    if(added)this.records.set(note.id,note);
+    if(added)this.records.set(note.id,{...note,receivedAt:this.now()});
     try{this.save();}catch(error){if(added)this.records.delete(note.id);throw error;}return note.id;
   }
   outgoing(letterId:string):LocalNote|undefined {
@@ -104,8 +106,6 @@ export class NoteCache {
     if(changed)this.save();
   }
   private save():void {
-    mkdirSync(dirname(this.file),{recursive:true});const temporary=this.file+'.tmp';
-    try{writeFileSync(temporary,JSON.stringify({schemaVersion:1,notes:[...this.records.values()],forgotten:[...this.forgotten.values()]})+'\n',{encoding:'utf8',mode:0o600});renameSync(temporary,this.file);}
-    finally{try{unlinkSync(temporary);}catch{/* No partial note bodies left in a temporary file. */}}
+    writeLocalDocument(this.file,{schemaVersion:1,notes:[...this.records.values()],forgotten:[...this.forgotten.values()]});
   }
 }

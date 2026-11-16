@@ -1,3 +1,4 @@
+import {gzipSync} from 'node:zlib';
 import {afterEach,expect,it,vi} from 'vitest';
 import {makeHarness,callTool,type Harness} from './helpers.ts';
 import {FakeHost} from './fake-host.ts';
@@ -9,6 +10,14 @@ import {NOTE_TTL_MS} from '../shared/contract.ts';
 const rigs:Harness[]=[];
 afterEach(async()=>{for(const h of rigs.splice(0))await h.stop();vi.restoreAllMocks();});
 async function setup(){const h=makeHarness({port:0,config:{headlessEnabled:true,randomWake:false}});rigs.push(h);const host=new FakeHost();await h.world.start(host);return {h,host,store:Reflect.get(h.world,'store')};}
+
+async function restore(h:Harness,document:unknown):Promise<{ok:boolean}> {
+  const invoke=(method:string,value?:unknown)=>h.world.webUi().invoke!('mailbox','data:'+method,value===undefined?[]:[value]) as Promise<any>;
+  const bytes=gzipSync(JSON.stringify(document)),upload=await invoke('begin',{size:bytes.length});
+  for(let offset=0;offset<bytes.length;offset+=upload.chunkBytes)await invoke('chunk',{id:upload.id,offset,data:bytes.subarray(offset,offset+upload.chunkBytes).toString('base64')});
+  const preview=await invoke('preview',{id:upload.id});
+  return invoke('confirm',{id:preview.id,mode:'merge',backup:true});
+}
 
 it('manual expiry preserves body and art across restart, new replies, export/import and explicit discard',async()=>{
   const {h,host,store}=await setup();const first=h.throwAs('peer','原信');await callTool(h.world,'bottle_catch');await host.deliverDeferred(h.world);h.world.onTurnEnded();
@@ -25,9 +34,9 @@ it('manual expiry preserves body and art across restart, new replies, export/imp
   expect(store.held.letterId).toBe(second);await callTool(h.world,'bottle_reply',{text:'第二封回信'});
   expect(store.draft.draftId).not.toBe(draft.draftId);expect(store.draft.sendFailure).toBeUndefined();
   expect(store.received.find((r:any)=>r.letterId===first).unsentReplies[0].body).toBe(draft.body);
-  const target=await setup();expect(target.h.world.pageDeps().importArchive!(exported).ok).toBe(true);
+  const target=await setup();expect((await restore(target.h,exported)).ok).toBe(true);
   expect(target.store.received[0].unsentReplies[0].body).toBe(draft.body);
-  const again=await setup();again.h.world.pageDeps().importArchive!(exported);again.store.setDraft({...draft,sendFailure:'expired'});
+  const again=await setup();(await restore(again.h,exported));again.store.setDraft({...draft,sendFailure:'expired'});
   expect((await again.h.world.pageDeps().discard('reply')).ok).toBe(true);expect(again.store.received[0].unsentReplies).toEqual([]);
 });
 
@@ -46,15 +55,15 @@ it('v2 backup restores both note directions and read state without replay or pen
   const doc=exportArchive(a.store,Reflect.get(a.h.world,'stars') as LetterStars,cache);
   expect(doc.schemaVersion).toBe(2);expect(doc.entries.filter(e=>e.kind==='note')).toHaveLength(2);
   const b=await setup(),restored=Reflect.get(b.h.world,'receivedNotes') as NoteCache;
-  b.h.clock.t+=NOTE_TTL_MS*10;expect(b.h.world.pageDeps().importArchive!(doc).ok).toBe(true);
+  b.h.clock.t+=NOTE_TTL_MS*10;expect((await restore(b.h,doc)).ok).toBe(true);
   expect(restored.get('received-paper')).toMatchObject({body:'最后的一句话',readAt:a.h.clock.t,imported:true});
   expect(restored.outgoing('original')).toMatchObject({body:'我也想留住这一刻',delivery:'unconfirmed'});
   const client=Reflect.get(b.h.world,'client'),notes=vi.spyOn(client,'notes').mockResolvedValue([]),send=vi.spyOn(client,'note');
   await Reflect.get(b.h.world,'refreshNotes').call(b.h.world);expect(b.host.deferred.filter(e=>e.type==='bottle.note-arrived')).toHaveLength(0);
   expect((await b.h.world.pageDeps().note!('original')).ok).toBe(false);expect(send).not.toHaveBeenCalled();
-  expect(b.h.world.pageDeps().importArchive!(doc).ok).toBe(true);expect(restored.all()).toHaveLength(2);
+  const noteQueries=notes.mock.calls.length;expect((await restore(b.h,doc)).ok).toBe(true);expect(restored.all()).toHaveLength(2);expect(notes.mock.calls.length).toBe(noteQueries);
   await b.h.world.stop();await b.h.world.start(new FakeHost());expect(restored.outgoing('original')?.delivery).toBe('unconfirmed');
-  expect(notes).toHaveBeenCalled();restored.forget('original');expect(restored.all()).toEqual([]);
+  expect(send).not.toHaveBeenCalled();restored.forget('original');expect(restored.all()).toEqual([]);
 });
 
 it('validates all imported paper records before any local mutation and still accepts v1 backups',async()=>{
@@ -70,8 +79,8 @@ it('shared reading includes the actual signature, separate layouts and never-sen
   const {h,host,store}=await setup();store.addReceived({letterId:'system-story',from:'海边邮局',signature:'独自看海的人',body:'故事',at:h.clock.t,seed:true,outcome:'kept',
     stationery:{v:2,paper:'line',decorations:[{doodle:'paper-plane',color:'#778899',x:12,y:24}]},unsentReplies:[{draftId:'old',body:'并未寄出的话',at:h.clock.t}]});
   expect((await h.world.pageDeps().peruse('system-story')).ok).toBe(true);const text=host.last('bottle.peruse')!.text;
-  expect(text).toContain('独自看海的人');expect(text).toContain('paper-plane');expect(text).toContain('#778899');expect(text).toContain('not a rendered image');
-  expect(text).toContain('NEVER SENT');expect(text).toContain('并未寄出的话');expect(text).not.toContain('某位居民');
+  expect(text).toContain('独自看海的人');expect(text).toContain('paper-plane');expect(text).toContain('#778899');expect(text).toContain('非渲染图');
+  expect(text).toContain('未寄出的回信留稿');expect(text).toContain('并未寄出的话');expect(text).not.toContain('某位居民');
 });
 
 it('note import preserves confirmed delivery, merges by ID and honors a prior local deletion',async()=>{
@@ -81,15 +90,15 @@ it('note import preserves confirmed delivery, merges by ID and honors a prior lo
   cache.receive({id:'incoming',letterId:'incoming-letter',from:'来客',body:'对方的最后一句话',at,expiresAt});
   const doc=a.h.world.pageDeps().exportArchive!(),b=await setup(),restored=Reflect.get(b.h.world,'receivedNotes') as NoteCache;
   restored.receive({id:'incoming',letterId:'incoming-letter',from:'来客',body:'本机已经保存的版本',at,expiresAt});
-  b.h.world.pageDeps().importArchive!(doc);expect(restored.get('incoming')!.body).toBe('本机已经保存的版本');
+  (await restore(b.h,doc));expect(restored.get('incoming')!.body).toBe('本机已经保存的版本');
   expect(restored.outgoing('outgoing')).toMatchObject({delivery:'sent',body:'确认寄出的最后一句话'});
-  restored.forget('incoming-letter');b.h.world.pageDeps().importArchive!(doc);expect(restored.get('incoming')).toBeUndefined();
+  restored.forget('incoming-letter');(await restore(b.h,doc));expect(restored.get('incoming')).toBeUndefined();
 });
 
 it('imports retained expressions into an existing original without overwriting its local text',async()=>{
   const a=await setup();a.store.addReceived({letterId:'same',from:'来客',body:'备份原信',at:1,outcome:'expired',unsentReplies:[{draftId:'saved',body:'留住的话',at:2}]});
   const b=await setup();b.store.addReceived({letterId:'same',from:'来客',body:'本机原信',at:1,outcome:'kept'});
-  const doc=a.h.world.pageDeps().exportArchive!();b.h.world.pageDeps().importArchive!(doc);b.h.world.pageDeps().importArchive!(doc);
+  const doc=a.h.world.pageDeps().exportArchive!();(await restore(b.h,doc));(await restore(b.h,doc));
   expect(b.store.received[0].body).toBe('本机原信');expect(b.store.received[0].unsentReplies).toHaveLength(1);
   expect(b.store.received[0].unsentReplies[0].body).toBe('留住的话');
 });

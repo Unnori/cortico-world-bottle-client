@@ -1,8 +1,9 @@
 /** Random invitations are World tasks, never promises to send a letter. */
 import { WAKE_POLICIES } from './wake-policy.ts';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+
+
+import { readLocalDocument, writeLocalDocument } from './local-db.ts';
 
 export type WakeAction = 'write' | 'catch' | 'remind';
 const ACTIONS: WakeAction[] = ['write', 'catch', 'remind'];
@@ -13,7 +14,7 @@ export interface WakeTask {
   attempts: number; createdAt: number; dueAt: number; manual?: boolean; remote?: boolean;
 }
 export interface WakeOutcome { id: string; action: WakeAction; result: WakeResult; reason: string; at: number; attempts: number }
-interface Lane { intervalHours?: number; dayLimit?: number; nextAt: number | null; count: number; paused: boolean; declined: boolean; failed: boolean }
+interface Lane { lastDeliveredAt?:number; intervalHours?: number; dayLimit?: number; nextAt: number | null; count: number; paused: boolean; declined: boolean; failed: boolean }
 export interface WakeState {
   version: 1; day: string; lastInviteAt: number; active: WakeTask | null;
   cooldowns?: Partial<Record<WakeAction, number>>;
@@ -37,7 +38,7 @@ export class WakeScheduler {
       lanes: { write: freshLane(), catch: freshLane(), remind: freshLane() }, cooldowns: {}, history: [] };
     let recovered = false;
     try {
-      const saved = JSON.parse(readFileSync(file, 'utf8')) as Partial<WakeState>;
+      const saved = (readLocalDocument(file)??{}) as Partial<WakeState>;
       if (saved.version === 1 && typeof saved.day === 'string') {
         this.state.day = saved.day;
         for (const action of ACTIONS) {
@@ -49,6 +50,7 @@ export class WakeScheduler {
           const lane = saved.lanes?.[action];
           if (!lane) continue;
           this.state.lanes[action] = {
+            ...(typeof lane.lastDeliveredAt==='number'&&Number.isFinite(lane.lastDeliveredAt)?{lastDeliveredAt:lane.lastDeliveredAt}:{}),
             nextAt: typeof lane.nextAt === 'number' && Number.isFinite(lane.nextAt) ? lane.nextAt : null,
             count: Number.isInteger(lane.count) && lane.count >= 0 ? lane.count : 0,
             paused: lane.paused === true, declined: lane.declined === true, failed: lane.failed === true, intervalHours: this.validInterval(lane.intervalHours, action), dayLimit: this.validLimit(lane.dayLimit, action),
@@ -91,10 +93,7 @@ export class WakeScheduler {
     return retry ? (0.5 + value * 0.5) * HOUR : Math.min(WAKE_POLICIES[kind].maxDelay, base + value * base) * HOUR;
   }
   private save(): void {
-    mkdirSync(dirname(this.file), { recursive: true });
-    const temp = this.file + '.tmp';
-    writeFileSync(temp, JSON.stringify(this.state, null, 2) + '\n', 'utf8');
-    renameSync(temp, this.file);
+    writeLocalDocument(this.file,this.state);
   }
   private rollDay(): void {
     if (this.state.day === this.day()) return;
@@ -102,8 +101,8 @@ export class WakeScheduler {
     this.state.active = null;
     this.state.day = this.day();
     for (const action of ACTIONS) {
-      const { paused, intervalHours, dayLimit } = this.state.lanes[action];
-      this.state.lanes[action] = { ...freshLane(), paused, intervalHours, dayLimit };
+      const { paused, intervalHours, dayLimit, lastDeliveredAt } = this.state.lanes[action];
+      this.state.lanes[action] = { ...freshLane(), paused, intervalHours, dayLimit, lastDeliveredAt };
     }
     this.save();
   }
@@ -115,6 +114,7 @@ export class WakeScheduler {
   /** Called only by the World timer; conditions are rechecked again by render(). */
   check(eligible: Record<'write' | 'catch', boolean> & Partial<Record<'remind', boolean>>, idle: boolean): WakeTask | null {
     // Core may be paused for days: keep just one deferred item, not one per day.
+    if(this.state.active?.phase==='queued' && this.state.active.action==='remind' && !eligible.remind)this.finish('cancelled','conditions_changed');
     if (this.state.active?.phase === 'queued') return null;
     this.rollDay();
     const now = this.now();
@@ -147,13 +147,19 @@ export class WakeScheduler {
   invite(action: 'write' | 'catch', eligible: boolean, remote = false): WakeTask | null {
     this.rollDay();
     const lane = this.state.lanes[action];
-    if (!eligible || lane.paused || lane.declined || this.state.active ||
+    if (!eligible || lane.paused || lane.declined ||
       (this.state.cooldowns?.[action] ?? 0) > this.now()) return null;
+    this.supersedeQueued();
+    if(this.state.active)return null;
     const task: WakeTask = { id: randomUUID(), action, phase: 'queued', attempts: 0,
       createdAt: this.now(), dueAt: this.now(), manual: true, ...(remote ? { remote: true } : {}) };
     this.state.active = task;
     this.state.cooldowns![action] = this.now() + 60_000;
     this.save(); return { ...task };
+  }
+  /** A human request takes priority over an automatic invitation that has not been delivered. */
+  supersedeQueued(): void {
+    if(this.state.active?.phase==='queued'&&!this.state.active.manual)this.finish('cancelled','explicit_invitation');
   }
   configure(action: WakeAction, hours: number, dayLimit?: number): void {
     const policy = WAKE_POLICIES[action];
@@ -176,9 +182,13 @@ export class WakeScheduler {
     const task = this.state.active;
     if (!task || task.id !== id || task.phase !== 'queued') return false;
     if (!eligible || (task.manual ? this.state.lanes[task.action].paused || this.state.lanes[task.action].declined : this.blocked(task.action))) { this.finish('cancelled', 'conditions_changed'); return false; }
+    if(task.action==='remind' && this.state.lanes.remind.lastDeliveredAt &&
+      this.now()-this.state.lanes.remind.lastDeliveredAt!<this.validInterval(this.state.lanes.remind.intervalHours,'remind')*HOUR)return false;
     task.phase = 'rendered'; task.attempts += 1; task.dueAt = this.now() + 10 * 60_000;
-    this.state.lastInviteAt = this.now();
-    if (!task.manual) this.state.lanes[task.action].count += 1;
+    if(task.action!=='remind') {
+      this.state.lastInviteAt = this.now();
+      if (!task.manual) this.state.lanes[task.action].count += 1;
+    }
     this.save(); return true;
   }
   queueFailed(id: string): void {
@@ -188,6 +198,10 @@ export class WakeScheduler {
     const task = this.state.active;
     if (!task || task.id !== id || task.phase !== 'rendered') return;
     if (outcome === 'discarded') { this.finish('declined', 'queue_discarded'); return; }
+    if(task.action==='remind') {
+      const lane=this.state.lanes.remind;
+      lane.count+=1;lane.lastDeliveredAt=this.now();lane.nextAt=this.now()+this.delay(false,'remind');
+    }
     task.phase = 'delivered'; this.save();
   }
   turnEnded(): void {
@@ -245,7 +259,7 @@ export class WakeScheduler {
     const lane = this.state.lanes[task.action];
     if (result === 'failed') lane.failed = true;
     if (result === 'declined') lane.declined = true;
-    lane.nextAt = this.now() + this.delay(false, task.action);
+    if(task.action!=='remind'||!lane.lastDeliveredAt)lane.nextAt = this.now() + this.delay(false, task.action);
     this.state.active = null; this.save();
   }
 }

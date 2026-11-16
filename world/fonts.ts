@@ -1,6 +1,7 @@
+import {readLocalDocument,writeLocalDocument} from './local-db.ts';
 import { INITIAL_FONT_CATALOG, RemoteFontCatalog, writingFont } from './font-catalog.ts';
-import { closeSync, openSync, readSync, readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, lstatSync } from 'node:fs';
-import { createHash, randomInt, randomUUID } from 'node:crypto';
+import { closeSync, openSync, readSync, readdirSync, readFileSync, lstatSync } from 'node:fs';
+import { createHash, randomInt } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { PageSnapshot } from './page.ts';
@@ -59,7 +60,7 @@ export class LetterFonts {
   decorate(snapshot: PageSnapshot, cachedFontDigests: readonly string[] = []): PageSnapshot {
     if (!this.loaded) {
       try {
-        const stored = JSON.parse(readFileSync(this.file, 'utf8'));
+        const stored = readLocalDocument(this.file)??{version:1,assignments:{}};
         if (stored.version !== 1 || !stored.assignments || typeof stored.assignments !== 'object') throw new Error('Invalid font dictionary');
         for (const [key,value] of Object.entries(stored.assignments)) {
           if (!/^[a-f0-9]{64}$/.test(key) || typeof value !== 'string' || !value || value.includes('/') || value.includes('\\')) throw new Error('Invalid font dictionary');
@@ -107,12 +108,7 @@ export class LetterFonts {
       sent: snapshot.sent.map(item => ({ ...item, ...(item.reply ? { reply: { ...item.reply, fontId: assign(item.reply.from) } } : {}) })),
     };
     if (changed) {
-      const temp = this.file + '.' + randomUUID() + '.tmp';
-      try {
-        writeFileSync(temp, JSON.stringify({ version: 1, assignments: next }, null, 2) + '\n', 'utf8');
-        renameSync(temp, this.file); this.assignments = next;
-      } catch { return snapshot; }
-      finally { try { unlinkSync(temp); } catch { /* renamed */ } }
+      try {writeLocalDocument(this.file,{version:1,assignments:next});this.assignments=next;}catch{return snapshot;}
     }
     return result;
   }

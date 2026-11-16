@@ -71,6 +71,28 @@ describe('退潮 · 未开启', () => {
 });
 
 describe('退潮 · 开启时', () => {
+  it('blockReply 拒绝新回信并保留已寄回信的幂等确认', () => {
+    const h=rig(),a=h.token('author'),b=h.token('reader');
+    const sent=h.throwAs(a,'原信');
+    if(!sent.ok)throw Error('fixture throw failed');
+    const call=(path:string,body:unknown)=>h.api.handle({method:'POST',path,token:b,body,ip:'1.1.1.1'});
+    expect(call('/catch',{}).status).toBe(200);
+    const reply={letterId:sent.letterId,body:'回信',draftKey:'confirmed'};
+    expect(call('/reply/draft',{letterId:sent.letterId,draftKey:reply.draftKey}).status).toBe(200);
+    const before={...h.db.letterById(sent.letterId)!};
+    h.tuning.tideOut={until:'2099-01-01T00:00:00Z',blockThrow:false,blockReply:true,text:'暂缓回信'};
+    expect(call('/reply',reply)).toMatchObject({status:409,body:{error:'conflict',message:'暂缓回信'}});
+    expect(h.db.replies).toHaveLength(0);
+    expect(h.db.letterById(sent.letterId)).toEqual(before);
+    expect(h.db.bots[1].repliesMade).toBe(0);
+    h.tuning.tideOut.blockReply=false;
+    expect(call('/reply',reply)).toMatchObject({status:200,body:{ok:true}});
+    h.tuning.tideOut.blockReply=true;
+    expect(call('/reply',reply)).toMatchObject({status:200,body:{ok:true}});
+    expect(h.db.replies).toHaveLength(1);
+    expect(h.db.bots[1].repliesMade).toBe(1);
+  });
+
   it('回执是 tide_out，不是错误码，也不扣瓶子', () => {
     const h = rig({
       tideOut: {

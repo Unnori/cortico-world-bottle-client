@@ -1,3 +1,4 @@
+import {readLocalDocument} from '../world/local-db.ts';
 /** Synthetic mailboxes only. Test real browser font decoding/cache with a 21s download. */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -69,7 +70,7 @@ try{
  await until(tabs[0],child("Array.from(document.fonts).some(f=>f.family==='bottle-"+chosen.id+"'&&f.status==='loaded')"));
  assert.ok(hints[0].includes(chosen.sha256));
  assert.equal(fonts.decorate(s).received[0].fontId,chosen.id);
- const dictionary=JSON.parse(readFileSync(join(directory,'bottle-font-map.json'),'utf8'));
+ const dictionary=readLocalDocument(join(directory,'bottle-font-map.json'));
  assert.equal(dictionary.assignments[oldKey],chosen.name);assert.equal(dictionary.assignments[validKey],chosen.name);
  assert.equal(await evaluate(tabs[0],child("window.__fontRequests.length")),0);
  await evaluate(tabs[0],child("sessionStorage.setItem('offline','1');location.reload();true"));

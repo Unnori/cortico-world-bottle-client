@@ -2,17 +2,42 @@ import { expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { WAKE_POLICIES } from '../world/wake-policy.ts';
-import { mailboxUrl, reachableMailbox, mountMailbox } from '../webui/client.ts';
+import { mailboxUrl, reachableMailbox, mountMailbox, captureHostTheme,HOST_THEME_KEYS } from '../webui/client.ts';
+import {HOST_THEME_KEYS as SERVER_HOST_THEME_KEYS} from '../world/host-theme.ts';
+
+it('uses the same fourteen whitelisted color tokens on the panel and World',()=>{
+  expect(HOST_THEME_KEYS).toEqual(SERVER_HOST_THEME_KEYS);expect(HOST_THEME_KEYS).toHaveLength(14);
+});
 
 function findClass(node, name) { return node.classes?.has(name) ? node : node.children?.map(n => findClass(n, name)).find(Boolean); }
 
+it('saves observed colors before navigating the reserved mailbox window',async()=>{
+  const h=context();await mountMailbox(h.ctx);const view=h.ctx.root.ownerDocument.defaultView;
+  view.getComputedStyle=()=>({colorScheme:'dark',getPropertyValue:()=> '#112233'});
+  view.fetch=vi.fn(async()=>({ok:true,json:async()=>({theme:{selectedId:'mint',mode:'dark'}})}));
+  let finish;h.ctx.invoke.mockImplementation(async(method)=>method==='hostTheme'?new Promise(resolve=>{finish=resolve;}):{});
+  const click=h.button().click();
+  await vi.waitFor(()=>expect(h.ctx.invoke).toHaveBeenCalledWith('hostTheme',[expect.objectContaining({selectedId:'mint',appearance:'dark',palette:Object.fromEntries(HOST_THEME_KEYS.map(key=>[key,'#112233']))})]));
+  expect(h.navigate).not.toHaveBeenCalled();expect(h.popup.opener).toBeNull();finish({selectedId:'mint'});await click;
+  expect(h.navigate).toHaveBeenCalledWith('http://127.0.0.1:7798/');expect(findClass(h.ctx.root,'bottle-host-theme-note')).toBeUndefined();h.abort.abort();
+});
+
+it('opens with the old snapshot when collection fails instead of submitting invalid CSS',async()=>{
+  const h=context();await mountMailbox(h.ctx);const view=h.ctx.root.ownerDocument.defaultView;
+  view.getComputedStyle=()=>({colorScheme:'light',getPropertyValue:()=> 'url(https://not-a-color)'});
+  view.fetch=vi.fn(async()=>({ok:true,json:async()=>({theme:{selectedId:'mint',mode:'light'}})}));
+  await h.button().click();expect(h.navigate).toHaveBeenCalled();expect(h.ctx.invoke.mock.calls.some(([method])=>method==='hostTheme')).toBe(false);h.abort.abort();
+});
+
 function context(language = 'zh') {
-  const open = vi.fn();
+  const navigate=vi.fn(),popup={opener:{},location:{replace:navigate},close:vi.fn(),closed:false};
+  const open = vi.fn(()=>popup);
   const node = (tag, cls, text) => ({
     tag, textContent: text ?? '', children: [], disabled: false,
     classes: new Set((cls ?? '').split(' ').filter(Boolean)),
     append(...children) { this.children.push(...children); },
     replaceChildren(...children) { this.children = children; },
+    querySelectorAll(tag) { return this.children.flatMap(child=>[...(child.tag===tag?[child]:[]),...(child.querySelectorAll?.(tag)||[])]); },
     setAttribute: vi.fn(), select: vi.fn(),
     classList: { add: vi.fn() },
   });
@@ -25,13 +50,14 @@ function context(language = 'zh') {
     root, language, signal: abort.signal,
     invoke: vi.fn().mockResolvedValue({url: 'http://127.0.0.1:7798/'}),
     interval: vi.fn(),
+    own: resource=>resource, timeout:vi.fn(), notifyOnUnmount:vi.fn(),
     refresh: vi.fn().mockResolvedValue(undefined),
     setConfig: vi.fn().mockResolvedValue('saved'),
     ui: {
       h: node,
       button(label, options) {
         const current = node('button', null, label);
-        current.click = () => { if (!current.disabled) options.onClick(); };
+        current.click = () => { if (!current.disabled) return options.onClick(); };
         current.variant = options.variant;
         buttons.push(current);
         button ??= current;
@@ -39,7 +65,7 @@ function context(language = 'zh') {
       },
     },
   };
-  return { ctx, abort, open, buttons, button: () => button, note: () => root.children[0].children.at(-1) };
+  return { ctx, abort, open, navigate,popup,buttons, button: () => button, note: () => root.children[0].children.at(-1) };
 }
 
 it.each([
@@ -57,8 +83,8 @@ it('opens the actual fallback port from a filled button without a model call', a
   expect(h.button().variant).toBe('primary');
   expect(h.button().disabled).toBe(false);
   expect(h.ctx.invoke).toHaveBeenCalledWith('status');
-  h.button().click();
-  expect(h.open).toHaveBeenCalledWith('http://127.0.0.1:7798/', '_blank', 'noopener,noreferrer');
+  await h.button().click();
+  expect(h.navigate).toHaveBeenCalledWith('http://127.0.0.1:7798/');
   h.abort.abort();
   h.button().click();
   expect(h.open).toHaveBeenCalledTimes(1);
@@ -215,7 +241,7 @@ it('renders a separate pairing card, only reveals secrets on click, and resets a
   h.ctx.invoke.mockImplementation(async method => method==='status' ? status : {cards:[{url:'http://192.168.1.8:7798/pair#test-secret',qr:'data:image/png;base64,AAAA'}]});
   await mountMailbox(h.ctx);
   expect(h.ctx.invoke).not.toHaveBeenCalledWith('pairing');
-  h.button().click(); expect(h.open).toHaveBeenCalledWith('http://192.168.1.8:7798/','_blank','noopener,noreferrer');
+  await h.button().click(); expect(h.navigate).toHaveBeenCalledWith('http://192.168.1.8:7798/');
   const card = h.ctx.root.children[2];
   expect(card.classes.has('bottle-lan-card')).toBe(true);
   expect(findClass(card, 'bottle-lan-warning').textContent).toContain('明文');
@@ -318,47 +344,24 @@ it('all native invitation controls mirror the shared scheduler bounds and defaul
   }
 });
 
-function archiveParts(h) {
-  const footer = findClass(h.ctx.root, 'bottle-archive');
-  return { footer, buttons: footer.children[0].children, input: footer.children[2], result: footer.children[3] };
-}
-it('puts quiet backup controls last and merges via World RPC without opening the mailbox', async () => {
-  const h = context(); await mountMailbox(h.ctx);
-  const { footer, buttons, input, result } = archiveParts(h);
-  expect(h.ctx.root.children.at(-1)).toBe(footer);
-  expect(buttons.map(b => b.textContent)).toEqual(['导出信册', '导入信册']);
-  const data = { schemaVersion: 1, entries: [] };
-  input.files = [{ size: 100, text: async () => JSON.stringify(data) }];
-  h.ctx.invoke.mockResolvedValueOnce({ ok: true, message: '合并了 0 封信，本机已有记录优先。' });
-  await input.onchange();
-  expect(h.ctx.invoke).toHaveBeenCalledWith('archiveImport', [data]);
-  expect(result.textContent).toContain('本机已有记录优先');
-  expect(input.value).toBe(''); expect(h.open).not.toHaveBeenCalled();
+
+it('puts the data migration and backup card last with selectable categories and no old instant-import controls',async()=>{
+  const h=context();await mountMailbox(h.ctx);
+  const card=findClass(h.ctx.root,'bottle-data-card');
+  expect(h.ctx.root.children.at(-1)).toBe(card);
+  expect(card.children[0].textContent).toBe('数据迁移与备份');
+  const types=findClass(card,'bottle-data-types');
+  expect(types.children.filter(n=>n.tag==='label')).toHaveLength(10);
+  const load=h.ctx.timeout.mock.calls.find(call=>call[1]===0);await load[0]();
+  await vi.waitFor(()=>expect(h.ctx.invoke).toHaveBeenCalledWith('data:status',[]));
+  expect(h.ctx.invoke.mock.calls.some(([method])=>method==='archiveImport')).toBe(false);
+  h.abort.abort();
 });
-it('rejects malformed and oversized imports before invoking World and respects unmount', async () => {
-  const h = context(); await mountMailbox(h.ctx);
-  const { input, result } = archiveParts(h); h.ctx.invoke.mockClear();
-  input.files = [{ size: 10, text: async () => '{bad' }]; await input.onchange();
-  expect(result.textContent).toContain('未能导入');
-  input.files = [{ size: 33 * 1024 * 1024 }]; await input.onchange();
-  expect(result.textContent).toContain('32 MiB');
-  h.abort.abort(); input.files = [{ size: 10, text: async () => '{}' }]; await input.onchange();
-  expect(h.ctx.invoke).not.toHaveBeenCalled();
-});
-it('exports a plainly labelled JSON and releases the download URL', async () => {
-  const h = context(); h.ctx.own = resource => resource; h.ctx.timeout = vi.fn();
-  await mountMailbox(h.ctx); const { footer, buttons, result } = archiveParts(h);
-  const old = h.ctx.ui.h;
-  h.ctx.ui.h = (...args) => { const n = old(...args); n.click = vi.fn(); n.remove = vi.fn(); return n; };
-  const data = { schemaVersion: 1, entries: [] }; h.ctx.invoke.mockResolvedValueOnce(data);
-  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:backup');
-  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-  try {
-    await buttons[0].onclick();
-    expect(h.ctx.invoke).toHaveBeenCalledWith('archiveExport');
-    expect(JSON.parse(await create.mock.calls[0][0].text())).toEqual(data);
-    expect(footer.children.at(-1).download).toContain('明文请勿转发');
-    expect(result.textContent).toContain('明文备份已导出');
-    h.ctx.timeout.mock.calls[0][0](); expect(revoke).toHaveBeenCalledWith('blob:backup');
-  } finally { create.mockRestore(); revoke.mockRestore(); }
+it('rejects an oversized backup locally and respects panel unmount before upload',async()=>{
+  const h=context();await mountMailbox(h.ctx);
+  const card=findClass(h.ctx.root,'bottle-data-card'),input=card.children.find(n=>n.tag==='input');
+  h.ctx.invoke.mockClear();input.files=[{size:129*1024*1024}];input.onchange();
+  await vi.waitFor(()=>expect(card.children[6].textContent).toContain('128 MiB'));
+  expect(h.ctx.invoke).not.toHaveBeenCalledWith('data:begin',expect.anything());
+  h.abort.abort();input.files=[{size:10}];input.onchange();expect(h.ctx.invoke).not.toHaveBeenCalled();
 });

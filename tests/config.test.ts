@@ -72,10 +72,10 @@ describe('配置页原生分组', () => {
       '显示与通知', '海边邀请与提醒', '桌面音效', '来信提示音', '回信提示音', '其他设备访问', '连接与调试', '星笺匣与记忆', '聊天里处理信件（高危实验功能）', '本地 Bridge 与 Controller（高级功能）',
     ]);
     expect(Object.keys(BOTTLE_CONFIG_GROUPS.find(group => group.id === 'world:bottle:display')!.schema.properties)).toEqual([
-      'worlds.bottle.surface', 'worlds.bottle.cardAutoCloseSec', 'worlds.bottle.tsunamiNotice',
+      'worlds.bottle.surface', 'worlds.bottle.cardAutoCloseSec', 'worlds.bottle.tsunamiNotice','worlds.bottle.systemMailNotice',
     ]);
     expect(Object.keys(BOTTLE_CONFIG_GROUPS.find(group => group.id === 'world:bottle:connection')!.schema.properties)).toEqual([
-      'worlds.bottle.server', 'worlds.bottle.port', 'worlds.bottle.debug',
+      'worlds.bottle.pollIntervalMinutes','worlds.bottle.server', 'worlds.bottle.port', 'worlds.bottle.debug',
     ]);
   });
   it('所有配置恰好出现一次，声明与默认值不变', () => {

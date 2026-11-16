@@ -1,3 +1,4 @@
+import {readLocalDocument as sqlRead,writeLocalDocument as sqlWrite,withDatabase as sqlDb,LOCAL_DB_NAME} from '../world/local-db.ts';
 /**
  * 401 自愈 + 密钥名隔离。
  *
@@ -128,7 +129,7 @@ describe('401 自愈', () => {
 
     const first = secrets.get('BOTTLE_PROD_TOKEN');
     expect(first).toBeTruthy();
-    const idBefore = JSON.parse(readFileSync(join(root, 'bottle-id.json'), 'utf8'));
+    const idBefore = sqlRead(join(root, 'bottle-id.json'));
     expect(idBefore.pseudonym).toBeTruthy();
 
     // 让下一次需要鉴权的请求先吃一个 401
@@ -150,7 +151,7 @@ describe('401 自愈', () => {
     expect(second).not.toBe(first);
 
     // 但人还是同一个人（同一个 clientId → 同一个化名）
-    const idAfter = JSON.parse(readFileSync(join(root, 'bottle-id.json'), 'utf8'));
+    const idAfter = sqlRead(join(root, 'bottle-id.json'));
     expect(idAfter.clientId).toBe(idBefore.clientId);
     expect(idAfter.pseudonym).toBe(idBefore.pseudonym);
   });

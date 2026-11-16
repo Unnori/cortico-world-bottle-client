@@ -1,3 +1,4 @@
+import {readLocalDocument as sqlRead,writeLocalDocument as sqlWrite,withDatabase as sqlDb,LOCAL_DB_NAME} from '../world/local-db.ts';
 import { createHash } from 'node:crypto';
 import { mkdtempSync,readFileSync,writeFileSync,rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -20,7 +21,7 @@ it('云端新增与停用只影响新绑定，已有发信人笔迹与字典名�
  await fonts.refresh();const result=fonts.decorate(snapshot());
  expect(result.held?.fontId).toBe(old.id);expect(result.received[0].fontId).toBe(hash(name));
  expect(result.fontResources?.[old.id].url).toBe(old.url);expect(Object.keys(result.fontResources??{})).toHaveLength(10);
- expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments[hash('visitor:老朋友')]).toBe(old.name);
+ expect(sqlRead(join(dir,'bottle-font-map.json')).assignments[hash('visitor:老朋友')]).toBe(old.name);
  expect(new RemoteFontCatalog(dir).current().fonts).toHaveLength(10);
 });
 it('并发刷新合并，失败保留有效清单并限速重试，不向R2发送配对凭据',async()=>{
@@ -46,7 +47,7 @@ it('撤下字体只修复一次，优先使用浏览器已缓存的启用笔迹�
  const repaired=fonts.decorate(s,[cached.sha256]);
  expect(repaired.held?.fontId).toBe(cached.id);expect(repaired.sent[0].reply?.fontId).toBe(cached.id);
  expect(repaired.received[0].fontId).toBe(stable.id);
- expect(JSON.parse(readFileSync(join(dir,'bottle-font-map.json'),'utf8')).assignments).toEqual({[oldKey]:cached.name,[stableKey]:stable.name});
+ expect(sqlRead(join(dir,'bottle-font-map.json')).assignments).toEqual({[oldKey]:cached.name,[stableKey]:stable.name});
  expect(new LetterFonts(dir).decorate(s,[c.fonts[2].sha256])).toEqual(repaired);
 });
 it('缓存提示忽略未知摘要与停用字体，失效绑定仍能从启用池修复',async()=>{
@@ -65,5 +66,5 @@ it('种子信按署名修复失效笔迹，空字体池保留原绑定以待恢�
  const emptyDir=temp(),map=JSON.stringify({version:1,assignments:{[hash('visitor:老朋友')]:'removed.ttf'}});
  writeFileSync(join(emptyDir,'bottle-font-map.json'),map);
  expect(new LetterFonts(emptyDir,join(emptyDir,'no-fonts')).decorate(snapshot())).toEqual(snapshot());
- expect(readFileSync(join(emptyDir,'bottle-font-map.json'),'utf8')).toBe(map);
+ expect(JSON.stringify(sqlRead(join(emptyDir,'bottle-font-map.json')))).toBe(map);
 });

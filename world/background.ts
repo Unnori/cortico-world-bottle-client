@@ -1,6 +1,14 @@
-import { readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync, lstatSync } from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import {putAsset,getAsset} from './local-db.ts';
+
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+/** Shipped scenery uses the same protected content-addressed route as uploads. */
+export const DEFAULT_BACKGROUND = {
+  id: 'b2242dcf80c08968cb99605f025d5c247da5e294fa8372a8a0a6767d7d1e5045.webp',
+  transparency: 60,
+} as const;
+
 export const BACKGROUND_MAX_BYTES = 8 * 1024 * 1024;
 export const BACKGROUND_ID = /^[a-f0-9]{64}\.(png|jpg|webp)$/;
 function imageType(bytes: Buffer): { ext: string; mime: string } | null {
@@ -16,18 +24,11 @@ export function saveBackground(dataDir: string, input: unknown): string {
   const bytes = Buffer.from(data, 'base64'), type = imageType(bytes);
   if (!type || bytes.length > BACKGROUND_MAX_BYTES) throw new Error('Invalid image');
   const id = createHash('sha256').update(bytes).digest('hex') + '.' + type.ext;
-  const dir = join(dataDir, 'bottle-backgrounds'); mkdirSync(dir, { recursive: true });
-  const file = join(dir, id), temp = file + '.' + randomUUID() + '.tmp';
-  try { writeFileSync(temp, bytes); renameSync(temp, file); }
-  finally { try { unlinkSync(temp); } catch { /* renamed */ } }
+  putAsset(dataDir,{kind:'background',id,name:id,mime:type.mime,bytes,metadata:{}});
   return id;
 }
 export function readBackground(dataDir: string, id: string): { bytes: Buffer; mime: string } | null {
   if (!BACKGROUND_ID.test(id)) return null;
-  const file = join(dataDir, 'bottle-backgrounds', id);
-  try {
-    const stat = lstatSync(file); if (!stat.isFile() || stat.isSymbolicLink() || stat.size > BACKGROUND_MAX_BYTES) return null;
-    const bytes = readFileSync(file), type = imageType(bytes);
-    return type ? { bytes, mime:type.mime } : null;
-  } catch { return null; }
+  if (id === DEFAULT_BACKGROUND.id) return { bytes: readFileSync(new URL('./backgrounds/default.webp', import.meta.url)), mime: 'image/webp' };
+  const asset=getAsset(dataDir,'background',id);return asset?{bytes:asset.bytes,mime:asset.mime}:null;
 }

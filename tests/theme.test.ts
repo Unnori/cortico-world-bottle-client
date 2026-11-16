@@ -1,73 +1,79 @@
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
-import { BUILTIN_PALETTES, DEFAULT_SCHEME_ID } from 'cortico/web/shared/theme.ts';
-import { cardAppearance, MAILBOX_PALETTES } from '../world/appearance.ts';
-import { readMailboxTheme, readThemePreference, saveThemePreference } from '../world/theme.ts';
-import { pageHtml } from '../world/page-view.ts';
+import {readLocalDocument as sqlRead,writeLocalDocument as sqlWrite,localBackups,readLocalBackup} from '../world/local-db.ts';
+import {gunzipSync} from 'node:zlib';
+import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {afterEach,expect,it} from 'vitest';
+import {cardAppearance,MAILBOX_PALETTES} from '../world/appearance.ts';
+import {readMailboxTheme,readThemePreference,saveThemePreference} from '../world/theme.ts';
+import {pageHtml} from '../world/page-view.ts';
 
-const dirs: string[] = [];
-async function deployment() { const dir = await mkdtemp(join(tmpdir(), 'bottle-theme-')); dirs.push(dir); return dir; }
-afterEach(async () => { await Promise.all(dirs.splice(0).map(dir => rm(dir, { recursive: true, force: true }))); });
-it('没有主题记录时使用部署默认；没有配置时使用框架默认', async () => {
-  const dir = await deployment();
-  expect((await readMailboxTheme(dir)).palettes?.light.paper).toBe(BUILTIN_PALETTES[DEFAULT_SCHEME_ID].light.paper);
-  await writeFile(join(dir, 'config.json'), JSON.stringify({ web: { theme: 'navigator' } }));
-  expect((await readMailboxTheme(dir)).scheme).toBe('navigator');
-});
-it('同步内置主题及明暗色板，不回写任何宿主设置', async () => {
-  const dir = await deployment();
-  const raw = JSON.stringify({ selectedId: 'crab-daisy', mode: 'dark', custom: [] });
-  await writeFile(join(dir, 'theme.json'), raw);
-  const result = await readMailboxTheme(dir);
-  expect(result.available).toBe(true); expect(result.mode).toBe('dark');
-  expect(result.palettes?.dark.accent).toBe(BUILTIN_PALETTES['crab-daisy'].dark.accent);
-  expect(result.palettes?.light.paper).toBe(BUILTIN_PALETTES['crab-daisy'].light.paper);
-  expect(await readFile(join(dir, 'theme.json'), 'utf8')).toBe(raw);
-});
-it('同步自定义颜色和后续修改，只返回颜色白名单，不暴露名称与其他配置', async () => {
-  const dir = await deployment();
-  const custom = { id: 'personal', name: 'private-name', note: 'private-note', palettes: {
-    light: { ...BUILTIN_PALETTES.mint.light, accent: '#123ABC', secret: 'private-token' }, dark: BUILTIN_PALETTES.mint.dark } };
-  const write = () => writeFile(join(dir, 'theme.json'), '\uFEFF' + JSON.stringify({ selectedId: 'personal', mode: 'system', custom: [custom] }));
-  await writeFile(join(dir, 'config.json'), JSON.stringify({ token: 'private-token', web: { theme: 'mint' } }));
-  await write(); const result = await readMailboxTheme(dir);
-  expect(result.scheme).toBe('custom'); expect(result.palettes?.light.accent).toBe('#123abc');
-  expect(JSON.stringify(result)).not.toMatch(/private|personal|secret/);
-  custom.palettes.light.accent = '#654321'; await write();
-  expect((await readMailboxTheme(dir)).palettes?.light.accent).toBe('#654321');
-});
-it('删除自定义主题后按宿主规则回退，损坏文件则报告暂不可用', async () => {
-  const dir = await deployment();
-  await writeFile(join(dir, 'config.json'), JSON.stringify({ web: { theme: 'navigator' } }));
-  await writeFile(join(dir, 'theme.json'), JSON.stringify({ selectedId: 'removed', custom: [] }));
-  expect((await readMailboxTheme(dir)).scheme).toBe('navigator');
-  await writeFile(join(dir, 'theme.json'), '{'); expect(await readMailboxTheme(dir)).toEqual({ available: false });
-});
-it('不把自定义主题字符串当 HTML 执行', () => {
-  const html = pageHtml({ available: false, scheme: '</script><script>bad()</script>' });
-  expect(html).not.toContain('<script>bad()');
-  const embedded = html.match(/id="host-theme">([\s\S]*?)<\/script>/)![1];
-  expect(JSON.parse(embedded).scheme).toBe('</script><script>bad()</script>');
+const dirs:string[]=[];
+async function dataDir(){const dir=await mkdtemp(join(tmpdir(),'bottle-theme-'));dirs.push(dir);return dir;}
+afterEach(async()=>{await Promise.all(dirs.splice(0).map(dir=>rm(dir,{recursive:true,force:true})));});
+
+it('uses only extension-owned appearance, regardless of host file contents or layout',async()=>{
+  const dir=await dataDir();
+  const hostConfig=JSON.stringify({web:{theme:'private-host-theme'},worlds:{'desktop-pet':{user:'private-name'}}});
+  const hostTheme=JSON.stringify({selectedId:'private-custom-theme',mode:'dark',custom:[{note:'private-note'}]});
+  await writeFile(join(dir,'config.json'),hostConfig);
+  await writeFile(join(dir,'theme.json'),hostTheme);
+  expect(await readMailboxTheme(dir)).toEqual({available:true,preference:undefined,hostTheme:null});
+  saveThemePreference(dir,{theme:'paper',mode:'light'});
+  expect(await readMailboxTheme(dir)).toEqual({available:true,preference:{theme:'paper',mode:'light'},hostTheme:null});
+  expect(await readFile(join(dir,'config.json'),'utf8')).toBe(hostConfig);
+  expect(await readFile(join(dir,'theme.json'),'utf8')).toBe(hostTheme);
+  await writeFile(join(dir,'config.json'),'{invalid');
+  await writeFile(join(dir,'theme.json'),'{invalid');
+  expect(await readMailboxTheme(dir)).toEqual({available:true,preference:{theme:'paper',mode:'light'},hostTheme:null});
 });
 
-it('信箱偏好保存到扩展数据，恢复精确选择，拒绝无效数据', async () => {
-  const dir = await deployment();
+it('migrates the retired host theme choice while preserving the background, font, mode and custom color',async()=>{
+  const dir=await dataDir();
+  const old={theme:'coopanion',mode:'dark',customColor:'#abcdef',background:'a'.repeat(64)+'.png',backgroundTransparency:42,
+    myFont:'b'.repeat(64)+'.woff2',myFontName:'自己的字体'};
+  const file=join(dir,'bottle-appearance.json');
+  const raw=JSON.stringify(old);await writeFile(file,raw);
+  expect(readThemePreference(dir)).toEqual({...old,theme:'ocean'});
+  expect(JSON.parse(gunzipSync(readLocalBackup(dir,localBackups(dir)[0].id)).toString()).files.some((f:any)=>Buffer.from(f.data,'base64').toString()===raw)).toBe(true); // Original bytes remain in the migration backup.
+  saveThemePreference(dir,{theme:'coopanion',mode:'dark'});
+  expect(readThemePreference(dir)).toEqual({...old,theme:'ocean'});
+  expect(sqlRead(file).theme).toBe('ocean');
+});
+
+it('exposes only validated own preference fields and falls back safely for damaged data',async()=>{
+  const dir=await dataDir();
+  await writeFile(join(dir,'bottle-appearance.json'),JSON.stringify({theme:'paper',mode:'dark',privateToken:'never-return'}));
+  expect(JSON.stringify(await readMailboxTheme(dir))).not.toContain('never-return');
+  sqlWrite(join(dir,'bottle-appearance.json'),{invalid:true});
   expect(readThemePreference(dir)).toBeUndefined();
-  saveThemePreference(dir, { theme:'paper', mode:'dark' });
-  expect(readThemePreference(dir)).toEqual({ theme:'paper', mode:'dark' });
-  expect(() => saveThemePreference(dir, { theme:'invalid', mode:'dark' } as any)).toThrow();
-  expect(readThemePreference(dir)).toEqual({ theme:'paper', mode:'dark' });
+  expect(await readMailboxTheme(dir)).toEqual({available:true,preference:undefined,hostTheme:null});
 });
-it('卡片使用与网页相同的浅深色板，Coopanion 使用真实主题颜色', () => {
-  for (const theme of ['ocean','paper','epistle'] as const) {
-    const appearance = cardAppearance({ theme, mode:'system' }, { available:false });
+
+it('escapes embedded appearance metadata as JSON, never executable HTML',()=>{
+  const name='</script><script>bad()</script>';
+  const html=pageHtml({available:true,preference:{theme:'ocean',mode:'light',myFontName:name}});
+  expect(html).not.toContain('<script>bad()');
+  const embedded=html.match(/id="mailbox-appearance">([\s\S]*?)<\/script>/)![1];
+  expect(JSON.parse(embedded).preference.myFontName).toBe(name);
+});
+
+it('persists own preferences and rejects unsupported values without overwriting a valid choice',async()=>{
+  const dir=await dataDir();
+  saveThemePreference(dir,{theme:'paper',mode:'dark'});
+  expect(readThemePreference(dir)).toEqual({theme:'paper',mode:'dark'});
+  expect(()=>saveThemePreference(dir,{theme:'invalid',mode:'dark'} as any)).toThrow();
+  expect(readThemePreference(dir)).toEqual({theme:'paper',mode:'dark'});
+});
+
+it('uses the same Bottle-owned palettes for native cards and the mailbox',()=>{
+  for(const theme of ['ocean','paper','epistle'] as const){
+    const appearance=cardAppearance({theme,mode:'system'});
     expect(appearance.palettes).toEqual(MAILBOX_PALETTES[theme]);
-    for (const palette of Object.values(appearance.palettes)) for (const value of Object.values(palette)) expect(value).toMatch(/^#[0-9a-f]{6}$/i);
+    for(const palette of Object.values(appearance.palettes))
+      for(const value of Object.values(palette))expect(value).toMatch(/^#[0-9a-f]{6}$/i);
   }
-  const appearance = cardAppearance({ theme:'coopanion', mode:'dark' }, { available:true, palettes:BUILTIN_PALETTES.mint });
-  expect(appearance.palettes.dark.ink).toBe(BUILTIN_PALETTES.mint.dark.ink);
-  expect(appearance.palettes.light.card).toBe(BUILTIN_PALETTES.mint.light.sheet);
-  expect(cardAppearance({ theme:'coopanion', mode:'dark' }, { available:false }).palettes).toEqual(MAILBOX_PALETTES.ocean);
+  const legacy=cardAppearance({theme:'coopanion',mode:'dark'});
+  expect(legacy.preference).toEqual({theme:'ocean',mode:'dark'});
+  expect(legacy.palettes).toEqual(MAILBOX_PALETTES.ocean);
 });

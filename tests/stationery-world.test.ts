@@ -1,3 +1,4 @@
+import {gzipSync} from 'node:zlib';
 import { afterEach, expect, it } from 'vitest';
 import { makeHarness, callTool, type Harness } from './helpers.ts';
 import { FakeHost } from './fake-host.ts';
@@ -6,6 +7,13 @@ import { checkStationery } from '../shared/stationery.ts';
 const rigs: Harness[] = [];
 afterEach(async () => { for (const h of rigs.splice(0)) await h.stop(); });
 const svg = { v: 1 as const, customSvg: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="2"/></svg>' };
+
+async function restore(h:any,doc:unknown):Promise<any>{
+  const invoke=(method:string,value?:unknown)=>h.world.webUi().invoke('mailbox','data:'+method,[value]);
+  const bytes=gzipSync(JSON.stringify(doc)),upload=await invoke('begin',{size:bytes.length});
+  for(let offset=0;offset<bytes.length;offset+=upload.chunkBytes)await invoke('chunk',{id:upload.id,offset,data:bytes.subarray(offset,offset+upload.chunkBytes).toString('base64')});
+  const preview=await invoke('preview',{id:upload.id});return invoke('confirm',{id:preview.id,mode:'merge',backup:false});
+}
 
 it('two Worlds preserve independent SVGs through send/read/reply, restart, export and import', async () => {
   const a = makeHarness({ config: { headlessEnabled: true } }); rigs.push(a);
@@ -35,7 +43,7 @@ it('two Worlds preserve independent SVGs through send/read/reply, restart, expor
   expect(bStore.received[0].myReplyStationery.customSvg).toContain('<rect');
   const archive = b.world.pageDeps().exportArchive!();
   const c = makeHarness(); rigs.push(c);
-  expect(c.world.pageDeps().importArchive!(archive).ok).toBe(true);
+  expect((await restore(c,archive)).ok).toBe(true);
   expect(Reflect.get(c.world,'store').received[0].stationery).toEqual(bStore.received[0].stationery);
   expect(Reflect.get(c.world,'store').received[0].myReplyStationery).toEqual(bStore.received[0].myReplyStationery);
 });
@@ -95,7 +103,7 @@ it('two Worlds preserve layered art through exact revision confirmation, reply, 
   await b.world.stop();await b.world.start(new FakeHost());
   expect(sb.received[0].stationery).toEqual(final);
   const archive=b.world.pageDeps().exportArchive!();const c=makeHarness();rigs.push(c);
-  expect(c.world.pageDeps().importArchive!(archive).ok).toBe(true);
+  expect((await restore(c,archive)).ok).toBe(true);
   const sc=Reflect.get(c.world,'store');
   expect(sc.received[0].stationery).toEqual(final);expect(sc.received[0].myReplyStationery).toEqual(sb.received[0].myReplyStationery);
   a.db.letterById(id)!.state='archived';a.db.letterById(id)!.archivedReason='tsunami';

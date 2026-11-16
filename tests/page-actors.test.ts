@@ -1,9 +1,9 @@
-import { customPalettes } from '../world/appearance.ts';
+import { customPalettes,cardAppearance } from '../world/appearance.ts';
 import { Script } from 'node:vm';
 import { expect, it, vi } from 'vitest';
-import { BUILTIN_PALETTES } from 'cortico/web/shared/theme.ts';
 import type { MailboxTheme } from '../world/theme.ts';
 import { pageHtml } from '../world/page-view.ts';
+import { DEFAULT_BACKGROUND } from '../world/background.ts';
 
 /** Execute the real page handlers with a tiny DOM; no browser/network dependency. */
 function page(snapshot: Record<string, unknown> = {}, preferences = new Map<string, string>(), reduce = false, host: MailboxTheme = { available: false }) {
@@ -29,7 +29,9 @@ function page(snapshot: Record<string, unknown> = {}, preferences = new Map<stri
       setAttribute(key: string, value: string) { this.attrs[key] = value; }, removeAttribute(key: string) { delete this.attrs[key]; } });
     return nodes.get(id);
   };
-  get('host-theme').textContent = JSON.stringify(host);
+  get('mailbox-appearance').textContent = JSON.stringify(host);
+  get('host-theme').textContent = JSON.stringify(host.hostTheme??null);
+  get('host-palette').textContent = JSON.stringify(host.hostTheme?cardAppearance({theme:'host',mode:'system'},host.hostTheme).palettes[host.hostTheme.appearance]:{});
   get('custom-palettes').textContent = JSON.stringify(customPalettes(host.preference?.customColor ?? '#4b62a0'));
   const darkMedia = { matches: false, listener: () => {}, addEventListener(_event: string, listener: () => void) { this.listener = listener; } };
   const appearanceFetch = vi.fn(async (_path: string, _options?: unknown) => ({ ok: true }));
@@ -38,7 +40,7 @@ function page(snapshot: Record<string, unknown> = {}, preferences = new Map<stri
   const clearTimeout = vi.fn();
   const state = { botName: '小满', letterDraft: null, pendingAction: null, received: [], sent: [], held: null,
     wake: { lanes: { write: { count: 0 }, catch: { count: 0 }, remind: { count: 0 } }, history: [] }, ...snapshot };
-  const script = pageHtml().match(/<script>([\s\S]*?)<\/script>/)![1].replace(/  refresh\(\);\s*\}\)\(\);\s*$/, '  globalThis.actions = { toast: toast, desk: updateDeskArrivals, focusDesk: focusDeskArrival, sync: refreshHostTheme, show: function(s) { state = s; renderActionState(s.letterDraft); } };\n})();');
+  const script = pageHtml().match(/<script>([\s\S]*?)<\/script>/)![1].replace(/  refresh\(\);\s*\}\)\(\);\s*$/, '  globalThis.actions = { toast: toast, desk: updateDeskArrivals, focusDesk: focusDeskArrival, show: function(s) { state = s; renderActionState(s.letterDraft); } };\n})();');
   const listeners: Record<string, (event: any) => void> = {};
   const windowListeners: Record<string, (event: any) => void> = {};
   const getComputedStyle = (node: any) => node.id === 'reader-safe-area'
@@ -53,7 +55,7 @@ function page(snapshot: Record<string, unknown> = {}, preferences = new Map<stri
   expect(script).toContain('globalThis.actions =');
   new Script(script).runInNewContext(sandbox);
   sandbox.actions.show(state);
-  return { desk: sandbox.actions.desk, focusDesk: sandbox.actions.focusDesk, appearanceFetch, toast: sandbox.actions.toast, timeout, clearTimeout, sync: sandbox.actions.sync, darkMedia, get, fetch, state, preferences, listeners, windowListeners, document: sandbox.document, show: () => sandbox.actions.show(state) };
+  return { desk: sandbox.actions.desk, focusDesk: sandbox.actions.focusDesk, appearanceFetch, toast: sandbox.actions.toast, timeout, clearTimeout, darkMedia, get, fetch, state, preferences, listeners, windowListeners, document: sandbox.document, show: () => sandbox.actions.show(state) };
 }
 
 it('主体切换在行动上方，默认邀请由桌宠决定，切到人后更新按钮文案', () => {
@@ -122,10 +124,10 @@ it('no_idea 在网页显示为自主暂不做，不再显示未完成或失败',
 });
 
 
-it('默认潮蓝，四个主题可切换并记住偏好，只读宿主配色', () => {
+it('默认潮蓝，内置主题可切换并记住偏好，不请求宿主配色', () => {
   const h = page();
   expect(h.document.documentElement.dataset.theme).toBe('ocean');
-  for (const theme of ['paper', 'epistle', 'coopanion', 'ocean']) {
+  for (const theme of ['paper', 'epistle', 'ocean']) {
     h.get('theme-toggle').onclick();
     expect(h.get('theme-menu').hidden).toBe(false);
     h.get('theme-' + theme).onclick();
@@ -135,9 +137,9 @@ it('默认潮蓝，四个主题可切换并记住偏好，只读宿主配色', (
     expect(h.get('theme-menu').hidden).toBe(false);
     h.get('theme-toggle').onclick();
   }
-  expect(h.fetch).toHaveBeenCalledWith('/theme');
+  expect(h.fetch).not.toHaveBeenCalled();
   const restored = page({}, new Map([['bottle-theme', 'coopanion']]));
-  expect(restored.document.documentElement.dataset.theme).toBe('coopanion');
+  expect(restored.document.documentElement.dataset.theme).toBe('ocean');
   expect(restored.get('browser-theme-color').attrs.content).toBe('#f0f4fb');
 });
 it('主题菜单支持 Escape、外部点击和跨标签页同步；无效偏好回到潮蓝', () => {
@@ -189,12 +191,12 @@ it('主题预读发生在样式之前，主题文字入口、信封元素和减�
   expect(html.indexOf('data-theme-init')).toBeLessThan(html.indexOf('<style>'));
   expect(html).toContain('aria-label="切换信箱配色"');
   expect(html).toContain('envelope-art'); expect(html).toContain('prefers-reduced-motion:reduce');
-  expect(html).toContain('data-theme="coopanion"'); expect(html).toContain('data-theme="paper"');
+  expect(html).not.toContain('theme-coopanion'); expect(html).toContain('data-theme="paper"');
 });
 
 it('三套配色均支持系统明暗变化，手动选择后不受系统变化影响且可恢复自动', () => {
   const h = page();
-  for (const theme of ['ocean', 'paper', 'epistle', 'coopanion']) {
+  for (const theme of ['ocean', 'paper', 'epistle']) {
     h.get('theme-' + theme).onclick(); h.get('mode-system').onclick();
     h.darkMedia.matches = true; h.darkMedia.listener();
     expect(h.document.documentElement.dataset.appearance).toBe('dark');
@@ -209,21 +211,24 @@ it('三套配色均支持系统明暗变化，手动选择后不受系统变化�
   h.windowListeners.storage({ key: 'bottle-appearance', newValue: 'light' });
   expect(h.document.documentElement.dataset.appearance).toBe('light');
 });
-it('读取实际宿主配色，切换明暗使用对应色板，失败保留最后一次有效颜色', async () => {
-  const host = { available: true, palettes: BUILTIN_PALETTES.mint };
-  const h = page({}, new Map([['bottle-theme', 'coopanion']]), false, host);
-  expect(h.document.documentElement.style.setProperty).toHaveBeenCalledWith('--host-paper', host.palettes.light.paper);
-  h.get('mode-dark').onclick();
-  expect(h.get('browser-theme-color').attrs.content).toBe(host.palettes.dark.paper);
-  h.fetch.mockImplementationOnce(async () => ({ ok: true, json: async () => ({ available: true, palettes: BUILTIN_PALETTES.navigator }) }) as any);
-  h.get('theme-coopanion').onclick();
-  await new Promise(resolve => setTimeout(resolve, 0));
-  expect(h.get('browser-theme-color').attrs.content).toBe(BUILTIN_PALETTES.navigator.dark.paper);
-  h.fetch.mockImplementationOnce(async () => ({ ok: true, json: async () => ({ available: false }) }) as any);
-  h.get('theme-coopanion').onclick();
-  await new Promise(resolve => setTimeout(resolve, 0));
-  expect(h.get('browser-theme-color').attrs.content).toBe(BUILTIN_PALETTES.navigator.dark.paper);
-  expect(h.get('theme-sync-note').textContent).toContain('保留上次配色');
+it('falls back from the retired host theme without fetching host colors', () => {
+  const h = page({}, new Map([['bottle-theme','coopanion'],['bottle-appearance','dark']]));
+  expect(h.document.documentElement.dataset.theme).toBe('ocean');
+  expect(h.document.documentElement.dataset.appearance).toBe('dark');
+  expect(h.get('browser-theme-color').attrs.content).toBe('#151d2e');
+  expect(h.document.documentElement.style.setProperty.mock.calls.every((args:any[])=>!String(args[0]).startsWith('--host-'))).toBe(true);
+  expect(h.fetch).not.toHaveBeenCalled();
+});
+
+it('uses the saved host snapshot on refresh, including its appearance, without querying the host',()=>{
+  const snapshot={selectedId:'mint',appearance:'dark' as const,palette:{paper:'#112233',ink:'#fefefe'},at:1,observedAt:2,hostVersion:'unknown'};
+  const h=page({},new Map(),false,{available:true,preference:{theme:'host',mode:'light'},hostTheme:snapshot});
+  expect(h.document.documentElement.dataset.theme).toBe('host');expect(h.document.documentElement.dataset.appearance).toBe('dark');
+  expect(h.document.documentElement.style.setProperty).toHaveBeenCalledWith('--paper','#112233');
+  expect(h.get('browser-theme-color').attrs.content).toBe('#112233');
+  expect(h.get('theme-sync-note').textContent).toContain('mint');expect(h.get('mode-light').disabled).toBe(true);
+  expect(h.fetch).not.toHaveBeenCalled();h.get('theme-paper').onclick();
+  expect(h.get('mode-light').disabled).toBe(false);expect(h.document.documentElement.style.setProperty).toHaveBeenCalledWith('--paper','');
 });
 
 it('后台标签页延迟动画事件时，完成 Promise 仍会收起菜单；取消的动画不误收起', async () => {
@@ -242,27 +247,20 @@ it('后台标签页延迟动画事件时，完成 Promise 仍会收起菜单；�
   expect(menu.hidden).toBe(false); expect(h.get('theme-toggle').attrs['aria-expanded']).toBe('true');
 });
 
-it('宿主同步仅用于 Coopanion，合并并发请求，并至少间隔五秒', async () => {
-  const clock = vi.spyOn(Date, 'now').mockReturnValue(10000);
-  try {
-    const h = page(); h.sync(false); expect(h.fetch).not.toHaveBeenCalled();
-    h.fetch.mockImplementation(async () => ({ ok: true, json: async () => ({ available: false }) }) as any);
-    h.get('theme-coopanion').onclick(); h.sync(true);
-    expect(h.fetch).toHaveBeenCalledTimes(1);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    clock.mockReturnValue(14999); h.sync(false); expect(h.fetch).toHaveBeenCalledTimes(1);
-    clock.mockReturnValue(15000); h.sync(false); expect(h.fetch).toHaveBeenCalledTimes(2);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    h.get('theme-paper').onclick(); clock.mockReturnValue(30000); h.sync(false);
-    expect(h.fetch).toHaveBeenCalledTimes(2);
-  } finally { clock.mockRestore(); }
+it('theme changes and cross-tab updates use only Bottle colors without background theme polling', async () => {
+  const h=page();
+  h.get('theme-paper').onclick();h.get('mode-dark').onclick();
+  h.windowListeners.storage({key:'bottle-theme',newValue:'coopanion'});
+  await new Promise(resolve=>setTimeout(resolve,0));
+  expect(h.document.documentElement.dataset.theme).toBe('ocean');
+  expect(h.fetch).not.toHaveBeenCalled();
 });
 
 it('主题选择按先后保存到卡片接口，手动明暗也保存，桌宠文案使用名字', async () => {
   const h = page(); h.get('theme-paper').onclick(); h.get('mode-dark').onclick();
   await new Promise(resolve => setTimeout(resolve, 0));
   const requests = h.appearanceFetch.mock.calls.map(call => JSON.parse((call[1] as { body:string }).body));
-  expect(requests).toEqual([{ theme:'paper', mode:'system', customColor:'#4b62a0', background:null, backgroundTransparency:82, myFont:null, myFontName:'' }, { theme:'paper', mode:'dark', customColor:'#4b62a0', background:null, backgroundTransparency:82, myFont:null, myFontName:'' }]);
+  expect(requests).toEqual([{ theme:'paper', mode:'system', customColor:'#4b62a0', background:DEFAULT_BACKGROUND.id, backgroundTransparency:60, myFont:null, myFontName:'' }, { theme:'paper', mode:'dark', customColor:'#4b62a0', background:DEFAULT_BACKGROUND.id, backgroundTransparency:60, myFont:null, myFontName:'' }]);
   expect((h.appearanceFetch.mock.calls[0][1] as any).headers['x-bottle']).toBe('1');
   expect(h.get('actor-hint').textContent).toContain('都由小满决定');
   h.get('actor-human').onclick(); expect(h.get('actor-hint').textContent).toContain('交给小满');
@@ -351,15 +349,20 @@ it('自定义配色与背景从部署偏好恢复，切换基础主题不丢失�
   expect(h.get('custom-color').value).toBe('#e08050');
   expect(h.document.documentElement.dataset.customBackground).toBe('true');
   expect(h.document.documentElement.style.setProperty).toHaveBeenCalledWith('--mailbox-background', 'url("/background/' + background + '")');
+  expect(h.get('background-transparency').value).toBe('82');
   h.get('theme-paper').onclick();
   expect(h.document.documentElement.style.setProperty).toHaveBeenCalledWith('--paper','');
   h.get('background-remove').onclick();
   await new Promise(resolve => setTimeout(resolve, 0));
-  expect(JSON.parse((h.appearanceFetch.mock.calls.at(-1)![1] as any).body).background).toBe(null);
+  expect(JSON.parse((h.appearanceFetch.mock.calls.at(-1)![1] as any).body)).toMatchObject({background:DEFAULT_BACKGROUND.id,backgroundTransparency:60});
 });
 
 it('背景透明度仅在有图片时显示，拖动预览，松手保存', async()=>{
- const h=page();expect(h.get('background-options').hidden).toBe(true);
+ const h=page();expect(h.get('background-options').hidden).toBe(false);
+ expect(h.get('background-transparency').value).toBe('60');
+ expect(h.document.documentElement.style.setProperty).toHaveBeenCalledWith('--background-opacity','0.4');
+ const legacyEmpty=page({},new Map(),false,{available:true,preference:{theme:'paper',mode:'light',background:null,backgroundTransparency:82}});
+ expect(legacyEmpty.get('background-transparency').value).toBe('60');
  const shown=page({},new Map(),false,{available:false,preference:{theme:'paper',mode:'light',background:'a'.repeat(64)+'.png',backgroundTransparency:35}});
  expect(shown.get('background-options').hidden).toBe(false);expect(shown.get('background-transparency').value).toBe('35');
  shown.get('background-transparency').value='62';shown.get('background-transparency').oninput();
@@ -367,7 +370,11 @@ it('背景透明度仅在有图片时显示，拖动预览，松手保存', asyn
  expect(shown.document.documentElement.style.setProperty).toHaveBeenCalledWith('--background-opacity','0.38');
  shown.get('background-transparency').onchange();await new Promise(resolve=>setTimeout(resolve,0));
  expect(JSON.parse((shown.appearanceFetch.mock.calls[0][1] as any).body).backgroundTransparency).toBe(62);
- shown.get('background-remove').onclick();expect(shown.get('background-options').hidden).toBe(true);
+ shown.get('background-remove').onclick();expect(shown.get('background-options').hidden).toBe(false);
+ expect(shown.get('background-transparency').value).toBe('60');expect(shown.get('background-remove').disabled).toBe(true);
+ const restored=page({},new Map(),false,{available:true,preference:{theme:'paper',mode:'light',background:DEFAULT_BACKGROUND.id,backgroundTransparency:25}});
+ expect(restored.get('background-transparency').value).toBe('25');expect(restored.get('background-remove').disabled).toBe(false);
+ restored.get('background-remove').onclick();expect(restored.get('background-transparency').value).toBe('60');
 });
 
 

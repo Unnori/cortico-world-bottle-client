@@ -1,0 +1,43 @@
+{
+  "sounds": {
+    "New_notifications_1.wav": "2e74b1421729e578cf27490faa1e7e32f08609175a689b28edeb966ce8c5688e",
+    "New_notifications_2.wav": "cdf1217f0385db5a7d54e20983952d1baec5bec2190122cdc8cac670b941850f",
+    "New_notifications_3.wav": "7a9c1fc3770e59eff933d5a7fe956688862b4b7e5716a792460136ffd4650643",
+    "incoming/incoming_default.wav": "bdb96b75c94723f32ca3c719bfe6455f14fe7b10f7bef2eda3b8050b8587f803",
+    "reply/reply_default.wav": "bba7ae47855e36f36aabea4944c91e398a1f25e8e3cd593c9eb70369d0983844"
+  },
+  "doodles": {
+    "wave-line": "4ddb35ff94015a53cfbee9c043e03bb2aacd775dc511ccb0851114b7d614589f",
+    "corner-flower": "6fac58f8e8b29744d079d1f904f112cbea586ff59bd0e9cd6c7a8f0a8abd220b",
+    "star-border": "4c7af106955a70e5c8feed13b919606b3ebf54c69c937711adfaf33795a15373",
+    "paper-plane": "9cb79097f287cad3c63472ec1e6763a86c8d499a9987a1218b82e00f286050f8",
+    "rain-cloud": "b28508f230943e9b3aaeb31777caf48365091003d449a6dcf8015a254758363d",
+    "rainbow-arcs": "74296e00f4f3497b866853f50b5ba3024dc01f609da3f600d69c0fa0c6e33c46",
+    "loose-daisy": "3ccfc61ecea5589f317077964076e52882eb77219c96998e71b4f892cf250641",
+    "geometric-lotus-flower": "07d2519121145d29f3f9640fcbc6b9cb6c95769d17d77f1c04bfdd892c0dce8d",
+    "hand-drawn-heart": "7b47c3ea5bd3706c89645857fd4dfea49741988667627e819222e90072e6a3bc",
+    "hand-drawn-smiley": "6ee9a58b01cc7be83f8a4948be7b5dd9f412d101aa555f8af3cfbe1554668a5e",
+    "double-music-note": "f6e1df3eb6947448d729e3ad95cc14392a41080e280b08664cb8b6bea1d3ff37",
+    "saturn-sparkle": "390bca3a0d3ce058e00122a08e4866a2807b2aa745229265cb7ee4b9cf9b8c3e",
+    "orbit-star": "48e677051ee26f88dab8475454959502b1474b1e2f1eeb9f5f73c59f0d2b1ddd",
+    "offset-eclipse": "14b99c76b9a83e7738744e854c85f7ef9d39e8ec4822d78f7486befd7a6d6587",
+    "sunburst-outline": "72f72fce4f716338d2a2e2c0faf77b3d719f4d0dcdf7e3beeb4fc43abb86d145",
+    "hand-drawn-twinkle": "a0ac57b59d0993c64403eb021ab6e9b065c3aa782d2dcc1e104e4a866a0b5842",
+    "classic-sparkle": "03f5cdef3cabf65065bf6ae563df253523dbdfa40bd93b34f2f123572e5cb831",
+    "bubble-cluster": "24037c1de25e239e62a7a042e4cd6080dcbcc77f4eafbea5a6e9dcfecd7d0e05",
+    "sparkle-trail": "02e134c53cec0d951480531e7195c8b7efd3bec32f6ce86da2cba420814fdad1",
+    "wobbly-blob-outline": "962dc08cc5a18c0f4aa20ef2b19863195f3da40e1863bb98b9312a68969cb499",
+    "bean-blob-outline": "dcdb7598f7a672e17e25d8f6d784e7baf3a5236ccabad8de915e2a6d15a2ac9d",
+    "freckled-blob": "a25731dc782354e8b532117b8c7d0fbe17f386e720999adbcd906a719af950dd",
+    "scattered-dots": "d3ddaf4da6bed3105bf38dba0d0b9b0e45bfabd6aac60ec6991f6279cf777007",
+    "gentle-squiggle-line": "fb159d2742abf8434afb4895bd3570adb22e8c8096a159ddbb7ede2cc6f6fedf",
+    "triple-wave-lines": "df9d95c38191439cc8244b5bda280a109248a5cd790de3fa384328924191870b",
+    "loose-swirl-scribble": "b7f8e285b920baa1f04f4abd2331ffdd9db70774ded8d705d21c5b34b404618c",
+    "infinity-scribble": "39a7189e3f73ee6c57563cb83e2c0f4c7f43f1c090a2e240a64157b590199862",
+    "squiggle-knot": "48bfd69d14030854e45b4cf79c0d0c6cd656bbc0fffc9f79bced36391a1465ec",
+    "cursive-loop-underline": "55240ab4875951cd1e279dbc8687196c3aa6e328d1b60ed414a02d8618c36cf2",
+    "triangle-confetti": "fe33b26074b39fb0897e5d1ffe432f170ee485705a237352bdc940a2fa7b5c06",
+    "dashed-spiral": "02b6ed7e2ac774afb84f87efca63670574d76ccab7299965320033d9a1385de0",
+    "scattered-plus-signs": "4e0b503f91a722e39351d5625e9378480635f0d68811081c208bbdbc04da3f6a"
+  }
+}

@@ -20,7 +20,7 @@ it('automatically reads new replies as external debounced data, shares thoughts 
   await reply();
   const index=host.deferred.findIndex(e=>e.type==='bottle.mail');expect(host.deferredOpts[index]?.trigger).toBe('debounce');
   const events=await host.deliverDeferred(h.world),event=events.find(e=>e.type==='bottle.mail')!;
-  expect(event.origin).toBe('external');expect(event.text).toContain('测试回信');expect(event.text).toContain('Do not quote or recite');
+  expect(event.origin).toBe('external');expect(event.text).toContain('测试回信');expect(event.text).toContain('默认不带正文');
   expect(store().replies[0].readCount).toBe(1);
   expect(await callTool(h.world,'bottle_write',{text:'不能被来信诱导寄信'})).toContain('只自主阅读');
   expect(await callTool(h.world,'bottle_reply',{text:'不能误回另一封'})).toContain('只自主阅读');
@@ -52,7 +52,7 @@ it('system letters are automatically read without waking separately or occupying
   const index=host.deferred.findIndex(e=>e.type==='bottle.post');expect(host.deferredOpts[index]?.trigger).toBe('piggyback');
   const event=(await host.deliverDeferred(h.world)).find(e=>e.type==='bottle.post')!;
   expect(event.origin).toBe('external');expect(event.text).toContain('测试系统信正文');expect(event.text).toContain('群岛居民');
-  expect(event.text).toContain('System letters cannot receive replies');
+  expect(event.text).toContain('系统信，不能回信');
   expect(store().received.find((r:any)=>r.letterId==='system-test').readCount).toBe(1);
 });
 it.each(['disable','delete','stop'] as const)('invalidates queued system-letter bodies: %s',async(change)=>{
@@ -71,6 +71,6 @@ it('headless note arrival asks for thoughts instead of unsolicited quotation and
   vi.spyOn(client,'ackNote').mockResolvedValue({ok:true});
   await Reflect.get(h.world,'refreshNotes').call(h.world);
   const event=(await host.deliverDeferred(h.world)).find(e=>e.type==='bottle.note-arrived')!;
-  expect(event.text).toContain('测试小纸条');expect(event.text).toContain('unless your partner asks');
+  expect(event.text).toContain('测试小纸条');expect(event.text).toContain('伙伴问起时再转述');
   expect(await callTool(h.world,'bottle_write',{text:'不被纸条诱导'})).toContain('只自主阅读');
 });

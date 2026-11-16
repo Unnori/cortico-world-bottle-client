@@ -61,6 +61,7 @@ function rig(overrides: Record<string, any> = {}, reduce = false) {
     icon: () => new Node('svg'), sentSourceText: () => '寄出的信', sentStateBadge: () => new Node('span'), readBadge: () => new Node('span'),
     letterSheet: () => new Node('div'), buttons: () => new Node('div'), paperInvite: () => new Node('button'), peruseLink: () => new Node('button'), deleteLink: () => new Node('button') });
   const script = pageHtml().match(/<script>([\s\S]*?)<\/script>/)![1];
+  new Script(script.slice(script.indexOf('  function readBadge('), script.indexOf('  function bookEntries('))).runInContext(ctx);
   new Script(script.slice(script.indexOf('  function dateKey('), script.indexOf('  function api('))).runInContext(ctx);
   new Script(script.slice(script.indexOf('  function fmt('), script.indexOf('  function run('))).runInContext(ctx);
   new Script(script.slice(script.indexOf('  function renderHeld('), script.indexOf('  function focusDeskArrival('))).runInContext(ctx);
@@ -75,6 +76,53 @@ const letter = { letterId: 'sent:id"[]', body: 'PRIVATE original', topic: '星�
 const row = { letterId: letter.letterId, starredAt: 10, title: '星夜', from: '海上来客', at: letter.at,
   category: 'sent', memorySelected: false, memoryActive: false };
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
+
+it('searches title, body and signature locally, including starred correspondence, without changing archive data',()=>{
+  const item={letterId:'search',from:'Visitor',signature:'贝壳',body:'一阵晚风',topic:'潮汐',at:letter.at,outcome:'kept',receivedAt:Date.parse(letter.at)};
+  const h=rig({received:[item],stars:[{...row,letterId:item.letterId,category:'received'}]});
+  for(const query of ['潮汐','晚风','贝壳','潮汐 晚风']){
+    h.get('letter-search').value=query;h.ctx.renderBook();expect(h.get('mail-list').querySelector('.mail')).toBeTruthy();
+  }
+  h.get('letter-search').value='没有这几个字';h.ctx.renderBook();expect(h.get('mail-list').querySelector('.mail')).toBeNull();
+  h.ctx.category='stars';h.get('letter-search').value='晚风';h.ctx.renderBook();expect(h.get('mail-list').querySelector('.star-row')).toBeTruthy();
+  expect(h.ctx.api).not.toHaveBeenCalled();expect(h.state.received).toHaveLength(1);
+});
+
+it('shows only known actual reception time to the minute and never invents one from an old archive date',()=>{
+  const h=rig(),item={letterId:'time',from:'Visitor',body:'Body',at:letter.at,outcome:'kept'};
+  const old=h.ctx.renderMail({category:'received',item,at:item.at}) as Node;
+  expect(old.querySelector('.received-at')).toBeNull();
+  const current=h.ctx.renderMail({category:'received',item:{...item,receivedAt:Date.parse('2026-11-16T13:20:35+08:00')},at:item.at}) as Node;
+  const stamp=current.querySelector('.received-at')!;expect(stamp.textContent).toContain('收于');
+  expect(stamp.textContent).toMatch(/\d{2}:\d{2}$/);expect(stamp.textContent).not.toMatch(/\d{2}:\d{2}:\d{2}/);
+});
+
+it.each([
+  ['caught', 0, ['尚未共读']],
+  ['replied', 0, ['已回信']],
+  ['caught', 2, ['共读2次']],
+  ['replied', 2, ['已回信', '共读2次']],
+  ['expired', 0, ['尚未共读']],
+])('renders independent reply and reading badges for %s / %s', (outcome, readCount, expected) => {
+  const h = rig();
+  const item = {letterId:'incoming',from:'来客',body:'原信',at:letter.at,outcome,readCount};
+  const mail = h.ctx.renderMail({category:'received',item}) as Node;
+  expect(mail.querySelectorAll('.mail-status').map(node => node.textContent)).toEqual(expected);
+  expect(item.readCount).toBe(readCount);
+});
+
+it('does not claim a draft, retained unsent reply, seed, or received answer is a sent reply', () => {
+  const h = rig();
+  for (const entry of [
+    {category:'received',item:{...letter,from:'来客',outcome:'caught',unsentReplies:[{body:'未寄稿'}]}},
+    {category:'seed',item:{...letter,from:'邮局',outcome:'replied',readCount:0}},
+    {category:'reply',item:{...letter,reply:{...letter.reply,readCount:1}}},
+  ]) {
+    const texts = (h.ctx.renderMail(entry) as Node).querySelectorAll('.mail-status').map(node => node.textContent);
+    expect(texts).not.toContain('已回信');
+    expect(texts).toEqual(entry.category==='reply'?['共读1次']:['尚未共读']);
+  }
+});
 
 it('uses the exact supplied SVG path in the folder and buttons, gold when pressed, with reduced motion support', () => {
   const h = rig({ stars: [row] });

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { BUILTIN_PALETTES } from 'cortico/web/shared/theme.ts';
 import { pageHtml } from '../world/page-view.ts';
 import type { PageSnapshot } from '../world/page.ts';
 import type { MailboxTheme } from '../world/theme.ts';
@@ -18,7 +17,7 @@ const art=checkStationery({v:2,paper:'plain',paperColor:'#fff8ed',decorations:[
 ]});
 if(!art.ok||!art.value)throw Error('bad layout fixture');
 
-const theme: MailboxTheme = { available: true, palettes: Object.values(BUILTIN_PALETTES)[0] };
+const theme: MailboxTheme = { available: true };
 const snapshot: PageSnapshot = {
   wake: { version: 1, day: '2026-11-13', lastInviteAt: 0, active: null, lanes: {
     write: { count: 0, dayLimit: 5, intervalHours: 4, nextAt: null, paused: false, declined: false, failed: false },

@@ -29,7 +29,7 @@ export const pageSoundScript = String.raw`
     if(typeof value !== 'string' || value.indexOf('pack:') !== 0)return fallback;
     var id = value.slice(5);
     if (availableIds && !availableIds[id] && aliases[id]) { id = aliases[id]; value = 'pack:' + id; }
-    return id && (id.indexOf('/') < 0 || id.indexOf(kind + '/') === 0) ? value : fallback;
+    return id && (id.indexOf('/') < 0 || id.indexOf(kind + '/') === 0 || /^saved\/[a-f0-9]{64}\.(wav|mp3|m4a|ogg|aac|flac)$/.test(id)) ? value : fallback;
   }
   prefs = { enabled: prefs.enabled === true, volume: number(prefs.volume,70,100), fade: number(prefs.fade,250,5000),
     incoming: selection(prefs.incoming, 'incoming'), reply: selection(prefs.reply, 'reply') };
@@ -146,5 +146,12 @@ export const pageSoundScript = String.raw`
     if(snapshot.desktopCards&&['127.0.0.1','localhost','[::1]'].indexOf(location.hostname)>=0)return;
     fresh.forEach(function(kind){var choice=currentChoice(kind),version=versions[kind];queue=queue.then(function(){return play(kind,false,choice,version);}).catch(function(){});});
   }};
+  window.bottleDeviceAudio={
+    snapshot:async function(){var files=[];for(var kind of kinds){var item=await file(kind).catch(function(){return null;});if(item)files.push({slot:kind,file:item});}return {preferences:Object.assign({},prefs),files:files};},
+    apply:async function(data){var imported=data.preferences.sound||{},have={};for(var asset of data.assets||[]){var bytes=Uint8Array.from(atob(asset.data),function(c){return c.charCodeAt(0);});for(var slot of asset.metadata.slots||[]){if(kinds.indexOf(slot)<0)continue;var restored=new File([bytes],asset.name,{type:asset.mime});await file(slot,restored);have[slot]=true;node(slot+'-name').textContent=asset.name;}}
+      prefs.enabled=false;prefs.volume=number(imported.volume,70,100);prefs.fade=number(imported.fade,250,5000);node('enabled').checked=false;node('volume').value=prefs.volume;node('fade').value=prefs.fade;stopSources(null,false);
+      kinds.forEach(function(kind){var choice=selection(imported[kind],kind);if(choice==='local'&&!have[kind])choice='pack:'+defaults[kind];choose(kind,choice);node(kind).value=choice;});save();
+    }
+  };
 })();
 `;

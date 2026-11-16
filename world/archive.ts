@@ -85,6 +85,7 @@ export function parseArchive(raw: unknown): LetterbookArchive {
         if (decor.value) value.stationery = decor.value;
       }
     }
+    if(r.receivedAt!==undefined){if(typeof r.receivedAt!=='number'||!Number.isFinite(r.receivedAt)||r.receivedAt<=0)throw Error('收信时间格式不正确。');value.receivedAt=r.receivedAt;}
     entries.push({kind:entry.kind,value});
   }
   return {schemaVersion:1,exportedAt:doc.exportedAt,entries};

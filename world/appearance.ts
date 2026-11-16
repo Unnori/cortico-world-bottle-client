@@ -1,15 +1,16 @@
 /** Shared semantic colors for the mailbox and its native desktop cards. */
-import type { MailboxTheme } from './theme.ts';
-export type ThemeChoice = 'ocean' | 'paper' | 'epistle' | 'coopanion' | 'custom';
+import type {HostThemeSnapshot} from './host-theme.ts';
+/** coopanion is accepted only to migrate an old saved choice to ocean. */
+export type ThemeChoice = 'ocean' | 'paper' | 'epistle' | 'coopanion' | 'host' | 'custom';
 export type AppearanceMode = 'system' | 'light' | 'dark';
 /** 页面与桌面卡片共用的主题清单；顺序即菜单顺序。 */
-export const THEME_CHOICES: readonly ThemeChoice[] = ['ocean', 'paper', 'epistle', 'coopanion', 'custom'];
+export const THEME_CHOICES: readonly ThemeChoice[] = ['ocean', 'paper', 'epistle', 'host', 'custom'];
 export interface ThemePreference { theme: ThemeChoice; mode: AppearanceMode; customColor?: string; background?: string | null; backgroundTransparency?: number; myFont?: string | null; myFontName?: string }
 export const DEFAULT_APPEARANCE: ThemePreference = { theme: 'ocean', mode: 'system' };
 export function isThemePreference(value: unknown): value is ThemePreference {
   if (!value || typeof value !== 'object') return false;
   const pref = value as ThemePreference;
-  return THEME_CHOICES.includes(pref.theme) && ['system','light','dark'].includes(pref.mode)
+  return (THEME_CHOICES.includes(pref.theme) || pref.theme === 'coopanion') && ['system','light','dark'].includes(pref.mode)
     && (pref.customColor === undefined || (typeof pref.customColor === 'string' && /^#[0-9a-f]{6}$/i.test(pref.customColor)))
     && (pref.backgroundTransparency === undefined || (typeof pref.backgroundTransparency === 'number' && Number.isFinite(pref.backgroundTransparency) && pref.backgroundTransparency >= 0 && pref.backgroundTransparency <= 100))
     && (pref.myFont === undefined || pref.myFont === null || (typeof pref.myFont === 'string' && /^[a-f0-9]{64}\.(ttf|otf|woff2?)$/.test(pref.myFont)))
@@ -129,26 +130,28 @@ export const MAILBOX_PALETTES = {
   }
 } as const;
 export type MailboxPalette = Record<keyof typeof MAILBOX_PALETTES.ocean.light, string> & { 'accent-text'?: string };
-export interface CardAppearance { preference: ThemePreference; palettes: Record<'light' | 'dark', MailboxPalette> }
+export interface CardAppearance { preference: ThemePreference; palettes: Record<'light' | 'dark', MailboxPalette>; resolvedAppearance?:'light'|'dark' }
 export function paletteDeclarations(theme: 'ocean' | 'paper' | 'epistle', mode: 'light' | 'dark'): string {
   return Object.entries(MAILBOX_PALETTES[theme][mode]).map(([key,value]) => `--${key}:${value};`).join(' ');
 }
 function mixColor(a: string, b: string, weight: number): string {
   return '#' + [1,3,5].map(index => Math.round(parseInt(a.slice(index,index+2),16)*weight + parseInt(b.slice(index,index+2),16)*(1-weight)).toString(16).padStart(2,'0')).join('');
 }
-export function cardAppearance(preference: ThemePreference, host: MailboxTheme): CardAppearance {
+export function cardAppearance(preference: ThemePreference, host?:HostThemeSnapshot|null): CardAppearance {
+  if (preference.theme === 'coopanion') preference = {...preference, theme:'ocean'};
   if (preference.theme === 'custom') return { preference, palettes: customPalettes(preference.customColor ?? '#4b62a0') };
+  if(preference.theme==='host'&&host){
+    const p=host.palette, mapped:Partial<MailboxPalette>={};
+    const pairs={paper:'paper',card:'sheet',panel:'sheet-2',soft:'sheet-3',ink:'ink',muted:'ink-soft',line:'line',accent:'accent',seal:'accent',sea:'ink-blue','on-accent':'on-accent','accent-text':'accent','danger-text':'danger'} as const;
+    for(const [key,source] of Object.entries(pairs))if(p[source])mapped[key as keyof MailboxPalette]=p[source]!;
+    const palette={...MAILBOX_PALETTES.ocean[host.appearance],...mapped};
+    if(p.warn){palette['warning-bg']=mixColor(p.warn,palette.card,.12);palette['warning-line']=mixColor(p.warn,palette.line,.35);palette['warning-text']=p.warn;}
+    return {preference,resolvedAppearance:host.appearance,palettes:{...MAILBOX_PALETTES.ocean,[host.appearance]:palette}};
+  }
   const palettes = preference.theme === 'paper' ? MAILBOX_PALETTES.paper
     : preference.theme === 'epistle' ? MAILBOX_PALETTES.epistle
     : MAILBOX_PALETTES.ocean;
-  if (preference.theme !== 'coopanion' || !host.available || !host.palettes) return { preference, palettes };
-  const map = (mode: 'light' | 'dark'): MailboxPalette => {
-    const p = host.palettes![mode];
-    return { paper:p.paper, card:p.sheet, ink:p.ink, muted:p['ink-soft'], line:p.line, accent:p.accent,
-      seal:p.accent, sea:p['ink-blue'], soft:p['sheet-3'], panel:p['sheet-2'], 'on-accent':p['on-accent'],
-      'warning-bg':mixColor(p.warn,p.sheet,.12), 'warning-line':mixColor(p.warn,p.line,.35), 'warning-text':p.warn, 'danger-text':p.danger };
-  };
-  return { preference, palettes: { light:map('light'), dark:map('dark') } };
+  return { preference, palettes };
 }
 
 /** Tint paper and ink together, but keep readable contrast even for white/black custom colors. */

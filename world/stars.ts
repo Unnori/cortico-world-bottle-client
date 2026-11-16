@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
+
 import { join, dirname } from 'node:path';
-import { randomUUID } from 'node:crypto';
+
+import { readLocalDocument, writeLocalDocument } from './local-db.ts';
 
 export interface LetterStar { letterId: string; starredAt: number; memorySelected: boolean }
 
@@ -21,7 +22,7 @@ export class LetterStars {
     this.dirty = false;
     this.loaded = false;
     try {
-      const data = existsSync(this.file) ? JSON.parse(readFileSync(this.file, 'utf8')) : { stars: [] };
+      const data = readLocalDocument(this.file) ?? { stars: [] };
       for (const item of Array.isArray(data.stars) ? data.stars : []) {
         if (!item || typeof item.letterId !== 'string' || !item.letterId || item.letterId.length > 256 ||
             !Number.isFinite(item.starredAt) || item.starredAt < 0 || this.records.has(item.letterId)) continue;
@@ -62,14 +63,11 @@ export class LetterStars {
   }
   private save(): void {
     this.dirty = true;
-    mkdirSync(dirname(this.file), { recursive: true });
-    const temp = this.file + '.' + randomUUID() + '.tmp';
-    try {
-      writeFileSync(temp, JSON.stringify({ schemaVersion: 1, stars: this.all() }) + '\n', { encoding: 'utf8', mode: 0o600 });
-      renameSync(temp, this.file);
+    {
+      writeLocalDocument(this.file,{ schemaVersion: 1, stars: this.all() });
       this.dirty = false;
       this.revokeOnLoad = false;
       this.loaded = true;
-    } finally { try { unlinkSync(temp); } catch { /* Nothing left to clean. */ } }
+    }
   }
 }

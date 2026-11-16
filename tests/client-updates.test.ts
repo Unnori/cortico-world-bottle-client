@@ -18,7 +18,7 @@ async function setup() {
 }
 
 async function poll(harness: Harness) {
-  harness.clock.t += 5 * 60_000 + 1;
+  harness.clock.t += 10 * 60_000 + 1;
   harness.world.pageDeps().snapshot();
   await new Promise((resolve) => setTimeout(resolve, 30));
 }
@@ -63,6 +63,7 @@ describe('客户端退潮与公告', () => {
     await poll(rig);
     expect(rig.host.events.some(e => e.type === 'bottle.announcement')).toBe(false);
     rig.tuning.announcement = null;
+    await poll(rig);
     expect(await handlePage(rig.page, 'GET', '/announcement')).toEqual({ status: 200, json: { announcement: null } });
   });
 

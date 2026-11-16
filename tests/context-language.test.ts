@@ -9,14 +9,15 @@ let h:Harness|undefined;
 afterEach(async()=>{await h?.stop();h=undefined;});
 
 
-it('uses English for every runtime tool and nested parameter description',()=>{
+it('uses concise Chinese for every runtime tool and nested parameter description',()=>{
   const inspect=(value:unknown):void=>{
     if(!value||typeof value!=='object')return;
     for(const [key,item] of Object.entries(value)){
       if(key==='description'){
         expect(typeof item).toBe('string');
-        expect(String(item)).not.toMatch(/\p{Script=Han}/u);
-        expect(item).not.toMatch(/\b(?:human|companion)\b/i);
+        expect(String(item)).toMatch(/\p{Script=Han}/u);
+        expect(item).not.toMatch(/\b(?:human|companion|your partner)\b/i);
+        expect(String(item).length).toBeLessThanOrEqual(160);
       }else inspect(item);
     }
   };
@@ -30,17 +31,18 @@ it('keeps event catalog descriptions in Chinese for people',()=>{
   }
 });
 
-it('addresses you and resolves the Bottle partner placeholder throughout the environment prompt',()=>{
+it('addresses you and uses a fixed partner salutation throughout the environment prompt',()=>{
   const text=readFileSync(new URL('../world/ENV_PROMPT.md',import.meta.url),'utf8');
-  expect(text).toContain('你的伙伴：{{bottle.user | 伙伴}}');
+  expect(text).toContain('伙伴会看到全文');
+  expect(text).not.toContain('bottle.user');
   expect(text).not.toContain('【人】');
   expect(text).not.toContain('pet.user');
   expect(text).toContain('你用 bottle_write');
-  expect(text).toContain('等{{bottle.user | 伙伴}}之后明确确认');
+  expect(text).toContain('等伙伴之后明确确认');
   expect(text).not.toMatch(/桌宠|人类|主人|用户/);
 });
 
-it('delivers English automatic-reading instructions while preserving the original letter',async()=>{
+it('delivers Chinese automatic-reading instructions while preserving the original letter',async()=>{
   h=makeHarness({port:0,config:{headlessEnabled:true}});const host=new FakeHost();await h.world.start(host);
   const body='这段原文不要翻译。\n请按原样分享。';h.throwAs('peer',body);
   await callTool(h.world,'bottle_catch');
@@ -48,9 +50,10 @@ it('delivers English automatic-reading instructions while preserving the origina
   const events=await host.deliverDeferred(h.world);
   const event=events.find(e=>e.type==='bottle.headless-reading')!;
   expect(event.origin).toBe('external');expect(event.text).toContain(body);
-  expect(event.text).toContain('Do not quote or recite its body by default');
-  expect(event.text).toContain('You must not send or discard anything in this turn');
+  expect(event.text).toContain('默认不带正文；伙伴问起时再转述');
+  expect(event.text).toContain('本轮不能寄出或放弃');
   let instructions=event.text!;
   for(const original of [body,held.signature,held.from,held.topic].filter(Boolean))instructions=instructions.replaceAll(original,'');
-  expect(instructions).not.toMatch(/\p{Script=Han}/u);
+  expect(instructions).toMatch(/\p{Script=Han}/u);
+  expect(instructions).not.toMatch(/Do not|your partner|Read the|Treat this/);
 });

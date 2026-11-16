@@ -26,6 +26,10 @@ export interface BottleConfigSection extends Partial<BottleWakeSettings>, SoundC
   starMemoryEnabled?: boolean;
   /** 高危实验功能，默认关闭。开启后桌宠可读取信件正文并根据聊天指令直接寄出，无需网页人工确认。 */
   headlessEnabled?: boolean;
+  /** Local notification policy; receiving silently remains enabled. */
+  systemMailNotice?: boolean;
+  headlessQuoteBody?: boolean;
+  pollIntervalMinutes?: number;
   /** Agent-only loopback API, separately opted in; enabling requires World restart. */
   bridgeEnabled?: boolean;
   bridgeControllerEnabled?: boolean;
@@ -40,7 +44,7 @@ export interface BottleConfigSection extends Partial<BottleWakeSettings>, SoundC
   lanPort?: number;
   /** Optional public origin for NAT / reverse proxy deployments. */
   lanPublicUrl?: string;
-  /** 人类看到哪一面：原生卡片、网页，或按平台自动。 */
+  /** 伙伴看到哪一面：原生卡片、网页，或按平台自动。 */
   surface?: 'auto' | 'card' | 'page';
   /** 开发者模式：额外写日志（只记 id 与数量，不记信件内容）。 */
   debug?: boolean;
@@ -87,6 +91,9 @@ export const BOTTLE_DEFAULTS: BottleConfigSection = {
   enabled: false,
   randomWake: true,
   headlessEnabled: false,
+  systemMailNotice: true,
+  headlessQuoteBody: false,
+  pollIntervalMinutes: 10,
   bridgeEnabled: false,
   bridgeControllerEnabled: false,
   writeInviteEnabled: true,
@@ -116,6 +123,15 @@ export const BOTTLE_DEFAULTS: BottleConfigSection = {
 
 /** Field declarations stay at the same config paths; grouping is presentation only. */
 export const BOTTLE_CONFIG_FIELDS: Record<string, ConfigProperty> = {
+  'worlds.bottle.systemMailNotice': {
+    type:'boolean',title:'系统来信提醒',description:'关闭后仍安静收进信册，不提醒桌宠，也不在聊天里自动阅读系统来信。', 'x-hot':true,
+  },
+  'worlds.bottle.headlessQuoteBody': {
+    type:'boolean',title:'自动阅读时转述正文',description:'默认只分享感想。开启后，聊天里自动阅读来信时也会转述正文；仍可随时主动询问原文。仅在聊天里处理信件开启时生效。','x-hot':true,
+  },
+  'worlds.bottle.pollIntervalMinutes': {
+    type:'integer',title:'去海边看看消息的间隔',description:'默认每 10 分钟同步一次，可设 1—60 分钟。打开信箱只读取本地；寄信、打捞等操作仍即时执行。',minimum:1,maximum:60,'x-suffix':'分钟','x-hot':true,
+  },
   'worlds.bottle.starMemoryEnabled': {
     type: 'boolean', title: '允许星笺记忆',
     description: '默认关闭。开启后还需在网页的星笺匣逐封勾选，才会把完整往来交给桌宠并允许后续重读；仅星标不会读正文。关闭会清除全部逐封授权，已进入上下文或摘要的内容无法追回。不修改核心记忆。',
@@ -258,7 +274,7 @@ export const BOTTLE_CONFIG_GROUPS: ConfigGroup[] = [
   // Everyday controls first; optional access, memory and high-risk integrations follow.
   configGroup('world:bottle:display', '显示与通知',
     '先选信件显示的位置，再调整桌面卡片和海啸提醒。',
-    ['surface', 'cardAutoCloseSec', 'tsunamiNotice']),
+    ['surface', 'cardAutoCloseSec', 'tsunamiNotice', 'systemMailNotice']),
   configGroup('world:bottle:invitations', '海边邀请与提醒',
     '总开关在前，写信、打捞和待办提醒各有自己的开关、间隔与每日上限；与信箱里的设置同步。',
     ['randomWake', ...BOTTLE_WAKE_FIELDS.flatMap(([, enabled, interval, , limit]) => [enabled, interval, limit])]),
@@ -276,11 +292,11 @@ export const BOTTLE_CONFIG_GROUPS: ConfigGroup[] = [
     ['lanEnabled', 'lanPort', 'lanPublicUrl']),
   configGroup('world:bottle:connection', '连接与调试',
     '通常保持默认即可。更换海边服务端或本机端口后需重启漂流瓶 World，调试日志按需开启。',
-    ['server', 'port', 'debug']),
+    ['pollIntervalMinutes', 'server', 'port', 'debug']),
   configGroup('world:bottle:stars', '星笺匣与记忆',
     '可选的正文长期重读授权。仅星标不会读正文；还需逐封确认，关闭可撤回授权。', ['starMemoryEnabled']),
   configGroup('world:bottle:headless', '聊天里处理信件（高危实验功能）',
-    '默认关闭。开启后自主阅读桌宠捞到的信、新系统信、回信和小纸条，主动分享感想；正文等你问起再说，寄出仍需明确确认。请先阅读下方风险说明。', ['headlessEnabled']),
+    '默认关闭。开启后自主阅读并分享感想；系统信还受系统来信提醒开关控制。正文默认等你问起再说，也可另行允许自动转述；寄出仍需明确确认。', ['headlessEnabled', 'headlessQuoteBody']),
   configGroup('world:bottle:bridge', '本地 Bridge 与 Controller（高级功能）',
     '默认关闭，供可信本机程序接入。普通 Bridge 与高危 Controller 分别授权、使用独立凭证；请先了解各自权限。', ['bridgeEnabled', 'bridgeControllerEnabled']),
 ];
