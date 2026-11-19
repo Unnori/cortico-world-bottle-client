@@ -137,7 +137,7 @@ export const BOTTLE_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
     name: 'bottle_mailbox',
     tags: ['read'],
     description:
-      "查手中来信、收信、寄信与回信目录，仅化名和状态，无正文；内部 ID 用于工具，不向伙伴念出。",
+      "查来信、寄信与回信目录，含回信共读次数，无正文；尚未共读指无共读记录，不是新的到信。内部 ID 不向伙伴念出。",
     parameters: { type: 'object', additionalProperties: false, properties: {} },
   },
 ];

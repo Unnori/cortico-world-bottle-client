@@ -62,12 +62,14 @@ it('主体切换在行动上方，默认邀请由桌宠决定，切到人后更�
   expect(pageHtml().indexOf('id="actor-bot"')).toBeLessThan(pageHtml().indexOf('id="write-button"'));
   const h = page();
   expect(h.get('actor-bot').attrs['aria-pressed']).toBe('true');
-  expect(h.get('actor-bot').textContent).toBe('让小满来吧');
-  expect(h.get('write-label').textContent).toBe('写一封信');
+  expect(h.get('actor-bot').textContent).toBe('交给 小满 决定');
+  expect(h.get('write-label').textContent).toBe('邀请 小满 写一封信');
+  expect(h.get('catch-label').textContent).toBe('邀请 小满 去打捞');
   h.get('actor-human').onclick();
-  expect(h.get('write-label').textContent).toBe('请小满写一封信');
-  expect(h.get('catch-label').textContent).toBe('去海边打捞');
-  expect(h.get('actor-hint').textContent).toContain('信只给你看');
+  expect(h.get('write-label').textContent).toBe('请 小满 起草一封信');
+  expect(h.get('catch-label').textContent).toBe('我去海边捞一封');
+  expect(h.get('actor-hint').textContent).toContain('也可以请 小满 起草');
+  expect(h.get('action-note').textContent).toContain('你捞到的信先给你看');
 });
 it.each(['write', 'catch'])('默认 %s 请求显式传 bot，切换后显式传 human', action => {
   for (const actor of ['bot', 'human']) {
@@ -262,8 +264,8 @@ it('主题选择按先后保存到卡片接口，手动明暗也保存，桌宠�
   const requests = h.appearanceFetch.mock.calls.map(call => JSON.parse((call[1] as { body:string }).body));
   expect(requests).toEqual([{ theme:'paper', mode:'system', customColor:'#4b62a0', background:DEFAULT_BACKGROUND.id, backgroundTransparency:60, myFont:null, myFontName:'' }, { theme:'paper', mode:'dark', customColor:'#4b62a0', background:DEFAULT_BACKGROUND.id, backgroundTransparency:60, myFont:null, myFontName:'' }]);
   expect((h.appearanceFetch.mock.calls[0][1] as any).headers['x-bottle']).toBe('1');
-  expect(h.get('actor-hint').textContent).toContain('都由小满决定');
-  h.get('actor-human').onclick(); expect(h.get('actor-hint').textContent).toContain('交给小满');
+  expect(h.get('actor-hint').textContent).toContain('由 小满 决定');
+  h.get('actor-human').onclick(); expect(h.get('action-note').textContent).toContain('交给 小满');
 });
 it('重新打开信箱优先恢复本部署的主题记录，避免浏览器旧偏好覆盖卡片', () => {
   const h = page({}, new Map([['bottle-theme','ocean']]), false, { available:false, preference:{ theme:'paper', mode:'dark' } });

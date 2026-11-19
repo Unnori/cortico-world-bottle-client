@@ -88,13 +88,13 @@ ${readerHtml}
   </section>
   <div class="toolbar">
     <div class="launch-heading"><svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg><span>留给海的一点心事</span></div>
-    <div class="actor-choice" role="group" aria-label="选择行动主体"><span class="actor-caption">这一趟，谁来？</span><div class="actor-switch"><button id="actor-bot" type="button" aria-pressed="true">让 Coo 来吧</button><button id="actor-human" type="button" aria-pressed="false">让我来吧</button></div><small id="actor-hint">递一份邀请，去不去由 Coo 决定。</small></div>
+    <div class="actor-choice" role="group" aria-labelledby="actor-caption"><span class="actor-caption" id="actor-caption">这次怎么开始？</span><div class="actor-switch"><button id="actor-bot" type="button" aria-pressed="true">交给 Coo 决定</button><button id="actor-human" type="button" aria-pressed="false">我来发起</button></div><small id="actor-hint">递一份邀请，写不写、捞不捞，由 Coo 决定。</small></div>
     <div class="actions">
-      <button class="action-main" id="write-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-pen"/></svg><strong id="write-label">写一封信</strong><small>把此刻的心事寄给远方</small></button>
-      <button class="action-main catch" id="catch-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-bottle"/></svg><strong id="catch-label">去海边打捞</strong><small>捞起海上来客的一封信</small></button>
+      <button class="action-main" id="write-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-pen"/></svg><strong id="write-label">邀请 Coo 写一封信</strong><small>写好了就放在信箱，寄不寄由你。</small></button>
+      <button class="action-main catch" id="catch-button" type="button"><svg class="icon" aria-hidden="true"><use href="#i-bottle"/></svg><strong id="catch-label">邀请 Coo 去打捞</strong><small>捞起海上来客的一封信</small></button>
     </div>
     <div class="invitation-outcome" role="status" aria-live="polite"><span class="invitation-outcome-label">邀请回音</span><p id="wake-outcome">还没有新的邀请。</p></div>
-    <p id="action-note" role="status">信写好后，寄不寄由你决定。</p>
+    <p id="action-note" role="status">写信和打捞邀请各有一分钟间隔。</p>
   </div>
   </div>
   <details class="invitation-settings"><summary>海边的邀请 · 间隔与次数</summary>
@@ -705,18 +705,23 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     var cooldowns = state.cooldowns || {};
     var writeSeconds = isBot ? Math.max(0, Math.ceil(((cooldowns.write || 0) - Date.now()) / 1000)) : 0;
     var catchSeconds = isBot ? Math.max(0, Math.ceil(((cooldowns.catch || 0) - Date.now()) / 1000)) : 0;
-    document.getElementById('actor-bot').textContent = '让' + botName() + '来吧';
+    var name = botName();
+    document.getElementById('actor-bot').textContent = '交给 ' + name + ' 决定';
     document.getElementById('actor-bot').setAttribute('aria-pressed', String(isBot));
     document.getElementById('actor-human').setAttribute('aria-pressed', String(!isBot));
-    document.getElementById('actor-hint').textContent = isBot ? '递一份邀请，写不写、捞不捞都由' + botName() + '决定。' : '你来打捞，信只给你看；点回信后才交给' + botName() + '。';
-    document.getElementById('write-label').textContent = (isBot ? '写一封信' : '请' + botName() + '写一封信') + (writeSeconds ? ' · ' + writeSeconds + '秒' : '');
-    document.getElementById('catch-label').textContent = '去海边打捞' + (catchSeconds ? ' · ' + catchSeconds + '秒' : '');
+    document.getElementById('actor-hint').textContent = isBot
+      ? '递一份邀请，写不写、捞不捞，由 ' + name + ' 决定。'
+      : '你可以自己捞瓶子，也可以请 ' + name + ' 起草。';
+    document.getElementById('write-label').textContent = (isBot ? '邀请 ' + name + ' 写一封信' : '请 ' + name + ' 起草一封信')
+      + (writeSeconds ? ' · ' + writeSeconds + '秒' : '');
+    document.getElementById('catch-label').textContent = (isBot ? '邀请 ' + name + ' 去打捞' : '我去海边捞一封')
+      + (catchSeconds ? ' · ' + catchSeconds + '秒' : '');
     var active = state.wake && state.wake.active;
     document.getElementById('write-button').disabled = busy || !!state.pendingAction || !!letterDraft || writeSeconds > 0 || (isBot && (!!active || !!state.held || !!state.replyDraft && !state.replyDraft.sendFailure));
     document.getElementById('catch-button').disabled = busy || !!state.pendingAction || !!state.held || catchSeconds > 0 || (isBot && (!!active || !!letterDraft || !!state.replyDraft && !state.replyDraft.sendFailure));
     document.getElementById('action-note').textContent = state.pendingAction
-      ? '已请' + botName() + '写信，等候落笔…'
-      : isBot ? '邀请后各等一分钟。信写好后，寄不寄由你。' : '打捞不通知' + botName() + '，寄不寄由你。';
+      ? '已请' + name + '写信，等候落笔…'
+      : isBot ? '写信和打捞邀请各有一分钟间隔。' : '你捞到的信先给你看，等你邀请后再交给 ' + name + '。';
     renderWakeControls();
     document.getElementById('hero-note').textContent = '你与' + botName() + '的海边信箱。留一封信给海，也等一封信靠岸。';
     var replies = (state.sent || []).filter(function (item) { return item.reply; }).length;

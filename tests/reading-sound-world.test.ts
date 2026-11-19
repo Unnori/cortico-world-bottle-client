@@ -115,14 +115,44 @@ it('counts only the returned reply, not the sent original',async()=>{
   const store=Reflect.get(h.world,'store') as LocalStore;
   store.addSent({letterId:'mine',body:'我写的',at:h.clock.t});
   store.addReply({letterId:'mine',from:'灯塔',body:'回来的信',at:h.clock.t});
+  expect(await callTool(h.world,'bottle_mailbox')).toContain('对方回了（尚未共读）');
   await h.world.pageDeps().peruse('mine');
   const sent=h.world.pageDeps().snapshot().sent[0]!;
   expect(sent).not.toHaveProperty('readCount');expect(sent.reply?.readCount).toBe(1);
   expect(host.last('bottle.peruse')?.text).toContain('第1次共读');
   h.world.onEventsSettled([host.last('bottle.peruse')!],'delivered');h.world.onTurnEnded();
+  expect(await callTool(h.world,'bottle_mailbox')).toContain('对方回了（已共读1次）');
   await h.world.pageDeps().peruse('mine');expect(host.last('bottle.peruse')?.text).toContain('第2次共读');
+  h.world.onEventsSettled([host.last('bottle.peruse')!],'delivered');h.world.onTurnEnded();
+  expect(await callTool(h.world,'bottle_mailbox')).toContain('对方回了（已共读2次）');
+  expect(await callTool(h.world,'bottle_mailbox')).toContain('对方回了（已共读2次）');
+  await h.world.stop();await h.world.start(host);
+  expect(await callTool(h.world,'bottle_mailbox')).toContain('对方回了（已共读2次）');
   expect(h.world.pageDeps().snapshot().sent[0]).not.toHaveProperty('readCount');
   expect(store.sent[0]).not.toHaveProperty('readCount');
+});
+
+it.each([false,true])('reply directory shows saved reading counts without exposing bodies or changing counts (headless=%s)',async headless=>{
+  h.cfg.headlessEnabled=headless;
+  const store=Reflect.get(h.world,'store') as LocalStore;
+  for(const [index,count] of [undefined,0,1,2,114514].entries()){
+    const id='reply-'+index;
+    store.addSent({letterId:id,body:'PRIVATE original '+index,at:h.clock.t});
+    store.addReply({letterId:id,from:'来客'+index,body:'PRIVATE answer '+index,at:h.clock.t,...(count===undefined?{}:{readCount:count})});
+  }
+  store.addSent({letterId:'awaiting-answer',body:'PRIVATE no answer',at:h.clock.t});
+  store.addReply({letterId:'without-original',from:'旧信来客',body:'PRIVATE orphan answer',at:h.clock.t,readCount:3});
+  const before=JSON.stringify(store.replies);
+  const directory=await callTool(h.world,'bottle_mailbox');
+  for(const [index,count] of [undefined,0,1,2,114514].entries()){
+    const prefix=headless?`ID: reply-${index}，已寄信，有回信`:`· 来客${index} — 你寄出的信，对方回了`;
+    expect(directory).toContain(prefix+(count?`（已共读${count}次）`:'（尚未共读）'));
+  }
+  expect(directory).toContain(headless?'ID: without-original，已收回信，来自 旧信来客（已共读3次）':'· 旧信来客 — 你寄出的信，对方回了（已共读3次）');
+  if(headless)expect(directory.split('\n').find(line=>line.startsWith('ID: awaiting-answer，'))).toBe('ID: awaiting-answer，已寄信');
+  else expect(directory).not.toContain('reply-');
+  expect(directory).not.toContain('PRIVATE');
+  expect(JSON.stringify(store.replies)).toBe(before);
 });
 it('together-reading preserves the original return deadline, including after recovery',async()=>{
   const id=await caught(),page=h.world.pageDeps(),until=h.db.letterById(id)!.replyWindowUntil;

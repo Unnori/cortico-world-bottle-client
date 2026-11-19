@@ -523,7 +523,8 @@ export const pageStyles = `
   .actor-caption { flex:0 0 auto; font-size:11px; letter-spacing:.16em; color:var(--muted); }
   #actor-hint { flex:0 0 100%; min-width:0; min-height:0; font-size:11px; line-height:1.7; }
   .actor-switch { display:inline-flex; flex:0 1 auto; min-width:0; max-width:100%; padding:3px; border-radius:9px; background:var(--soft); border-color:var(--line); }
-  .actor-switch button { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:7px 13px; border-radius:6px; font-size:12px; color:var(--muted); }
+  .actor-switch button { min-width:0; white-space:normal; overflow-wrap:anywhere; padding:7px 13px; border-radius:6px; font-size:12px; color:var(--muted); }
+  #actor-human { flex-shrink:0; }
   .toolbar .actions { grid-area:actions; display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:0; width:auto; }
   .action-main { display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:auto auto; align-items:center; column-gap:14px; row-gap:2px; padding:18px 20px; min-height:0; border-radius:10px; box-shadow:none; border:1px solid transparent; letter-spacing:.04em; }
   .action-main .icon { grid-row:1 / span 2; width:26px; height:26px; }
@@ -644,6 +645,7 @@ export const pageStyles = `
     .opening { padding-top:26px; }
     .toolbar { padding:22px 16px 20px; gap:14px; }
     .toolbar .actions { grid-template-columns:1fr; gap:10px; }
+    .actor-switch button { padding-inline:8px; }
     .action-main { padding:15px 16px; }
     details.invitation-settings { padding:0 16px 2px; }
     .desk { grid-template-columns:1fr; padding-top:26px; }

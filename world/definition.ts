@@ -32,8 +32,8 @@ export const BOTTLE: WorldDefinition<BottleConfigSection> = {
         en: 'Records a choice not to write, catch, or remind; honors partner refusal and persistent pauses.',
       },
       bottle_mailbox: {
-        zh: '看一眼信箱：手里待回的信、别人回给我的信。只有化名和状态，没有正文。',
-        en: 'Lists held letters and answered letters by pseudonym and state, without any text.',
+        zh: '查看信箱目录，回信显示已共读次数或尚未共读；只列元信息，不含正文，查看不增加次数。',
+        en: 'Lists mailbox metadata and recorded shared-reading counts for replies, without bodies or changing the counts.',
       },
     }),
     events: Object.entries(BOTTLE_EVENTS).map(([type,spec])=>({type,...spec})),

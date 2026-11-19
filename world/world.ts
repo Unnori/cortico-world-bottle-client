@@ -1808,6 +1808,10 @@ export class BottleWorld implements World {
 
     await this.refreshMailbox();
 
+    const replyReadLabel = (reply: LocalReply): string => {
+      const count = readingCount(reply.readCount);
+      return count > 0 ? `（已共读${count}次）` : '（尚未共读）';
+    };
     const lines: string[] = [];
     const held = this.store.held;
     if (held) {
@@ -1818,13 +1822,16 @@ export class BottleWorld implements World {
       );
     }
     for (const reply of this.store.replies) {
-      lines.push(`· ${reply.from} — 你寄出的信，对方回了`);
+      lines.push(`· ${reply.from} — 你寄出的信，对方回了${replyReadLabel(reply)}`);
     }
     if (this.ctx.cfg.headlessEnabled === true) {
       return ['信箱目录（不含正文）：', ...(held ? [`ID: ${held.letterId}，当前手中信，来自 ${held.from}`] : []),
         ...this.store.received.filter(r => r.letterId !== held?.letterId).map(r => `ID: ${r.letterId}，已存来信，来自 ${r.from}`),
-        ...this.store.sent.map(r => `ID: ${r.letterId}，已寄信${this.store.replies.some(a => a.letterId === r.letterId) ? '，有回信' : ''}`),
-        ...this.store.replies.filter(r => !this.store.sent.some(a => a.letterId === r.letterId)).map(r => `ID: ${r.letterId}，已收回信，来自 ${r.from}`)].join('\n');
+        ...this.store.sent.map(r => {
+          const reply = this.store.replies.find(a => a.letterId === r.letterId);
+          return `ID: ${r.letterId}，已寄信${reply ? '，有回信' + replyReadLabel(reply) : ''}`;
+        }),
+        ...this.store.replies.filter(r => !this.store.sent.some(a => a.letterId === r.letterId)).map(r => `ID: ${r.letterId}，已收回信，来自 ${r.from}${replyReadLabel(r)}`)].join('\n');
     }
     if (lines.length === 0) return '信箱是空的。';
     return `信箱里有 ${lines.length} 封\n${lines.join('\n')}\n（正文只在伙伴的信箱页上。）`;

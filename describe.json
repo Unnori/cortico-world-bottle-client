@@ -599,7 +599,7 @@
     },
     {
       "name": "bottle_mailbox",
-      "description": "查手中来信、收信、寄信与回信目录，仅化名和状态，无正文；内部 ID 用于工具，不向伙伴念出。",
+      "description": "查来信、寄信与回信目录，含回信共读次数，无正文；尚未共读指无共读记录，不是新的到信。内部 ID 不向伙伴念出。",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -609,8 +609,8 @@
         "read"
       ],
       "summary": {
-        "zh": "看一眼信箱：手里待回的信、别人回给我的信。只有化名和状态，没有正文。",
-        "en": "Lists held letters and answered letters by pseudonym and state, without any text."
+        "zh": "查看信箱目录，回信显示已共读次数或尚未共读；只列元信息，不含正文，查看不增加次数。",
+        "en": "Lists mailbox metadata and recorded shared-reading counts for replies, without bodies or changing the counts."
       }
     },
     {
