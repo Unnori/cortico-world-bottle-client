@@ -138,6 +138,8 @@ export interface PageSnapshot {
   held: PageHeldView | null;
   /** 我寄出去的信，新的在前；有人回了就把回信挂在下面。 */
   sent: PageSentView[];
+  /** 原信未保存在本机的回信，仍列在收到的回信里。 */
+  standaloneReplies?: (PageReplyView & { letterId: string })[];
   /** 我捞到过的信。 */
   received: PageReceivedView[];
   quota: Quota | null;

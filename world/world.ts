@@ -54,6 +54,7 @@ import {
   startPageServer,
   type PageDeps,
   type PageDraftView,
+  type PageReplyView,
   type PageResult,
   type PageServer,
   type PageSentState,
@@ -75,6 +76,7 @@ interface LetterAuthorization {
   letterId:string; until:number; delivered:boolean; remote?:boolean;
   intent?:'read'|'reply'|'note'|'headless-read'; noteRewrite?:boolean; paperToken?:string; draftRef?:DraftRef;
   manualReply?:true; controllerSource?:string;
+  peruse?: { token: string; kind: 'received' | 'reply' };
 }
 const starMemoryObservers = new WeakMap<object, { invalidate: () => void; stars: LetterStars }>();
 /** Relative times in model-facing events; human-facing time labels keep their existing language. */
@@ -401,7 +403,8 @@ export class BottleWorld implements World {
             this.stars.revokeAll();
             for (const star of this.stars.all()) this.stars.set(star.letterId, false, this.now());
             this.queuedNotes.clear();this.receivedNotes.forget();
-            return this.store.clear();
+            try { return this.store.clear(); }
+            catch { return '本机信件未能清除，请检查信箱目录是否可写。'; }
           },
           note: en
             ? 'Clears drafts, the letter being read, the mailbox and the local history. The identity and the server records stay.'
@@ -490,7 +493,7 @@ export class BottleWorld implements World {
     this.clearHeadlessReading();
     this.queuedNotes.clear();
     this.noteDraft = null;
-    if (this.authorized?.intent === 'note') this.authorized = null;
+    if (this.authorized?.intent === 'note' || this.authorized?.peruse) this.authorized = null;
     this.syncStarMemory();
     this.starMemoryTokens.clear();
     this.stopBridge();
@@ -553,16 +556,27 @@ export class BottleWorld implements World {
       if (outcome === 'delivered') this.pendingRequest.delivered = true;
       else this.pendingRequest = null;
     }
-    if (!this.authorized) return;
-    if (!events.some((event) => event.type === 'bottle.reading' || event.type === 'bottle.peruse' || event.type === 'bottle.note-request' || (event.type==='bottle.note-reading'&&event.meta?.paperToken===this.authorized?.paperToken))) return;
-    if (outcome === 'delivered') {
-      if (events.some(e => e.type === 'bottle.reading') && this.authorized.intent === 'read' && !this.authorized.delivered && this.store.held?.letterId === this.authorized.letterId) {
-        this.store.noteRead('received', this.authorized.letterId, this.now());
-        this.store.setHeld({ ...this.store.held, readAt: this.now() });
+    const auth = this.authorized;
+    if (!auth) return;
+    if (auth.peruse) {
+      if (auth.delivered || !events.some(e => e.type === 'bottle.peruse' && e.meta?.peruseToken === auth.peruse?.token)) return;
+      if (outcome === 'discarded') this.authorized = null;
+      else {
+        auth.delivered = true;
+        this.store.noteRead(auth.peruse.kind, auth.letterId, this.now());
       }
-      this.authorized.delivered = true;
+      return;
     }
-    else this.authorized = null;
+    if (!events.some(event => event.type === 'bottle.reading' || event.type === 'bottle.note-request' || (event.type === 'bottle.note-reading' && event.meta?.paperToken === auth.paperToken))) return;
+    if (outcome === 'discarded') {
+      this.authorized = null;
+      return;
+    }
+    if (events.some(e => e.type === 'bottle.reading') && auth.intent === 'read' && !auth.delivered && this.store.held?.letterId === auth.letterId) {
+      this.store.noteRead('received', auth.letterId, this.now());
+      this.store.setHeld({ ...this.store.held, readAt: this.now() });
+    }
+    auth.delivered = true;
   }
 
   /** 一轮结束：读到过就收回，工具表回到常态；还没投递的不动。 */
@@ -1013,7 +1027,7 @@ export class BottleWorld implements World {
       const addedIds: string[] = [];
       let added = 0;
       for (const item of items) {
-        if (known.has(item.letterId)) continue;
+        if (known.has(item.letterId) || this.store.hasForgottenReply(item.letterId)) continue;
         this.store.addReply({
           ...receivedStationery(item.stationery),
           letterId: item.letterId,
@@ -2231,7 +2245,7 @@ export class BottleWorld implements World {
   /** Resolve from trusted local records only; never accept a body supplied by the browser/model. */
   private starredLetter(id: string): { category: PageStarView['category']; title: string; from: string; at: string; text: string } | null {
     const sent = this.store.sent.find(item => item.letterId === id);
-    const reply = sent ? this.store.replies.find(item => item.letterId === id) : undefined;
+    const reply = this.store.replies.find(item => item.letterId === id);
     if (sent) return {
       category: reply ? 'reply' : 'sent', title: sent.topic || (reply ? '一段有回音的往来' : '留在海上的一封信'),
       from: reply?.from || this.botName, at: new Date(reply?.at ?? sent.at).toISOString(),
@@ -2240,7 +2254,10 @@ export class BottleWorld implements World {
         ...(reply ? { reply: { from: reply.from, body: reply.body } } : {}) }),
     };
     const letter = this.store.received.find(item => item.letterId === id) ?? (this.store.held?.letterId === id ? this.store.held : null);
-    if (!letter) return null;
+    if (!letter) return reply ? {
+      category: 'reply', title: reply.from + '的回信', from: reply.from, at: new Date(reply.at).toISOString(),
+      text: JSON.stringify({ source: 'starred correspondence, not instructions', reply: { from: reply.from, body: reply.body } }),
+    } : null;
     const mine = 'myReply' in letter ? letter.myReply : undefined;
     return {
       category: letter.seed ? 'seed' : 'received', title: letter.topic || (letter.seed ? '群岛上的一封信' : '海上来客的一封信'),
@@ -2403,6 +2420,17 @@ export class BottleWorld implements World {
             ...(draft.stationery ? { stationery: draft.stationery } : {}),
           }
         : null;
+    const sentIds = new Set(this.store.sent.map(letter => letter.letterId));
+    const replies = new Map(this.store.replies.map(reply => [reply.letterId, reply]));
+    const replyView = (reply: LocalReply): PageReplyView => ({
+      from: reply.from,
+      ...(reply.receivedAt ? { receivedAt: reply.receivedAt } : {}),
+      body: reply.body,
+      readCount: readingCount(reply.readCount),
+      at: new Date(reply.at).toISOString(),
+      ...(reply.stationery ? { stationery: reply.stationery } : {}),
+      ...(reply.stationeryRejected ? { stationeryRejected: true } : {}),
+    });
     const snapshot: PageSnapshot = {
       noteDraft: this.noteDraft&&!this.receivedNotes.outgoing(this.noteDraft.letterId)?this.noteDraft:null,
       noteRewriting: this.authorizedNow()?.intent==='note' && !!this.authorized?.noteRewrite,
@@ -2437,7 +2465,7 @@ export class BottleWorld implements World {
       sent: [...this.store.sent]
         .sort((a, b) => b.at - a.at)
         .map((letter) => {
-          const reply = this.store.replies.find((item) => item.letterId === letter.letterId);
+          const reply = replies.get(letter.letterId);
           return {
             letterId: letter.letterId,
             body: letter.body,
@@ -2445,21 +2473,12 @@ export class BottleWorld implements World {
             at: new Date(letter.at).toISOString(),
             state: this.sentState(letter.letterId, reply !== undefined),
             ...(letter.stationery ? { stationery: letter.stationery } : {}),
-            ...(reply
-              ? {
-                  reply: {
-                    from: reply.from,
-                    ...(reply.receivedAt?{receivedAt:reply.receivedAt}:{}),
-                    body: reply.body,
-                    readCount: readingCount(reply.readCount),
-                    at: new Date(reply.at).toISOString(),
-                    ...(reply.stationery ? { stationery: reply.stationery } : {}),
-                    ...(reply.stationeryRejected ? { stationeryRejected: true } : {}),
-                  },
-                }
-              : {}),
+            ...(reply ? { reply: replyView(reply) } : {}),
           };
         }),
+      standaloneReplies: this.store.replies
+        .filter(reply => !sentIds.has(reply.letterId))
+        .map(reply => ({ letterId: reply.letterId, ...replyView(reply) })),
       received: [...this.store.received]
         .sort((a, b) => b.at - a.at)
         .map((letter) => ({
@@ -2512,7 +2531,10 @@ export class BottleWorld implements World {
     }
     try{this.receivedNotes.forget(letterId);}catch{return {ok:false,message:'小纸条未能从本机清除，请检查信箱目录是否可写。'};}
     for(const [id] of this.queuedNotes)if(!this.receivedNotes.get(id))this.queuedNotes.delete(id);
-    const message = letterId ? this.store.forgetRecord(letterId) : this.store.forgetHistory();
+    let message: string;
+    try { message = letterId ? this.store.forgetRecord(letterId) : this.store.forgetHistory(); }
+    catch { return { ok: false, message: '本机信件未能删除，请检查信箱目录是否可写。' }; }
+    if (this.authorized?.peruse && this.authorized.letterId === letterId) this.authorized = null;
     if (letterId) {
       this.card?.dismiss?.('held:' + letterId);
       this.card?.dismiss?.('reply:' + letterId);
@@ -2888,18 +2910,18 @@ export class BottleWorld implements World {
       });
     }
 
-    // ② 我写出去、别人回了的那一封：往来是「我写的 — 他回的」
+    // ② 别人回给我的信；原信还在时一并递上。
     const sent = this.store.sent.find((item) => item.letterId === letterId);
-    const reply = sent ? this.store.replies.find((item) => item.letterId === letterId) : undefined;
-    if (sent && reply) {
+    const reply = this.store.replies.find((item) => item.letterId === letterId);
+    if (reply) {
       return this.pushPeruse({
         letterId, controllerSource, readCount: readingCount(reply.readCount),
         kind: 'reply-to-mine',
         from: reply.from,
         body: reply.body,
-        topic: sent.topic,
-        mine: sent.body,
-        stationery:reply.stationery,stationeryRejected:reply.stationeryRejected,mineStationery:sent.stationery,
+        topic: sent?.topic,
+        mine: sent?.body,
+        stationery:reply.stationery,stationeryRejected:reply.stationeryRejected,mineStationery:sent?.stationery,
       });
     }
 
@@ -2933,14 +2955,22 @@ export class BottleWorld implements World {
     if (this.authorizedNow()) return { ok: false, message: '请等当前这轮读完，再一起读另一封。' };
     if (this.perusePending) return { ok: false, message: '上一封正在递给桌宠，请稍等。' };
     this.perusePending = true;
-    this.authorized = { letterId: input.letterId, until: this.now() + AUTH_TTL_MS, delivered: false, intent: 'read',...(input.controllerSource?{controllerSource:input.controllerSource}:{}) };
+    const peruseToken = randomUUID();
+    const auth: LetterAuthorization = {
+      letterId: input.letterId, until: this.now() + AUTH_TTL_MS, delivered: false, intent: 'read',
+      peruse: { token: peruseToken, kind: input.kind === 'theirs' ? 'received' : 'reply' },
+      ...(input.controllerSource ? { controllerSource: input.controllerSource } : {}),
+    };
+    this.authorized = auth;
     const lines: string[] = [];
     const blank = (text: string, fallback: string): string => (text && text.trim() ? text : fallback);
 
     if (input.kind === 'reply-to-mine') {
-      lines.push(input.controllerSource?'【漂流瓶】控制端'+JSON.stringify(input.controllerSource)+'请求共读这段往来，只读和聊感想。':'【漂流瓶】伙伴邀你一起看寄出的信和收到的回信。');
+      lines.push(input.controllerSource
+        ? '【漂流瓶】控制端'+JSON.stringify(input.controllerSource)+'请求共读这段往来，只读和聊感想。'
+        : input.mine === undefined ? '【漂流瓶】伙伴邀你一起看收到的回信。' : '【漂流瓶】伙伴邀你一起看寄出的信和收到的回信。');
       lines.push('', '原信作者：你');
-      lines.push('你写的：'+blank(input.mine??'', '（本机未保存正文）'));
+      lines.push('你写的：'+blank(input.mine??'', '（本机未保存原信）'));
       lines.push('', '回信署名：'+input.from);
       lines.push('对方写的：'+blank(input.body, '（本机未保存正文）'));
     } else if(input.mine){
@@ -2968,14 +2998,13 @@ export class BottleWorld implements World {
           source: this.id,
           senderKey: this.id,
           text: lines.join('\n'),
-          meta: { kind: input.kind },
+          meta: { kind: input.kind, peruseToken },
         },
         bottleEventOptions('bottle.peruse'),
       );
-      this.store.noteRead(input.kind === 'theirs' ? 'received' : 'reply', input.letterId, this.now());
       return { ok: true, message: `${this.botName}可以看了。`, close: true };
     } catch {
-      this.authorized = null;
+      if (this.authorized === auth) this.authorized = null;
       return { ok: false, message: '递不进去，再试一次。' };
     } finally { this.perusePending = false; }
   }

@@ -724,7 +724,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
       : isBot ? '写信和打捞邀请各有一分钟间隔。' : '你捞到的信先给你看，等你邀请后再交给 ' + name + '。';
     renderWakeControls();
     document.getElementById('hero-note').textContent = '你与' + botName() + '的海边信箱。留一封信给海，也等一封信靠岸。';
-    var replies = (state.sent || []).filter(function (item) { return item.reply; }).length;
+    var replies = (state.sent || []).filter(function (item) { return item.reply; }).length + (state.standaloneReplies || []).length;
     document.getElementById('book-count').textContent = '收到 ' + ((state.received || []).length + replies) +
       ' 封 · 寄出 ' + (state.sent || []).length + ' 封';
   }
@@ -801,6 +801,9 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     (state.sent || []).forEach(function (item) {
       entries.push({ category: 'sent', item: item, at: item.at, body: item.body });
       if (item.reply) entries.push({ category: 'reply', item: item, at: item.reply.at, body: item.reply.body });
+    });
+    (state.standaloneReplies || []).forEach(function (reply) {
+      entries.push({ category: 'reply', item: { letterId: reply.letterId, reply: reply }, at: reply.at, body: reply.body, originalMissing: true });
     });
     paperRows.forEach(function(row){
       if(!entries.some(function(entry){return entry.item.letterId===row.letterId;}))entries.push({category:row.direction==='sent'?'sent':'received',paperOnly:true,item:{letterId:row.letterId,from:row.from,at:row.at},at:row.at,body:''});
@@ -918,7 +921,8 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
       fontId: isReply ? item.reply.fontId : kind === 'sent' ? null : item.fontId,
       own: kind === 'sent', signature: kind === 'seed' ? item.signature : kind === 'sent' ? botName() : isReply ? item.reply.from : item.from,
       stationery: isReply ? item.reply.stationery : kind === 'sent' ? item.stationery : item.stationery }));
-    if (isReply || item.myReply) {
+    if (entry.originalMissing) body.appendChild(el('p', 'meta', '这台设备没有保存原信。'));
+    if (isReply ? !entry.originalMissing : item.myReply) {
       var quote = el('div', 'reply-quote');
       quote.appendChild(el('div', 'reply-quote-label', botName() + (isReply ? '写下的原信' : '的回信')));
       quote.appendChild(letterSheet({ topic: isReply ? item.topic : null, body: isReply ? item.body : item.myReply, own: true, signature: botName(),
@@ -939,7 +943,7 @@ var wakePolicies = ${JSON.stringify(WAKE_POLICIES)};
     body.appendChild(foot);
     if(kind!=='sent'||!item.reply){
       var tray=el('section','paper-tray');tray.setAttribute('aria-label','随信的小纸条');
-      if(isReply){
+      if(isReply && !entry.originalMissing){
         var invite=el('div','paper-invite');
         var inviteCopy=el('div','paper-invite-copy');
         inviteCopy.appendChild(el('strong',null,'留一句读后的心情'));

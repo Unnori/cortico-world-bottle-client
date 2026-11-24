@@ -22,12 +22,18 @@ it('counts successful reading handoffs and persists across a World restart',asyn
   const id=await caught(),page=h.world.pageDeps();
   expect(page.snapshot().received[0]?.readCount ?? 0).toBe(0);
   expect((await page.peruse(id)).ok).toBe(true);
-  expect(host.last('bottle.peruse')?.text).toContain('这是第1次共读。');
+  const first = host.last('bottle.peruse')!;
+  expect(first.text).toContain('这是第1次共读。');
+  expect(page.snapshot().received[0]?.readCount).toBe(0);
+  h.world.onEventsSettled([first], 'delivered');
+  h.world.onEventsSettled([first], 'delivered');
   expect(page.snapshot().received[0]?.readCount).toBe(1);
   await h.world.stop();await h.world.start(host);
   expect(h.world.pageDeps().snapshot().received[0]?.readCount).toBe(1);
   await h.world.pageDeps().peruse(id);
   expect(host.last('bottle.peruse')?.text).toContain('这是第2次共读。');
+  h.world.onEventsSettled([first], 'discarded');
+  h.world.onEventsSettled([host.last('bottle.peruse')!], 'delivered');
   expect(h.world.pageDeps().snapshot().received[0]?.readCount).toBe(2);
 });
 it('does not increment failed or concurrent handoffs',async()=>{
@@ -36,6 +42,15 @@ it('does not increment failed or concurrent handoffs',async()=>{
   expect((await page.peruse(id)).ok).toBe(false);expect(page.snapshot().received[0]?.readCount ?? 0).toBe(0);fail.mockRestore();
   const both=await Promise.all([page.peruse(id),page.peruse(id)]);
   expect(both.filter(item=>item.ok)).toHaveLength(1);
+  const discarded = host.last('bottle.peruse')!;
+  h.world.onEventsSettled([discarded], 'discarded');
+  expect(page.snapshot().received[0]?.readCount).toBe(0);
+  expect((await page.peruse(id)).ok).toBe(true);
+  const retried = host.last('bottle.peruse')!;
+  expect(retried.text).toContain('这是第1次共读。');
+  h.world.onEventsSettled([discarded], 'delivered');
+  expect(page.snapshot().received[0]?.readCount).toBe(0);
+  h.world.onEventsSettled([retried], 'delivered');
   expect(page.snapshot().received[0]?.readCount).toBe(1);
 });
 it('writing a reply does not count as together-reading',async()=>{
@@ -47,6 +62,7 @@ it('writing a reply does not count as together-reading',async()=>{
   expect(page.snapshot().received[0]?.readCount ?? 0).toBe(0);
   h.world.onTurnEnded();
   await page.peruse(id);expect(host.last('bottle.peruse')?.text).toContain('第1次共读');
+  h.world.onEventsSettled([host.last('bottle.peruse')!], 'delivered');
   expect(page.snapshot().received[0]?.readCount).toBe(1);
 });
 it('a failed reply turn followed by a successful retry and send still counts no together-reading',async()=>{
@@ -109,6 +125,7 @@ it('reading together and then writing a reply counts only the explicit read clic
   expect(page.snapshot().received[0]?.readCount).toBe(1);
   await page.peruse(id);
   expect(host.last('bottle.peruse')?.text).toContain('这是第2次共读。');
+  h.world.onEventsSettled([host.last('bottle.peruse')!], 'delivered');
   expect(page.snapshot().received[0]?.readCount).toBe(2);
 });
 it('counts only the returned reply, not the sent original',async()=>{
@@ -118,7 +135,7 @@ it('counts only the returned reply, not the sent original',async()=>{
   expect(await callTool(h.world,'bottle_mailbox')).toContain('对方回了（尚未共读）');
   await h.world.pageDeps().peruse('mine');
   const sent=h.world.pageDeps().snapshot().sent[0]!;
-  expect(sent).not.toHaveProperty('readCount');expect(sent.reply?.readCount).toBe(1);
+  expect(sent).not.toHaveProperty('readCount');expect(sent.reply?.readCount).toBe(0);
   expect(host.last('bottle.peruse')?.text).toContain('第1次共读');
   h.world.onEventsSettled([host.last('bottle.peruse')!],'delivered');h.world.onTurnEnded();
   expect(await callTool(h.world,'bottle_mailbox')).toContain('对方回了（已共读1次）');
@@ -130,6 +147,41 @@ it('counts only the returned reply, not the sent original',async()=>{
   expect(await callTool(h.world,'bottle_mailbox')).toContain('对方回了（已共读2次）');
   expect(h.world.pageDeps().snapshot().sent[0]).not.toHaveProperty('readCount');
   expect(store.sent[0]).not.toHaveProperty('readCount');
+});
+
+it('keeps a new reply visible and readable after the original was deleted locally', async () => {
+  const page = h.world.pageDeps();
+  await callTool(h.world, 'bottle_write', { title: '写给远方', text: '原信正文。' });
+  expect((await page.send('letter')).ok).toBe(true);
+  const { letterId } = page.snapshot().sent[0]!;
+  const token = h.tokenOf('replying-peer');
+  const call = (path: string, body: unknown = {}) => h.api.handle({
+    method: 'POST', path, token, ip: '10.0.0.9', body,
+  });
+  expect(call('/catch').body).toMatchObject({ letterId });
+  expect((await page.forget(letterId)).ok).toBe(true);
+  expect(call('/reply', { letterId, body: '海那边的回音。' }).status).toBe(200);
+  await callTool(h.world, 'bottle_mailbox');
+
+  expect(page.snapshot().sent).toEqual([]);
+  expect(page.snapshot().standaloneReplies).toMatchObject([{ letterId, body: '海那边的回音。', readCount: 0 }]);
+  expect((await page.peruse(letterId)).ok).toBe(true);
+  const event = host.last('bottle.peruse')!;
+  expect(event.text).toContain('本机未保存原信');
+  expect(event.text).toContain('海那边的回音。');
+  expect(event.text).not.toContain('原信正文。');
+  h.world.onEventsSettled([event], 'delivered');
+  expect(page.snapshot().standaloneReplies?.[0]?.readCount).toBe(1);
+  expect((await page.star!(letterId, true)).ok).toBe(true);
+  expect(page.snapshot().stars).toMatchObject([{ letterId, category: 'reply', memoryActive: false }]);
+
+  expect((await page.forget(letterId)).ok).toBe(true);
+  await callTool(h.world, 'bottle_mailbox');
+  expect(page.snapshot().standaloneReplies).toEqual([]);
+  await h.world.stop();
+  await h.world.start(host);
+  await callTool(h.world, 'bottle_mailbox');
+  expect(h.world.pageDeps().snapshot().standaloneReplies).toEqual([]);
 });
 
 it.each([false,true])('reply directory shows saved reading counts without exposing bodies or changing counts (headless=%s)',async headless=>{

@@ -106,6 +106,7 @@ export class LetterFonts {
       held: snapshot.held ? { ...snapshot.held, fontId: assign(snapshot.held.from, snapshot.held.seed, snapshot.held.signature) } : null,
       received: snapshot.received.map(item => ({ ...item, fontId: assign(item.from, item.seed, item.signature) })),
       sent: snapshot.sent.map(item => ({ ...item, ...(item.reply ? { reply: { ...item.reply, fontId: assign(item.reply.from) } } : {}) })),
+      ...(snapshot.standaloneReplies ? { standaloneReplies: snapshot.standaloneReplies.map(reply => ({ ...reply, fontId: assign(reply.from) })) } : {}),
     };
     if (changed) {
       try {writeLocalDocument(this.file,{version:1,assignments:next});this.assignments=next;}catch{return snapshot;}

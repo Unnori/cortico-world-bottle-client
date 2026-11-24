@@ -133,6 +133,7 @@ export const pageSoundScript = String.raw`
     (snapshot.received||[]).forEach(function(item){ids.incoming.push(item.letterId);});
     if(snapshot.held)ids.incoming.push(snapshot.held.letterId);
     (snapshot.sent||[]).forEach(function(item){if(item.reply)ids.reply.push(item.letterId);});
+    (snapshot.standaloneReplies||[]).forEach(function(reply){ids.reply.push(reply.letterId);});
     var seen=memorySeen;try{seen=JSON.parse(localStorage.getItem(SEEN))||memorySeen;}catch(_){}
     if(!seen || typeof seen!=='object' || Array.isArray(seen))seen=memorySeen;
     var fresh=[];

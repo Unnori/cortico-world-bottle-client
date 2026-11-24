@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { LOCAL_DB_NAME, readLocalDocument, writeLocalDocument, withDatabase, localBackups, localTransaction, writeDocumentTo } from './local-db.ts';
+import { LOCAL_DB_NAME, readLocalDocument, recordRows, writeLocalDocument, withDatabase, localBackups, localTransaction, writeDocumentTo } from './local-db.ts';
 import type { Stationery } from '../shared/contract.ts';
 import { storedStationery } from '../shared/stationery.ts';
 
@@ -180,6 +180,8 @@ export class LocalStore {
   letterDraft: LocalDraft | null = null;
   held: LocalHeld | null = null;
   replies: LocalReply[] = [];
+  /** 本机保留已删除回信的编号，防止海边重发。随本机库保存，便携备份只导出可见记录。 */
+  private forgottenReplies = new Set<string>();
   sent: SentLetter[] = [];
   received: ReceivedLetter[] = [];
   /**
@@ -315,6 +317,8 @@ export class LocalStore {
       };
     }
     const replies = Array.isArray(book?.replies) ? book.replies : [];
+    this.forgottenReplies = withDatabase(this.dir, db =>
+      new Set(recordRows(db, 'forgotten-reply').map(row => row.letterId)));
     this.replies = replies
       .filter((item): item is Partial<LocalReply> & { letterId: string; body: string } =>
         typeof item?.letterId === 'string' && typeof item.body === 'string')
@@ -560,13 +564,26 @@ export class LocalStore {
       ? this.received.map(row => row.letterId === record.letterId ? record : row) : [record, ...this.received];
   }
 
-  private commitCorrespondence(next: Pick<LocalStore,'sent'|'received'|'held'|'draft'|'letterDraft'>): void {
+  hasForgottenReply(letterId: string): boolean {
+    return this.forgottenReplies.has(letterId);
+  }
+
+  private commitCorrespondence(next: Pick<LocalStore,'sent'|'received'|'held'|'draft'|'letterDraft'> & { replies?: LocalReply[] }): void {
+    const replies = next.replies ?? this.replies;
+    const keptReplyIds = next.replies && new Set(replies.map(reply => reply.letterId));
+    const removedReplies = keptReplyIds ? this.replies.filter(reply => !keptReplyIds.has(reply.letterId)) : [];
     try {
       localTransaction(this.dir, db => {
-        writeDocumentTo(db, 'bottle-letterbook.json', {held:next.held, replies:this.replies, sent:next.sent, received:next.received});
+        if (removedReplies.length) {
+          // The sea repeats replies on sync. Remember intentional deletions without storing the content.
+          const remember = db.prepare("INSERT OR IGNORE INTO local_records VALUES ('forgotten-reply', ?, 0, ?)");
+          for (const { letterId } of removedReplies) remember.run(letterId, JSON.stringify({ letterId }));
+        }
+        writeDocumentTo(db, 'bottle-letterbook.json', {held:next.held, replies, sent:next.sent, received:next.received});
         writeDocumentTo(db, 'bottle-draft.json', {draft:next.draft, letterDraft:next.letterDraft});
       });
       Object.assign(this, next);
+      for (const { letterId } of removedReplies) this.forgottenReplies.add(letterId);
       lastWriteError = null;
     } catch (error) {
       lastWriteError = error instanceof Error ? error.message : String(error);
@@ -655,10 +672,7 @@ export class LocalStore {
 
   /** 只清历史，不动正在写的那封与手里那封。 */
   forgetHistory(): string {
-    this.sent = [];
-    this.received = [];
-    this.replies = [];
-    this.saveLetterbook();
+    this.commitCorrespondence({ sent: [], received: [], replies: [], held: this.held, draft: this.draft, letterDraft: this.letterDraft });
     this.dropCardFile();
     return '本机保存的信件记录清空了。'+this.backupNotice();
   }
@@ -666,23 +680,17 @@ export class LocalStore {
   /** 删掉一条记录；寄出的信连同挂在它下面的回信一起删。 */
   forgetRecord(letterId: string): string {
     const before = this.sent.length + this.received.length + this.replies.length;
-    this.sent = this.sent.filter((item) => item.letterId !== letterId);
-    this.received = this.received.filter((item) => item.letterId !== letterId);
-    this.replies = this.replies.filter((item) => item.letterId !== letterId);
-    const after = this.sent.length + this.received.length + this.replies.length;
-    if (after !== before) this.saveLetterbook();
+    const sent = this.sent.filter(item => item.letterId !== letterId);
+    const received = this.received.filter(item => item.letterId !== letterId);
+    const replies = this.replies.filter(item => item.letterId !== letterId);
+    const after = sent.length + received.length + replies.length;
+    if (after !== before)
+      this.commitCorrespondence({ sent, received, replies, held: this.held, draft: this.draft, letterDraft: this.letterDraft });
     return (after === before ? '这一条已经不在了。' : '这一条记录删掉了。')+this.backupNotice();
   }
 
   clear(): string {
-    this.draft = null;
-    this.letterDraft = null;
-    this.held = null;
-    this.replies = [];
-    this.sent = [];
-    this.received = [];
-    writeJson(this.draftFile, { draft: null, letterDraft: null });
-    this.saveLetterbook();
+    this.commitCorrespondence({ sent: [], received: [], replies: [], held: null, draft: null, letterDraft: null });
     this.dropCardFile();
     return '本机草稿、手里那封信和信箱都清空了；身份和服务端上的记录还在。'+this.backupNotice();
   }

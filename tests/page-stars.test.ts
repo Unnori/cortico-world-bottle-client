@@ -324,3 +324,28 @@ it('keeps paper invitations below the correspondence actions, not mixed with tog
   expect(foot.querySelector('.paper-invite')).toBeNull();
   expect(tray.querySelector('.paper-invite')).toBeTruthy();expect(tray.querySelector('.paper-slot')).toBeTruthy();
 });
+
+it('renders a reply without its original under received replies and lets it be found by search', () => {
+  const reply = { ...letter.reply, letterId: 'standalone', body: '远处来的回音', readCount: 1 };
+  const h = rig({ sent: [letter], standaloneReplies: [reply] });
+  h.ctx.letterSheet = ({ body }: { body: string }) => {
+    const node = new Node('div');
+    node.textContent = body;
+    return node;
+  };
+  h.ctx.category = 'reply';
+  h.get('letter-search').value = '远处来的回音';
+  h.ctx.renderBook();
+  const list = h.get('mail-list');
+  const mail = list.querySelector('.reply')!;
+  expect(list.querySelectorAll('.mail')).toHaveLength(1);
+  expect(mail.textContent).toContain(reply.body);
+  expect(mail.textContent).toContain('这台设备没有保存原信');
+  expect(mail.textContent).toContain('共读1次');
+  expect(mail.querySelector('.reply-quote')).toBeNull();
+  expect(mail.querySelector('.paper-invite')).toBeNull();
+  expect(mail.querySelector('.paper-slot')).toBeTruthy();
+  h.ctx.category = 'sent';
+  h.ctx.renderBook();
+  expect(list.querySelector('.mail')).toBeNull();
+});
